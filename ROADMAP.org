@@ -1,0 +1,62 @@
+#+TITLE: Hactar Roadmap 2026
+#+AUTHOR: Hactar Team
+#+STATUS: Active
+#+STARTUP: showeverything
+
+* Q1 2026: Core Features & Integrations
+  :PROPERTIES:
+  :DEADLINE: <2026-03-31 Tue>
+  :END:
+
+** TODO [#A] Claude Skills Support :integrations:claude:
+   DEADLINE: <2026-01-01 Thu>
+   - [ ] Install Hactar guides into Claude
+   - [ ] Use Claude skills in Hactar
+
+** TODO [#A] Better MCP Support :integrations:mcp:
+   DEADLINE: <2026-01-01 Thu>
+   - [ ] Hactar will expose a proper MCP API and not just use MCP
+** TODO [#A] More agents.md features support                       :features:
+   DEADLINE: <2026-01-01 Thu>
+   - [ ] support the include syntax
+
+** TODO [#A] Smart Features :features:
+   DEADLINE: <2026-01-01 Thu>
+   - [ ] /feature command will work in combination with skills to e.g add Stripe or Auth to any project
+
+** TODO [#B] ob-hactar :integrations:emacs:
+   SCHEDULED: <2026-01-15 Thu>
+
+** TODO [#B] Ruby Ecosystem Support :starters:guides:
+   SCHEDULED: <2026-01-31 Sat>
+   - [ ] Sinatra, Rails, Ruby Starters
+   - [ ] Guides and Custom Modes
+
+** TODO [#B] Stripe Integration :starters:guides:
+   SCHEDULED: <2026-01-31 Sat>
+   - [ ] Stripe Guides Smart Snippets
+   - [ ] Starters and Modes
+
+** TODO [#B] Full Support for Resumable Sessions :core:
+   SCHEDULED: <2026-01-31 Sat>
+   - [ ] Via loading a lisp file
+
+** TODO [#C] Autocomplete Extension for Emacs :integrations:emacs:
+** TODO [#C] VSCode Extension :integrations:vscode:
+** TODO [#C] Agent-Shell Support :core:
+** TODO [#C] Smart Migrations :features:
+   - [ ] Guides and modes to help migrating from one stack to another
+   - [ ] Initial support
+
+* Future Ideas / Icebox
+** TODO termin.el Wrapper
+** TODO Literate Org-mode and Context Editing Features added to hactar.nvim
+** TODO Redwood SDK Starter Kit, Guides, and Custom Mode
+** TODO Hactar Shell Support
+** TODO Browser Agents
+** TODO check-parens Analyzer
+** TODO LSP API
+** TODO OpenAI Compatible API Layer
+   - Use Hactar as a smart router for LLMs
+** TODO VM and DevOps Guides, Modes and Tooling
+   - Creating a new environment should be as easy as a command

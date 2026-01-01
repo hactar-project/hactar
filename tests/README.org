@@ -1,0 +1,3 @@
+* Tests
+
+Data for tests go in this folder. As of <2025-11-25> just search/replace block test data.

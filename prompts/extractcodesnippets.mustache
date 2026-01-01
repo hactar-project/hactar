@@ -1,0 +1,321 @@
+Extract relevant code snippets from search results to help with the current project.
+
+Example:
+
+Input:
+  27| 
+  28| 
+  29| ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+  30| ;; hackerrank.com/challenges/one-month-preparation-kit-mini-max-sum/problem ;;
+  31| ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+  32| 
+  33| ;; If we are calculating the minimum-sum, we can solve this problem in linear time. just we need to find the maximum and make the rest from the sum of all elements
+  34| ;; Similar case for the maximum-sum and find the minimum value in the array
+  35| 
+  36| (def arr [1 3 5 7 9])
+  37| 
+  38| (defn miniMaxSum [arr]
+  39|   (let [arr-sum (reduce + arr)
+  40|         maximum (- arr-sum (apply min arr))
+  41|         minimum (- arr-sum (apply max arr))]
+  42|     (println (str minimum " " maximum))))
+  43| 
+  44| (miniMaxSum arr)
+  45| 
+  46| ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+  47| ;; https://www.hackerrank.com/challenges/time-conversion/problem ;;
+  48| ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+  49| 
+  50| (defn timeConversion [s]
+  51|   (let [time_s (s/split s #":")
+  52|         hour   (Integer/parseInt (first time_s))
+  53|         mins   (second time_s)
+  54|         secs   (clojure.string/join (take 2 (nth time_s 2)))
+  55|         am?    (= "AM" (clojure.string/join (take-last 2 (last time_s))))
+  56|         pm?    (not am?)
+  57|         hour_s (cond
+  58|                  (and am? (= hour 12)) "00"
+  59|                  (and pm? (< hour 12)) (str (+ 12 hour))
+  60|                  :else               (format "%02d" hour))]
+  61|     (clojure.string/join ":" [hour_s mins secs])))
+  62| 
+  63| (timeConversion "07:05:45PM")
+  64| 
+  65| ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+  66| ;; hackerrank.com/challenges/one-month-preparation-kit-sparse-arrays/problem ;;
+  67| ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+  68| 
+  69| 
+  70| (def strings ["ab" "ab" "abc"])
+  71| 
+  72| (def queries ["ab" "abc" "bc"])
+  73| 
+  74| (def results [2 1 0])
+  75| 
+  76| (defn matchingStrings [strings queries]
+  77|   (loop [results []
+  78|          query   (first queries)
+  79|          rest-q  (rest queries)]
+  80|     (if (nil? query)
+  81|       results
+  82|       (recur (conj results
+  83|                    (->> strings (filter #(= % query)) count))
+  84|              (first rest-q)
+  85|              (rest rest-q)))))
+  86| 
+  87| (matchingStrings strings queries)
+  88| 
+  89| ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+  90| ;; hackerrank.com/challenges/one-month-preparation-kit-lonely-integer/problem ;;
+  91| ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+  92| 
+  93| 
+  94| (def a [1 2 3 4 3 2 1])
+  95| (def b [1 1 2])
+  96| (def c [0 0 1 2 1])
+  97| 
+  98| (defn lonelyInteger [a]
+  99|   (->> (loop [values {}
+  100|               a      a]
+  101|          (if (empty? a)
+  102|            values
+  103|            (recur
+  104|             (update values (first a) (fnil inc 0))
+  105| 
+  106|             (rest a))))
+  107|        (filter #(= (second %) 1))
+  108|        first
+  109|        first))
+  110| 
+  111| (defn lonelyInteger2 [a]
+  112|   (reduce (fn [val acc] (bit-xor acc val)) a))
+  113| 
+  114| (lonelyInteger2 c)
+  115| 
+  116| ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+  117| ;; hackerrank.com/challenges/one-month-preparation-kit-flipping-bits/problem ;;
+  118| ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+  119| 
+  120| (def n 2147483647)
+  121| (defn flipingBits [n] (bit-xor n (- (long (Math/pow 2 32)) 1)))
+  122| (flipingBits 1)
+  123| 
+  124| ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+  125| ;; hackerrank.com/challenges/one-month-preparation-kit-diagonal-difference/problem ;;u
+(ns hr
+  (:require
+   [clojure.string :as str]))
+
+(defn plusMinus
+  [arr]
+  (if (empty? arr)
+    (println 0)
+    (let [l (count arr)
+          p (count (filter pos? arr))
+          z (count (filter zero? arr))
+          n (- l (+ p z))]
+      (println (with-precision 6 (float (/ p l))))
+      (println (with-precision 6 (float (/ n l))))
+      (println (with-precision 6 (float (/ z l)))))))
+
+;; https://www.hackerrank.com/challenges/three-month-preparation-kit-mini-max-sum
+(defn miniMaxSum
+  [arr]
+  (let [sarr (sort arr)
+        minsum (reduce + (take 4 sarr))
+        maxsum (reduce + (drop 1 sarr))]
+    (print (format "%d %d" minsum maxsum))))
+
+;; https://www.hackerrank.com/challenges/three-month-preparation-kit-time-conversion
+(defn timeConversion
+  [s]
+  (let [[_ ih m s dn] (re-matches #"(\d+):(\d+):(\d+)(AM|PM)?" s)
+        h (cond (and (not= ih "12") (= "PM" dn))
+                (if (> 10 (+ 12 (long (Double/valueOf ih))))
+                  (str \0 (+ 12 (long (Double/valueOf ih))))
+                  (+ 12 (long (Double/valueOf ih))))
+                (and (= "12" ih) (= dn "AM")) "00"
+                :else ih)]
+    (format "%s:%s:%s" h m s)))
+
+;; https://www.hackerrank.com/challenges/three-month-preparation-kit-breaking-best-and-worst-records
+(defn breakingRecords [scores]
+  (loop [minscore (scores 0)
+         maxscore (scores 0)
+         mr 0
+         ml 0
+         s (rest scores)]
+    (if (empty? s)
+      [ml mr]
+      (cond
+        (> (first s) maxscore) (recur minscore (first s) mr (inc ml) (rest s))
+        (< (first s) minscore) (recur (first s) maxscore (inc mr) ml (rest s))
+        :else (recur minscore maxscore mr ml (rest s))))))
+
+;; https://www.hackerrank.com/challenges/three-month-preparation-kit-camel-case
+;; (require '[clojure.string :as str])
+(defn camel-case-help [[o t r]]
+  (cond (= o "S")
+        (str/lower-case
+         (cond (= t "M")
+               (str/join #" " (str/split ((str/split r #"\(") 0) #"(?=[A-Z])"))
+               (or (= t "C") (= t "V")) (str/join #" " (str/split r #"(?=[A-Z])"))))
+        (= o "C")
+        (cond
+          (= t "M")
+          (str/replace-first (apply str (mapv str/capitalize
+                                              (str/split (str r "()") #" ")))
+                             #"^." str/lower-case)
+          (= t "V")
+          (str/replace-first (apply str (mapv str/capitalize
+                                              (str/split r #" ")))
+                             #"^." str/lower-case)
+          :else (apply str (mapv str/capitalize
+                                 (str/split r #" "))))))
+
+(defn camel-case []
+  (let [i (read-line)]
+    (println (camel-case-help (str/split i #"\;")))))
+
+;; (loop [i (read-line)]
+;;     (when i
+;;       (println (camel-case-help (str/split i #"\;")))
+;;       (recur (read-line))))
+
+;; TODO https://www.hackerrank.com/challenges/three-month-preparation-kit-divisible-sum-pairs
+
+;; https://www.hackerrank.com/challenges/three-month-preparation-kit-lonely-integer
+;; better version:
+;; (defn lonelyinteger [a]
+;;   (->> (frequencies a) (filter #(= 1 (val %))) (ffirst)))
+
+(defn lonelyinteger [a]
+  (ffirst
+   (filter #(not= (first %)
+                  (first (rest %)))
+           (partition-all 2 (sort a)))))
+
+(defn gradingStudents [grades]
+  (loop
+      [g grades
+       i 0
+       nf #(- 5 (mod % 5))]
+    (cond
+      (= i (count g)) g
+      (and (< (nf (g i)) 3) (>= (g i) 38))
+      (recur (assoc g i (+ (nf (g i) ) (g i)))
+             (inc i)
+             nf)
+      :else (recur g (inc i) nf))))
+
+;; https://www.hackerrank.com/challenges/three-month-preparation-kit-diagonal-difference
+(defn diagonalDifference [arr]
+  (loop
+      [i 0
+       j (- (count arr) 1)
+       l 0
+       r 0
+       labs #(if (< % 0) (* % -1) %)]
+    (if (>= i (count arr))
+      (labs (- l r))
+      (recur (inc i) (dec j) (+ l ((arr i) i)) (+ r ((arr i) j)) labs))))
+
+;; https://www.hackerrank.com/challenges/three-month-preparation-kit-countingsort1
+(defn countingSort [arr]
+  (loop [freq (frequencies arr)
+         i 0
+         res []]
+    (if (= i 100)
+      res
+      (recur freq (inc i) (conj res (or (freq i) 0))))))
+
+---
+File: vitorapaiva/hackerrank-clojure/src/hackerrank_clojure/plusminus.clj
+---
+
+Match: "defn" at line 1
+Context lines 1-34:
+> 1| ;problem link: https://www.hackerrank.com/challenges/plus-minus/problem?isFullScreen=true
+  2| (ns hackerrank-clojure.plusminus)
+  3| 
+  4| (defn count-positive [arr]
+  5|   (count (filter pos? arr)))
+  6| 
+  7| (defn count-negative [arr]
+  8|   (count (filter neg? arr)))
+  9| 
+  10| (defn count-zero [arr]
+  11|   (count (filter zero? arr)))
+  12| 
+  13| (defn generate-qty-map [arr]
+  14|   (let [
+  15|         qty-positive (count-positive arr)
+  16|         qty-negative (count-negative arr)
+  17|         qty-zero (count-zero arr)
+  18|         ]
+  19|     {:qty-positive qty-positive
+  20|      :qty-negative qty-negative
+  21|      :qty-zero     qty-zero} ))
+  22| 
+  23| (defn plusMinus [arr]
+  24|   (let [
+  25|         arr-size (count arr)
+  26|         arr-qty (generate-qty-map arr)
+  27|         ]
+  28|     (println (float (/ (get arr-qty :qty-positive) arr-size)))
+  29|     (println (float (/ (get arr-qty :qty-negative) arr-size)))
+  30|     (println (float (/ (get arr-qty :qty-zero) arr-size)))
+  31|     )
+  32|   )
+  33| 
+  34| (plusMinus [0 -1 2])
+Output:
+(ns hackerrank-clojure.plusminus)
+
+(defn count-positive [arr]
+  (count (filter pos? arr)))
+
+(defn count-negative [arr]
+  (count (filter neg? arr)))
+
+(defn count-zero [arr]
+  (count (filter zero? arr)))
+
+(defn generate-qty-map [arr]
+  (let [
+        qty-positive (count-positive arr)
+        qty-negative (count-negative arr)
+        qty-zero (count-zero arr)
+        ]
+    {:qty-positive qty-positive
+     :qty-negative qty-negative
+     :qty-zero     qty-zero} ))
+
+(defn plusMinus [arr]
+  (let [
+        arr-size (count arr)
+        arr-qty (generate-qty-map arr)
+        ]
+    (println (float (/ (get arr-qty :qty-positive) arr-size)))
+    (println (float (/ (get arr-qty :qty-negative) arr-size)))
+    (println (float (/ (get arr-qty :qty-zero) arr-size)))
+    )
+  )
+
+
+(defn plusMinus
+  [arr]
+  (if (empty? arr)
+    (println 0)
+    (let [l (count arr)
+          p (count (filter pos? arr))
+          z (count (filter zero? arr))
+          n (- l (+ p z))]
+      (println (with-precision 6 (float (/ p l))))
+      (println (with-precision 6 (float (/ n l))))
+      (println (with-precision 6 (float (/ z l)))))))
+      
+{{search-results}}
+{{rules}}
+
+{{context}}

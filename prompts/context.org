@@ -1,0 +1,25 @@
+The following is context about the codebase you are working on.
+
+repo map:
+
+{{repo-map}}
+
+Files:
+
+{{files}}
+
+Environment:
+
+stack: {{stack}}
+shell: {{shell}}
+language: {{language}}
+name: {{name}}
+author: {{author}}
+
+Documentation:
+
+{{docs-context}}
+
+Potential Errors you may encounter and their solutions:
+
+{{errors-context}}

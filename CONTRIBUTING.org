@@ -1,0 +1,74 @@
+* Contributing
+:PROPERTIES:
+:ID:       e4584abf-0051-49d5-a995-d96c790f0fb4
+:CUSTOM_ID: contributing
+:END:
+I welcome contributions to pretty much anything. Make issues and PRs! 
+
+A reminder that hactar pro requests and and contributions should be made to the private hactar pro repo. e.g don't file issues about the starter kits here.
+** Setup
+:PROPERTIES:
+:ID:       d4667b12-1e52-40d9-bbe9-786568a2dd09
+:CUSTOM_ID: setup
+:END:
+We use nixos to devleop things. If you need a shell with all the dependencies setup you can run =nix flake develop= or =nix-shell shell.nix=.
+
+On other platforms you can likely get most things setup by running the install script with the dev flag:
+
+#+begin_src sh\
+./install.sh --dev  
+#+end_src
+
+Please let me know with an issue if you run into problems.
+** Development Workflow
+:PROPERTIES:
+:ID:       a018617f-262e-4a7a-9ca1-ecabbcf86e6a
+:CUSTOM_ID: development-workflow
+:END:
+*** Running the REPL
+:PROPERTIES:
+:ID:       27e78bdb-557e-4a32-ab95-2572c524afdf
+:CUSTOM_ID: running-the-repl
+:END:
+You can start a development REPL which includes a Slynk serve with:
+
+#+begin_src bash
+make dev
+#+end_src
+*** Building
+:PROPERTIES:
+:ID:       7f94239e-df26-4ce8-acb9-b693c49c5113
+:CUSTOM_ID: building
+:END:
+Run:
+
+#+begin_src bash
+make build
+#+end_src
+*** Running Tests
+:PROPERTIES:
+:ID:       313f81eb-51fb-4409-9e60-9daa2b0efd8b
+:CUSTOM_ID: running-tests
+:END:
+To run the test suite:
+
+#+begin_src bash
+make test
+#+end_src
+
+This will run migrations on a test database and execute tests for both ~hactar~ and ~llm~ systems.
+** Generic Contribution Rules
+:PROPERTIES:
+:ID:       0606a50f-de6c-473d-a3ed-47b97adefed1
+:CUSTOM_ID: generic-contribution-rules
+:END:
++ follow the code of conduct
++ use LISPer community standards
++ write tests when making a PR
+  + knowing you haven't broken things dramatically increases my likelihood of focusing on your PR.
+** License
+:PROPERTIES:
+:ID:       bb14f0f9-3e23-4c6e-b812-91cb7ff4ebad
+:CUSTOM_ID: license
+:END:
+By contributing, you agree that your contributions will be licensed under the MIT License.

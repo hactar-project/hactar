@@ -1,0 +1,154 @@
+#!/bin/sh
+#|-*- mode:lisp -*-|#
+#|
+exec ros -Q -- $0 "$@"
+|#
+(progn ;;init forms
+  (ros:ensure-asdf)
+  ;;; Load all local .asd files from the project root
+  (let ((project-root (make-pathname :directory (pathname-directory
+                                                  (merge-pathnames
+                                                   (make-pathname :directory '(:relative :up))
+                                                   (make-pathname :directory (pathname-directory *load-truename*)))))))
+    (push project-root asdf:*central-registry*)
+    ;; Also register subdirectories that may contain .asd files
+    (dolist (sub '("migrations/"))
+      (let ((sub-dir (merge-pathnames (make-pathname :directory `(:relative ,@(uiop:split-string sub :separator "/")))
+                                      project-root)))
+        (when (uiop:directory-exists-p sub-dir)
+          (push sub-dir asdf:*central-registry*)))))
+  #-quicklisp
+  (let ((quicklisp-init (merge-pathnames "quicklisp/setup.lisp" (user-homedir-pathname))))
+    (when (probe-file quicklisp-init)
+      (load quicklisp-init)))
+  #+quicklisp
+  (ql:quickload '(:hactar-migrations :hactar) :silent t))
+
+(defpackage :ros.script.hactar
+  (:use :cl))
+(in-package :ros.script.hactar)
+
+(defun platform-dylib-extension ()
+  "Return the dynamic library file extension for the current platform."
+  #+darwin "dylib"
+  #+(and windows (not darwin)) "dll"
+  #-(or darwin windows) "so")
+
+(defun sqlite-vec-dir ()
+  "Return the default sqlite-vec installation directory."
+  (let ((xdg-data (or (uiop:getenv "XDG_DATA_HOME")
+                      (uiop:native-namestring
+                       (merge-pathnames ".local/share/" (user-homedir-pathname))))))
+    (uiop:ensure-directory-pathname
+     (merge-pathnames "sqlite-vec/" (uiop:ensure-directory-pathname xdg-data)))))
+
+(defun find-file-recursively (directory filename)
+  "Search DIRECTORY recursively for a file named FILENAME. Returns the first match or NIL."
+  (when (uiop:directory-exists-p directory)
+    (let ((direct-match (merge-pathnames filename directory)))
+      (when (probe-file direct-match)
+        (return-from find-file-recursively (namestring direct-match))))
+    (dolist (entry (uiop:subdirectories directory))
+      (let ((result (find-file-recursively entry filename)))
+        (when result
+          (return-from find-file-recursively result))))
+    nil))
+
+(defun find-vec-via-ldconfig (vec-filename)
+  "Try to find sqlite-vec using ldconfig on Linux. Returns path string or NIL."
+  #-(or darwin windows)
+  (let ((ldconfig-cmd (cond
+                        ((uiop:find-package* :uiop)
+                         (or (when (probe-file "/sbin/ldconfig") "/sbin/ldconfig")
+                             (when (probe-file "/usr/sbin/ldconfig") "/usr/sbin/ldconfig")
+                             "ldconfig")))))
+    (handler-case
+        (multiple-value-bind (output error-output exit-code)
+            (uiop:run-program (list ldconfig-cmd "-p")
+                              :output :string
+                              :error-output :string
+                              :ignore-error-status t)
+          (declare (ignore error-output))
+          (when (zerop exit-code)
+            (dolist (line (uiop:split-string output :separator (string #\Newline)))
+              (when (search vec-filename line)
+                ;; ldconfig -p lines look like: "libfoo.so (libc6,x86-64) => /usr/lib/libfoo.so"
+                (let ((arrow-pos (search "=> " line)))
+                  (when arrow-pos
+                    (let ((path (string-trim '(#\Space #\Tab #\Newline #\Return)
+                                             (subseq line (+ arrow-pos 3)))))
+                      (when (probe-file path)
+                        (return-from find-vec-via-ldconfig path)))))))))
+      (error () nil)))
+  #+(or darwin windows)
+  (declare (ignore vec-filename))
+  #+(or darwin windows)
+  nil)
+
+(defun install-sqlite-vec (vec-dir vec-filename)
+  "Install sqlite-vec by downloading the install script. Returns path to vec0 or NIL."
+  (format *error-output* "Installing sqlite-vec to ~A...~%" vec-dir)
+  (ensure-directories-exist vec-dir)
+  (handler-case
+      (multiple-value-bind (output error-output exit-code)
+          (uiop:run-program
+           (list "bash" "-c"
+                 (format nil "cd ~A && curl -sL 'https://github.com/asg017/sqlite-vec/releases/latest/download/install.sh' | bash"
+                         (uiop:native-namestring vec-dir)))
+           :output :string
+           :error-output :string
+           :ignore-error-status t)
+        (declare (ignore output))
+        (if (zerop exit-code)
+            (or (find-file-recursively vec-dir vec-filename)
+                (progn
+                  (format *error-output* "Error: Could not find ~A after installation in ~A~%" vec-filename vec-dir)
+                  nil))
+            (progn
+              (format *error-output* "Error installing sqlite-vec: ~A~%" error-output)
+              nil)))
+    (error (e)
+      (format *error-output* "Error running sqlite-vec installer: ~A~%" e)
+      nil)))
+
+(defun resolve-sqlite-vec-path ()
+  "Find or install the sqlite-vec dynamic library. Returns the path as a string, or NIL."
+  ;; 1. Check environment variable
+  (let ((env-path (uiop:getenv "SQLITE_VEC_PATH")))
+    (when (and env-path (probe-file env-path))
+      (return-from resolve-sqlite-vec-path env-path)))
+
+  (let* ((ext (platform-dylib-extension))
+         (vec-filename (format nil "vec0.~A" ext))
+         (vec-dir (sqlite-vec-dir))
+         (vec-file (merge-pathnames vec-filename vec-dir)))
+
+    ;; 2. Check default location
+    (when (probe-file vec-file)
+      (return-from resolve-sqlite-vec-path (namestring vec-file)))
+
+    ;; 3. Search recursively in vec-dir (installer may put it in a subdirectory)
+    (let ((found (find-file-recursively vec-dir vec-filename)))
+      (when found
+        (return-from resolve-sqlite-vec-path found)))
+
+    ;; 4. Try ldconfig on Linux
+    (let ((sys-path (find-vec-via-ldconfig vec-filename)))
+      (when sys-path
+        (return-from resolve-sqlite-vec-path sys-path)))
+
+    ;; 5. Install it
+    (let ((installed-path (install-sqlite-vec vec-dir vec-filename)))
+      (when installed-path
+        (return-from resolve-sqlite-vec-path installed-path)))
+
+    ;; 6. Give up
+    (format *error-output* "Warning: Could not find or install sqlite-vec (~A).~%Set SQLITE_VEC_PATH manually.~%" vec-filename)
+    nil))
+
+(defun main (&rest argv)
+  "Entry point for the Roswell-installed hactar command."
+  (let ((vec-path (resolve-sqlite-vec-path)))
+    (when vec-path
+      (setf hactar:*sqlite-vec-path* vec-path)))
+  (hactar:main argv))

@@ -1,0 +1,26 @@
+You are a code generator for a feed aggregation system.
+
+Given the following feed specification, generate Common Lisp code that:
+1. Fetches content from the specified sources
+2. Applies the specified filters
+3. Formats output in the requested format
+4. Can be executed repeatedly without LLM calls
+
+The generated code should use these available functions:
+- (ruhe::fetch-source 'source-name args) - Fetch from a source
+- (ruhe::format-items-as-org items title) - Format as org-mode
+- (ruhe::format-items-as-markdown items title) - Format as markdown
+- (hactar:fetch-url-content url) - Fetch raw URL content
+
+Feed specification:
+{{specification}}
+
+Detected sources:
+{{sources}}
+
+Filters:
+{{filters}}
+
+Output format: {{format}}
+
+Generate the Lisp code:

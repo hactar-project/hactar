@@ -1,0 +1,4 @@
+{}:
+
+stdenv.mkDerivation rec {
+}

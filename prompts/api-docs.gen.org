@@ -1,0 +1,242 @@
+
+Take the following API documentation and transform it into org-mode. Use tags and properties to replicate the elements of the API docs. For example, if a method in the API docs as a has a version use a version prop. Strip out extraneous details like multiple examples or FAQs. Only include the API and enough description so a developer can use it.
+
+
+Global Formatting Rules (Apply to ALL inputs):
+
+1. Hierarchy & Structure:
+
+   - Level 1 (`*`): Grouping (Class, Module, Controller, or Resource).
+
+   - Level 2 (`**`): Unit of Work (Function, Method, or API Endpoint).
+
+   - Level 3 (`***`): Detail Sections (Arguments, Payloads, Examples).
+
+
+2. Metadata (Property Drawers):
+
+   - Every Level 1 and Level 2 heading **must** immediately follow with a `:PROPERTIES:` drawer.
+
+   - Drawers must always close with `:END:`.
+
+
+3. Styling:
+
+   - Use Org-style tables (`| Col | Col |`) for structured data.
+
+   - Wrap all code literals, types, and paths in tildes (e.g., ~int~, ~/api/v1~, ~user_id~).
+
+   - Use `#+BEGIN_SRC <language_id>` for all code blocks.
+
+
+Contextual Mode A: If Documenting Programming Logic (Classes/Functions/Libs)
+
+- Header Style: `** ~functionName(args)~`
+
+- Required Properties:
+
+  - `:TYPE:` (Function, Method, Class, Interface)
+
+  - `:VISIBILITY:` (Public, Private, Protected)
+
+  - `:RETURNS:` (The return type)
+
+- Content Requirements:
+
+  - Include a "Parameters" table: `| Name | Type | Optional? | Description |`
+
+  - Include an "Exceptions" list if applicable.
+
+
+Contextual Mode B: If Documenting REST/HTTP APIs
+
+- Header Style: `** VERB /path/to/resource` (e.g., `** GET /users/:id`)
+
+- Required Properties:
+
+  - `:METHOD:` (GET, POST, PUT, DELETE)
+
+  - `:ROUTE:` (The URL path)
+
+  - `:AUTH:` (None, Bearer, Basic, API-Key)
+
+  - `:STATUS:` (Stable, Deprecated, Beta)
+
+- Content Requirements:
+
+  - **Request Params:** Table for Query/Path parameters.
+
+  - **Request Body:** If applicable, provide a JSON schema description or table.
+
+  - **Response Codes:** Table columns: `| Code | Meaning | Schema Ref |`.
+
+
+Here is an example:
+
+
+#+begin_src org
+
+  ,#+TITLE: API Documentation: MathLib.js
+
+  ,#+AUTHOR: Dev Team
+
+  ,#+DATE: [2024-03-15]
+
+  ,#+OPTIONS: toc:t num:nil
+
+
+  ,* Library Overview
+
+  :PROPERTIES:
+
+  :VERSION:  2.1.0
+
+  :LICENSE:  MIT
+
+  :REPO:     github.com/org/mathlib
+
+  :END:
+
+
+  ~MathLib.js~ provides advanced statistical and geometric helpers for Node.js environments.
+
+
+  ,** Installation
+
+  ,#+BEGIN_SRC sh
+
+  npm install @org/mathlib
+
+  ,#+END_SRC
+
+
+  ,* Statistical Module
+
+  :PROPERTIES:
+
+  :MODULE:   Stats
+
+  :STABILITY: Stable
+
+  :END:
+
+
+  ,** ~calculateMean(dataset)~
+
+  :PROPERTIES:
+
+  :SINCE:    1.0.0
+
+  :RETURNS:  Number
+
+  :THROWS:   EmptyDatasetError
+
+  :END:
+
+
+  Calculates the arithmetic mean of a number array. Ignores ~null~ or ~undefined~ values.
+
+
+  ,*** Parameters
+
+  | Name      | Type           | Required | Description                     |
+
+  |-----------+----------------+----------+---------------------------------|
+
+  | ~dataset~ | Array<Number>  | Yes      | The input array of data points. |
+
+
+  ,*** Example
+
+  ,#+BEGIN_SRC javascript
+
+  import { calculateMean } from '@org/mathlib';
+
+
+  const data = [10, 20, 30, null];
+
+  console.log(calculateMean(data)); // Output: 20
+
+  ,#+END_SRC
+
+
+  ,** ~stdDev(dataset, isSample)~
+
+  :PROPERTIES:
+
+  :SINCE:    1.2.0
+
+  :RETURNS:  Number
+
+  :DEPRECATED: No
+
+  :END:
+
+
+  Computes the standard deviation.
+
+
+  ,*** Parameters
+
+  - ~dataset~ (Array): The data points.
+
+  - ~isSample~ (Boolean): If ~true~, calculates sample standard deviation; otherwise population. Defaults to ~true~.
+
+
+  ,*** TODO Implementation Note
+
+  Performance degrades significantly with arrays larger than 1M items. Need to optimize reduce loop.
+
+
+  ,* Geometry Module
+
+  :PROPERTIES:
+
+  :MODULE:   Geometry
+
+  :STABILITY: Experimental
+
+  :END:
+
+
+  ,** ~intersectCircles(c1, c2)~
+
+  :PROPERTIES:
+
+  :SINCE:    2.1.0
+
+  :RETURNS:  Array<Point>
+
+  :END:
+
+
+  Finds the intersection points of two circle objects.
+
+
+  ,*** Parameters
+
+  | Name | Type     | Description             |
+
+  |------+----------+-------------------------|
+
+  | ~c1~ | Circle   | The first circle object |
+
+  | ~c2~ | Circle   | The second circle object|
+
+
+  ,*** Example
+
+  ,#+BEGIN_SRC javascript
+
+  const p1 = { x: 0, y: 0, r: 5 };
+
+  const p2 = { x: 6, y: 0, r: 3 };
+
+
+  // Returns intersection points
+
+  const points = intersectCircles(p1, p2);
+
+  ,#+END_SRC
+
+#+end_src

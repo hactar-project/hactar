@@ -1,0 +1,148 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Default values
+DRY_RUN=true
+VERSION=""
+DESCRIPTION=""
+DESCRIPTION_CONTENT=""
+
+print_help() {
+    echo "Usage: $0 [OPTIONS]"
+    echo "Build and publish a Hactar release."
+    echo
+    echo "Options:"
+    echo "  -h, --help                 Show this help message"
+    echo "  -v, --version VERSION      The version/tag to release (e.g., v1.0.0)"
+    echo "  -d, --description DESC     Description or path to markdown file"
+    echo "  -l, --live-dangerously     Actually commit, tag, and push the release"
+}
+
+# Parse args
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        -h|--help)
+            print_help
+            exit 0
+            ;;
+        -v|--version)
+            VERSION="$2"
+            shift 2
+            ;;
+        -d|--description)
+            DESCRIPTION="$2"
+            shift 2
+            ;;
+        -l|--live-dangerously)
+            DRY_RUN=false
+            shift
+            ;;
+        *)
+            echo "Unknown option: $1"
+            print_help
+            exit 1
+            ;;
+    esac
+done
+
+# Validation
+if [ -z "$VERSION" ]; then
+    echo "Error: --version is required"
+    exit 1
+fi
+
+if [ -z "$DESCRIPTION" ]; then
+    echo "Error: --description is required"
+    exit 1
+fi
+
+# Check if tag exists locally
+if git rev-parse "$VERSION" >/dev/null 2>&1; then
+    echo "Error: Tag '$VERSION' already exists locally."
+    exit 1
+fi
+
+# Process description
+if [ -f "$DESCRIPTION" ]; then
+    DESCRIPTION_CONTENT=$(cat "$DESCRIPTION")
+else
+    DESCRIPTION_CONTENT="$DESCRIPTION"
+fi
+
+echo "Preparing release $VERSION..."
+if [ "$DRY_RUN" = true ]; then
+    echo "Mode: DRY RUN (no commits, tags, or pushes)"
+else
+    echo "Mode: LIVE (will commit, tag, and push)"
+fi
+
+# Update version in install.sh if LIVE
+if [ "$DRY_RUN" = false ] && [ -f install.sh ]; then
+    # Strip 'v' prefix for the variable in install.sh if present
+    CLEAN_VERSION="${VERSION#v}"
+    # Portable sed in-place
+    sed -i.bak "s/^VERSION=\".*\"/VERSION=\"$CLEAN_VERSION\"/" install.sh
+    rm install.sh.bak
+    git add install.sh
+    
+    if ! git diff --cached --quiet; then
+        echo "Committing version bump..."
+        git commit -m "$DESCRIPTION_CONTENT"
+    else
+        echo "No changes to install.sh to commit."
+    fi
+fi
+
+# Build
+echo "Building binary..."
+make build
+
+# Patch binary for portability if on Linux
+if [ "$(uname -s)" = "Linux" ]; then
+    if command -v patchelf >/dev/null; then
+        echo "Patching ELF interpreter for portability..."
+        patchelf --set-interpreter /lib64/ld-linux-x86-64.so.2 hactar
+        patchelf --shrink-rpath hactar
+    else
+        echo "Warning: patchelf not found. Binary may not be portable to non-NixOS systems."
+    fi
+fi
+
+# Prepare artifacts
+mkdir -p releases
+
+# 1. Binary tarball
+TAR_NAME="hactar-${VERSION}.tar.gz"
+tar -czf "releases/$TAR_NAME" hactar
+echo "Created binary package: releases/$TAR_NAME"
+
+# 2. Source zip
+ZIP_NAME="hactar-${VERSION}-src.zip"
+git archive --format=zip --output="releases/$ZIP_NAME" HEAD
+echo "Created source package: releases/$ZIP_NAME"
+
+if [ "$DRY_RUN" = true ]; then
+    echo "Dry run complete. Artifacts are in ./releases/"
+    exit 0
+fi
+
+# LIVE MODE CONTINUED
+
+# Tag
+echo "Tagging release..."
+git tag -a "$VERSION" -m "$DESCRIPTION_CONTENT"
+
+# Push
+echo "Pushing changes and tag..."
+git push
+git push origin "$VERSION"
+
+# GitHub Release
+echo "Creating GitHub release..."
+gh release create "$VERSION" \
+    "releases/$TAR_NAME" \
+    "releases/$ZIP_NAME" \
+    --title "$VERSION" \
+    --notes "$DESCRIPTION_CONTENT"
+
+echo "Release $VERSION published successfully!"

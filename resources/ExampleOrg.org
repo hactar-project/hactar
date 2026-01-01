@@ -1,0 +1,27 @@
+* Another H1 heading                                             :cheatsheet:
+  :PROPERTIES:
+  :ID:       another-h1-heading
+  :CUSTOM_ID: another-h1-heading
+  :END:
+
+Some content
+** A nested heading                                              :cheat:
+   :PROPERTIES:
+   :CATS:     test cat
+   :ID:       a-nested-heading
+   :CUSTOM_ID: a-nested-heading
+   :END:
+This cheat has a solution
+
+#+begin_src txt
+stuff butts
+#+end_src
+* A heading with some stuff inside                                    :cheat:
+  :PROPERTIES:
+  :ID:       a-heading-with-some-stuff-inside
+  :CUSTOM_ID: a-heading-with-some-stuff-inside
+  :END:
+
+Here is a [[https://2052.me][link]] and some *bold* some /italics/. A little tiny code =block=.
+
+More content

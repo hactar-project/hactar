@@ -1,0 +1,16 @@
+[project]
+language = "lisp"
+stack = ["lisp", "sqlite"]
+# guide_extension = "md" # Optional: Uncomment and change to 'md' or other extension if desired. Defaults to 'org'.
+
+# Example MCP Server Configuration
+# [[mcp-servers]]
+# name = "git-server-example"
+# command = "python -m mcp_server_git" # Replace with actual command or URL
+# # env = { GIT_SERVER_LOG_LEVEL = "DEBUG" } # Optional environment variables
+# permissions = { git_status = "auto", git_diff = "confirm" } # Tool specific permissions
+
+# [[mcp-servers]]
+# name = "http-example-server"
+# command = "http://localhost:8080/mcp" # Example HTTP MCP server URL
+# permissions = { some_http_tool = "confirm" }

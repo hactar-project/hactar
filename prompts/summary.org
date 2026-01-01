@@ -1,0 +1,10 @@
+Briefly summarize the conversation.
+Focus on recent messages; summarize older parts briefly.
+Start a new paragraph for each topic.
+
+Do not conclude with "Finally, ..." as the conversation continues.
+Include function names, libraries, packages, and filenames referenced in code blocks.
+Do not include fenced code blocks.
+
+Write as the USER (first person), referring to the ASSISTANT as *you*.
+Start with "I asked you...".

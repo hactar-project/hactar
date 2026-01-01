@@ -1,0 +1,1 @@
+Create a new project using the starter kit. Use the standard starter for the specified stack, language, and requirements.

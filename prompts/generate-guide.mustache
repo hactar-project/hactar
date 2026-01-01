@@ -1,0 +1,44 @@
+Generate a comprehensive project guide in {{guide_format}} format suitable for inclusion in `{{guide_filename}}`.
+
+The guide should serve as a technical reference to help an AI assistant (or human developer) understand the project structure, key components, APIs, types, and conventions, enabling them to author new code or modify existing code effectively.
+
+Focus on:
+- **Project Overview:** A brief description of the project's purpose.
+- **Directory Structure:** Explain the layout of important directories and files.
+- **Key Modules/Components:** Describe the main parts of the codebase and their responsibilities.
+- **API Reference:** Document major functions, classes, or methods, including:
+    - Purpose
+    - Parameters (with types if possible)
+    - Return values (with types if possible)
+    - Usage examples (briefly, if applicable)
+- **Data Structures:** Define important data structures or types used.
+- **Conventions:** Outline coding style, naming conventions, or architectural patterns used.
+- **Setup/Build Process:** Briefly mention how to set up and build the project (if relevant).
+
+Analyze the following project files to generate the guide:
+{{#files}}
+```{{language}} {{filename}}
+{{content}}
+```
+{{/files}}
+
+{{#existing_guide}}
+An existing guide file (`{{guide_filename}}`) was found. Please update it based on the project files provided above.
+Output the *complete, updated guide content* below. If significant changes are needed, use SEARCH/REPLACE blocks targeting `{{guide_filename}}` to modify the existing guide. If only minor additions or small fixes are needed, you can output the full updated {{guide_format}} content directly. Make sure to output it wrapped in a codeblock with the correct language identifier and filename. e.g
+
+```{{#guide_format}}{{#.}}markdown{{/.}}{{^.}}org{{/.}}{{/guide_format}} {{guide_filename}}
+... updated content ...
+```
+
+Existing Guide Content:
+```{{#guide_format}}{{#.}}markdown{{/.}}{{^.}}org{{/.}}{{/guide_format}} {{guide_filename}}
+{{existing_guide}}
+```
+{{/existing_guide}}
+{{^existing_guide}}
+No existing guide file was found. Generate a new guide based on the project files provided above.
+Output the *complete guide content* in {{guide_format}} format below, wrapped in a codeblock like:
+```{{#guide_format}}{{#.}}markdown{{/.}}{{^.}}org{{/.}}{{/guide_format}} {{guide_filename}}
+... guide content ...
+```
+{{/existing_guide}}
