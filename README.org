@@ -25,10 +25,16 @@ Some of Hactar's features:
 - *Old School Hard Coded Intelligence*
   Hactar uses "modes" to provide intelligent contextual knowledge to an LLM. With the magic of hard coding we can do things like look up docs for a React API in ms instead of seconds.
 ** Quickstart
-The quickest way:
+The preferred way to run hactar is via roswell. If you have it already do:
 
 #+begin_src sh
-  curl -L https://hactar.space/install.sh | bash
+ros install hactar-project/hactar
+#+end_src
+
+If you don't have roswell yet install it or use the hactar script:
+
+#+begin_src sh
+curl -L https://hactar.space/install.sh | bash
 #+end_src
 
 Nix:
@@ -45,12 +51,12 @@ GitHub Releases:
   hactar hactar.init
 #+end_src
 
-*Important*: You'll need to run =hactar hactar.init= if you install using anything other than the script.
+*Important*: You'll need to run =hactar hactar.init= if you install without running install.sh or using roswell.
 
 Now you can run hactar in any git repo:
 
 #+begin_src sh
-  hactar
+hactar
 #+end_src
 
 You'll want to set API keys. Any of the following will do:
@@ -63,8 +69,10 @@ You'll want to set API keys. Any of the following will do:
 You'll likely want to set a model you can do this with an environment variable =HACTAR_MODEL=. In this case a github_copilot model:
 
 #+begin_src sh
-  env HACTAR_MODEL="github_copilot/gemini-2.5-pro" hactar
+env HACTAR_MODEL="copilot/gemini-3.1-pro-preview" hactar
 #+end_src
+
+Hactar comes with a several different interfaces. The default is a minimal readline tui. If you want to use Hactar with ACP pass =--acp=. To disable all tui pass =--in-editor= and you will get a minimal Hactar designed to be wrapped in an editor like Neovim or Emacs. Pass =--lit= to use Hactar literately via org-mode.
 
 Now you will want to setup your editor:
 
