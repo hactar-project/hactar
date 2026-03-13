@@ -1,36 +1,35 @@
 (uiop:define-package :hactar
-                     (:use #:cl #:cl-ppcre #:sqlite #:cl-toml #:fuzzy-match #:clingon #:cl-fad #:usocket #:imago #:cl-base64 #:cffi #:cl-charms)
-                     (:shadowing-import-from #:json
-                       #:encode-json-to-string)
-                     (:export #:main))
+  (:use #:cl #:cl-ppcre #:sqlite #:cl-toml #:fuzzy-match #:clingon #:cl-fad #:usocket #:imago #:cl-base64 #:cffi #:cl-charms)
+  (:shadowing-import-from #:json
+    #:encode-json-to-string)
+  (:export #:main
+           #:resize-and-encode-image
+           ;; Code as Value API
+           #:code-value
+           #:hactar-init
+           #:code/select
+           #:code/from-string
+           #:code/from-context
+           #:code/describe
+           #:code/source
+           #:code/intent
+           #:code/ask
+           #:code/history
+           #:code/parent
+           #:code/original
+           #:code/show
+           #:code/summary
+           #:get-xdg-config-dir
+           #:find-model-by-name
+           #:model-config-provider
+           #:model-config-model-name
+           #:hyperfractal-browse
+           #:ruhe-init
+           #:fetch-url-content
+           #:*repo-root*
+           #:*sqlite-vec-path*))
 
 (in-package :hactar)
-(defpackage #:hactar
-            (:export #:resize-and-encode-image
-                     ;; Code as Value API
-                     #:code-value
-		     #:hactar-init
-                     #:code/select
-                     #:code/from-string
-                     #:code/from-context
-                     #:code/describe
-                     #:code/source
-                     #:code/intent
-                     #:code/ask
-                     #:code/history
-                     #:code/parent
-                     #:code/original
-                     #:code/show
-                     #:code/summary
-		     #:get-xdg-config-dir
-		     #:find-model-by-name
-		     #:model-config-provider
-		     #:model-config-model-name
-		     #:hyperfractal-browse
-		     #:ruhe-init
-		     #:fetch-url-content
-		     #:*repo-root*
-		     #:*sqlite-vec-path*))
 (defpackage :nhooks
   (:use :common-lisp)
   (:import-from :serapeum
