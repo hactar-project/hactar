@@ -707,3 +707,71 @@
     ;; This should complete without trying to install packages
     (let ((result (hactar:activate-feature "no-install-test" :no-install t)))
       (is-true result))))
+
+;;* ACP Output
+
+(test feature-acp-command-list
+  "Test the ACP output of /feature list."
+  (with-clean-registries
+    (eval '(hactar:deffeature acp-feat-1
+             "ACP feature 1"
+             :variants ((:default :description "Default"))))
+
+    (let* ((handler (gethash "/feature" hactar::*acp-commands*))
+           (result (funcall handler '("list"))))
+      (is-true result)
+      (is (search "1 feature available" (cdr (assoc "text" result :test #'string=))))
+      (let ((data (cdr (assoc "data" result :test #'string=))))
+        (is (= 1 (length data)))
+        (is (string= "acp-feat-1" (cdr (assoc "name" (aref data 0) :test #'string=))))))))
+
+(test feature-acp-command-active
+  "Test the ACP output of /feature active."
+  (with-clean-registries
+    (eval '(hactar:deffeature acp-active-feat
+             "ACP active test"
+             :variants ((:default :description "Default"))))
+    (hactar:activate-feature "acp-active-feat")
+
+    (let* ((handler (gethash "/feature" hactar::*acp-commands*))
+           (result (funcall handler '("active"))))
+      (is-true result)
+      (is (search "Active features" (cdr (assoc "text" result :test #'string=))))
+      (let ((data (cdr (assoc "data" result :test #'string=))))
+        (is (= 1 (length data)))
+        (is (search "acp-active-feat" (aref data 0)))))))
+
+(test feature-acp-command-activate-and-off
+  "Test the ACP output of /feature <name> and /feature off."
+  (with-clean-registries
+    (eval '(hactar:deffeature acp-toggle-feat
+             "ACP toggle test"
+             :variants ((:default :description "Default"))))
+
+    (let ((handler (gethash "/feature" hactar::*acp-commands*)))
+      ;; Activate
+      (let ((act-result (funcall handler '("acp-toggle-feat"))))
+        (is-true act-result)
+        (is (search "Activating feature: acp-toggle-feat" (cdr (assoc "text" act-result :test #'string=))))
+        (is-true (gethash "acp-toggle-feat" hactar::*active-features*)))
+
+      ;; Turn off
+      (let ((off-result (funcall handler '("off" "acp-toggle-feat"))))
+        (is-true off-result)
+        (is (search "Feature 'acp-toggle-feat' deactivated." (cdr (assoc "text" off-result :test #'string=))))
+        (is (null (gethash "acp-toggle-feat" hactar::*active-features*)))))))
+
+(test feature-acp-command-no-args
+  "Test the ACP output of /feature with no arguments."
+  (with-clean-registries
+    (eval '(hactar:deffeature acp-no-args
+             "ACP no args"
+             :variants ((:default :description "Default"))))
+    (let* ((handler (gethash "/feature" hactar::*acp-commands*))
+           (result (funcall handler nil)))
+      (is-true result)
+      (is (search "Usage:" (cdr (assoc "text" result :test #'string=))))
+      (let* ((data (cdr (assoc "data" result :test #'string=)))
+             (features (cdr (assoc "features" data :test #'string=))))
+        (is (= 1 (length features)))
+        (is (string= "acp-no-args" (cdr (assoc "name" (aref features 0) :test #'string=))))))))

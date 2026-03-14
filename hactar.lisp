@@ -92,7 +92,7 @@
                 (format t "  /session.auto      - Toggle auto-save on exit~%")
                 (format t "~%Feature commands:~%")
                 (format t "  /feature <name>     - Activate a feature (e.g., /feature auth)~%")
-                (format t "  /feature <name> --<variant> - Activate with variant~%")
+                (format t "  /feature <name> -v <variant> - Activate with variant~%")
                 (format t "  /feature list        - List all features~%")
                 (format t "  /feature active      - List active features~%")
                 (format t "  /feature off <name>  - Deactivate a feature~%")
@@ -1896,42 +1896,6 @@ This is installed via HANDLER-BIND in the REPL and must accept exactly one argum
 	(format *error-output* "Failed to run database migrations. Aborting.~%")
 	(uiop:quit 1)))
     ok))
-
-(define-sub-command "feature" (args)
-  "Manage features from the CLI.
-Usage: hactar feature <name> [--<variant>] [--dry-run] [--no-install]
-       hactar feature list | active | off <name> | show <name>"
-  (let ((dry-run (member "--dry-run" args :test #'string=))
-        (no-install (member "--no-install" args :test #'string=))
-        (clean-args (remove-if (lambda (a) (member a '("--dry-run" "--no-install") :test #'string=)) args)))
-    (cond
-      ((null clean-args)
-       (format t "Usage: hactar feature <name> [--<variant>] [--dry-run]~%")
-       (format t "       hactar feature list | active | off <name> | show <name>~%"))
-      ((string-equal (first clean-args) "list")
-       (%feature-cmd-list))
-      ((string-equal (first clean-args) "active")
-       (%feature-cmd-active))
-      ((string-equal (first clean-args) "off")
-       (if (second clean-args)
-           (deactivate-feature (second clean-args))
-           (format t "Usage: hactar feature off <name>~%")))
-      ((string-equal (first clean-args) "show")
-       (if (second clean-args)
-           (%feature-cmd-show (second clean-args))
-           (format t "Usage: hactar feature show <name>~%")))
-      (t
-       (let* ((feature-name (first clean-args))
-              (variant-arg (find-if (lambda (a) (and (str:starts-with? "--" a)
-                                                     (not (string= a "--dry-run"))
-                                                     (not (string= a "--no-install"))))
-                                    args))
-              (variant-key (when variant-arg
-                             (intern (string-upcase (subseq variant-arg 2)) :keyword))))
-         (activate-feature feature-name
-                           :variant variant-key
-                           :dry-run dry-run
-                           :no-install no-install))))))
 
 (define-sub-command hactar.init (args)
   "Initialize Hactar: clone repo and install default prompts and models."

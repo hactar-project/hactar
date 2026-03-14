@@ -520,19 +520,15 @@
 
 ;;** Slash command
 
-(define-command feature (args)
-  "Activate or manage features.
-Usage:
-  /feature <name>              - Activate feature with default variant
-  /feature <name> --<variant>  - Activate feature with specific variant
-  /feature list                - List all available features
-  /feature active              - List currently active features
-  /feature off <name>          - Deactivate a feature
-  /feature show <name>         - Show feature details
-  /feature --dry-run <name>    - Preview what activation would do"
-  (let ((dry-run (member "--dry-run" args :test #'string=))
-        (no-install (member "--no-install" args :test #'string=))
-        (clean-args (remove-if (lambda (a) (member a '("--dry-run" "--no-install") :test #'string=)) args)))
+(defun run-feature (parsed-args)
+  "Implementation logic for the feature command."
+  (let* ((dry-run (getf parsed-args :dry-run))
+         (no-install (getf parsed-args :no-install))
+         (variant-str (getf parsed-args :variant))
+         (clean-args (getf parsed-args :free-args)))
+    ;; Remove the command name from clean-args if it's there
+    (when (and clean-args (string-equal (first clean-args) "feature"))
+      (setf clean-args (rest clean-args)))
     (cond
       ;; /feature list
       ((and clean-args (string-equal (first clean-args) "list"))
@@ -554,15 +550,10 @@ Usage:
            (%feature-cmd-show (second clean-args))
            (format t "Usage: /feature show <name>~%")))
 
-      ;; /feature <name> [--variant]
+      ;; /feature <name> [-v variant]
       (clean-args
        (let* ((feature-name (first clean-args))
-              (variant-arg (find-if (lambda (a) (and (str:starts-with? "--" a)
-                                                     (not (string= a "--dry-run"))
-                                                     (not (string= a "--no-install"))))
-                                    args))
-              (variant-key (when variant-arg
-                             (intern (string-upcase (subseq variant-arg 2)) :keyword))))
+              (variant-key (when variant-str (intern (string-upcase variant-str) :keyword))))
          (activate-feature feature-name
                            :variant variant-key
                            :dry-run dry-run
@@ -570,59 +561,84 @@ Usage:
 
       ;; No args
       (t
-       (format t "Usage: /feature <name> [--<variant>] [--dry-run] [--no-install]~%")
-       (format t "       /feature list | active | off <name> | show <name>~%"))))
-  :slash t :sub t
+       (format t "Usage: /feature <name> [-v/--variant <variant>] [--dry-run] [--no-install]~%")
+       (format t "       /feature list | active | off <name> | show <name>~%")))))
+
+(define-command feature (args)
+  "Activate or manage features.
+Usage:
+  /feature <name> [-v/--variant <variant>]     - Activate feature with specific variant
+  /feature list                                - List all available features
+  /feature active                              - List currently active features
+  /feature off <name>                          - Deactivate a feature
+  /feature show <name>                         - Show feature details
+  /feature --dry-run <name>                    - Preview what activation would do"
+  (run-feature args)
+  :slash t
+  :sub t
+  :cli-options ((:short "d" :long "dry-run" :description "Preview what activation would do")
+                (:short "n" :long "no-install" :description "Skip package installation prompt")
+                (:short "v" :long "variant" :description "Feature variant to activate"))
   :acp (lambda (cmd-args)
-         (cond
-           ((null cmd-args)
-            `(("text" . "Usage: /feature <name> [--<variant>]")
-              ("data" . (("features" . ,(coerce
-                                         (mapcar (lambda (f)
-                                                   `(("name" . ,(getf f :name))
-                                                     ("description" . ,(getf f :description))
-                                                     ("active" . ,(if (getf f :active) t :false))
-                                                     ("activeVariant" . ,(or (getf f :active-variant) :null))
-                                                     ("variants" . ,(coerce (mapcar
-                                                                             (lambda (v) (string-downcase (symbol-name v)))
-                                                                             (getf f :variants))
-                                                                            'vector))))
-                                                 (list-features))
-                                         'vector))))))
-           ((string-equal (first cmd-args) "list")
-            (let ((features (list-features)))
-              `(("text" . ,(format nil "~A feature~:P available." (length features)))
-                ("data" . ,(coerce
-                            (mapcar (lambda (f)
-                                      `(("name" . ,(getf f :name))
-                                        ("description" . ,(getf f :description))
-                                        ("active" . ,(if (getf f :active) t :false))
-                                        ("variants" . ,(coerce (mapcar
-                                                                (lambda (v) (string-downcase (symbol-name v)))
-                                                                (getf f :variants))
-                                                               'vector))))
-                                    features)
-                            'vector)))))
-           ((string-equal (first cmd-args) "active")
-            (let ((active (list-active-features-summary)))
-              `(("text" . ,(if active
-                               (format nil "Active features: ~{~A~^, ~}" active)
-                               "No active features."))
-                ("data" . ,(coerce active 'vector)))))
-           ((string-equal (first cmd-args) "off")
-            (if (second cmd-args)
-                (progn
-                  (deactivate-feature (second cmd-args))
-                  `(("text" . ,(format nil "Feature '~A' deactivated." (second cmd-args)))))
-                `(("text" . "Usage: /feature off <name>"))))
-           (t
-            (let* ((feature-name (first cmd-args))
-                   (variant-arg (find-if (lambda (a) (str:starts-with? "--" a)) (rest cmd-args)))
-                   (variant-key (when variant-arg
-                                  (intern (string-upcase (subseq variant-arg 2)) :keyword))))
-              (let ((output (with-output-to-string (*standard-output*)
-                              (activate-feature feature-name :variant variant-key))))
-                `(("text" . ,output))))))))
+         (let* ((dry-run (member "--dry-run" cmd-args :test #'string=))
+                (no-install (member "--no-install" cmd-args :test #'string=))
+                (variant-pos (or (position "--variant" cmd-args :test #'string=)
+                                 (position "-v" cmd-args :test #'string=)))
+                (variant-str (when (and variant-pos (< (1+ variant-pos) (length cmd-args)))
+                               (nth (1+ variant-pos) cmd-args)))
+                (filtered-args (if variant-pos
+                                   (append (subseq cmd-args 0 variant-pos)
+                                           (subseq cmd-args (+ variant-pos 2)))
+                                   cmd-args))
+                (clean-args (remove-if (lambda (a) (member a '("--dry-run" "--no-install") :test #'string=))
+                                       filtered-args)))
+           (cond
+             ((null clean-args)
+              `(("text" . "Usage: /feature <name> [-v/--variant <variant>]")
+                ("data" . (("features" . ,(coerce
+                                           (mapcar (lambda (f)
+                                                     `(("name" . ,(getf f :name))
+                                                       ("description" . ,(getf f :description))
+                                                       ("active" . ,(if (getf f :active) t :false))
+                                                       ("activeVariant" . ,(or (getf f :active-variant) :null))
+                                                       ("variants" . ,(coerce (mapcar
+                                                                               (lambda (v) (string-downcase (symbol-name v)))
+                                                                               (getf f :variants))
+                                                                              'vector))))
+                                                   (list-features))
+                                           'vector))))))
+             ((string-equal (first clean-args) "list")
+              (let ((features (list-features)))
+                `(("text" . ,(format nil "~A feature~:P available." (length features)))
+                  ("data" . ,(coerce
+                              (mapcar (lambda (f)
+                                        `(("name" . ,(getf f :name))
+                                          ("description" . ,(getf f :description))
+                                          ("active" . ,(if (getf f :active) t :false))
+                                          ("variants" . ,(coerce (mapcar
+                                                                  (lambda (v) (string-downcase (symbol-name v)))
+                                                                  (getf f :variants))
+                                                                 'vector))))
+                                      features)
+                              'vector)))))
+             ((string-equal (first clean-args) "active")
+              (let ((active (list-active-features-summary)))
+                `(("text" . ,(if active
+                                 (format nil "Active features: ~{~A~^, ~}" active)
+                                 "No active features."))
+                  ("data" . ,(coerce active 'vector)))))
+             ((string-equal (first clean-args) "off")
+              (if (second clean-args)
+                  (progn
+                    (deactivate-feature (second clean-args))
+                    `(("text" . ,(format nil "Feature '~A' deactivated." (second clean-args)))))
+                  `(("text" . "Usage: /feature off <name>"))))
+             (t
+              (let* ((feature-name (first clean-args))
+                     (variant-key (when variant-str (intern (string-upcase variant-str) :keyword))))
+                (let ((output (with-output-to-string (*standard-output*)
+                                (activate-feature feature-name :variant variant-key :dry-run dry-run :no-install no-install))))
+                  `(("text" . ,output)))))))))
 
 (defun %feature-cmd-list ()
   "Implementation of /feature list."
