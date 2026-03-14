@@ -32,6 +32,7 @@
                (:file "tests/guide.test")
                (:file "tests/generator.test")
                (:file "tests/bot.test")
+	       (:file "tests/feature.test")
                (:file "tests/hyperfractal.test")
                (:file "tests/tools.test")
 	       (:file "tests/lisp-rpc.test")

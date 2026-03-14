@@ -35,6 +35,11 @@ run-cli:
 test:
 	$(LISP) --non-interactive --load hactar.asd --load hactar-migrations.asd --load llm.asd --load hactar-tests.asd --load llm-tests.asd --eval "(ql:quickload :hactar-migrations)" --eval "(ql:quickload :hactar-tests)" --eval "(ql:quickload :llm-tests)" --load migrations/run-migrations.lisp --load run-tests.lisp --quit
 
+# Clear SBCL FASL cache to force recompilation
+.PHONY: clean-cache
+clean-cache:
+	rm -rf ~/.cache/common-lisp/
+
 # Run tests with sb-cover and generate HTML coverage report
 .PHONY: coverage
 coverage:
@@ -49,6 +54,7 @@ clean:
 	rm -f *.fasl
 	rm -f DOCS.md
 	rm -rf coverage/
+	rm -rf ~/.cache/common-lisp/
 
 # Start Hactar in development mode with Slynk server
 .PHONY: dev

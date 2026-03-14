@@ -86,7 +86,7 @@
 	       (:file "web")
 	       (:file "import")
 	       (:file "copilot")
-               
+               (:file "feature")
 	       ;; modes
 	       (:file "npm")
 	       (:file "sh-mode")

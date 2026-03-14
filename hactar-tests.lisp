@@ -99,6 +99,7 @@ Returns true iff all suites pass."
                          stripe-mode-tests
                          generator-tests
                          bot-tests
+			 feature-tests
                          code-value-tests
 			 context-tests
                          preset-tests
