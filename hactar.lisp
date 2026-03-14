@@ -1305,6 +1305,12 @@ This is installed via HANDLER-BIND in the REPL and must accept exactly one argum
     :key :model)
    (clingon:make-option
     :string
+    :description "Provider to use with model aliases (e.g. anthropic, copilot, openrouter)"
+    :long-name "provider"
+    :initial-value nil
+    :key :provider)
+   (clingon:make-option
+    :string
     :description "Project name. Defaults to current directory name."
     :long-name "name"
     :initial-value nil
@@ -1361,14 +1367,24 @@ This is installed via HANDLER-BIND in the REPL and must accept exactly one argum
     :key :http-port)
    (clingon:make-option
     :flag
-    :description "Use Anthropic Sonnet model (anthropic/claude-3-7-sonnet-20250219)"
+    :description "Use Claude Sonnet 4.6 model"
     :long-name "sonnet"
     :key :sonnet)
    (clingon:make-option
     :flag
-    :description "Use Gemini Pro Experimental model (gemini/gemini-2.5-pro-exp-03-25)"
+    :description "Use Gemini 3 Pro Preview model"
     :long-name "gemini"
     :key :gemini)
+   (clingon:make-option
+    :flag
+    :description "Use GPT 5.4 model"
+    :long-name "gpt"
+    :key :gpt)
+   (clingon:make-option
+    :flag
+    :description "Use Claude Opus 4.6 model"
+    :long-name "opus"
+    :key :opus)
    (clingon:make-option
     :flag
     :description "Use free Gemini Pro Experimental via OpenRouter (openrouter/google/gemini-2.5-pro-exp-03-25:free)"
@@ -1384,11 +1400,6 @@ This is installed via HANDLER-BIND in the REPL and must accept exactly one argum
     :description "Use free Deepseek Base model via OpenRouter (openrouter/deepseek/deepseek-v3-base:free)"
     :long-name "deepseek-free"
     :key :deepseek-free)
-   (clingon:make-option
-    :flag
-    :description "Use OpenAI GPT-4o Mini model (openai/o4-mini)"
-    :long-name "o4"
-    :key :o4)
    (clingon:make-option
     :string
     :description "Send a query to the LLM, print the result, and exit."
@@ -1543,12 +1554,14 @@ This is installed via HANDLER-BIND in the REPL and must accept exactly one argum
          (http-port (clingon:getopt cmd :http-port))
          (disable-analyzers-str (clingon:getopt cmd :disable-analyzers))
          (enable-analyzers-str (clingon:getopt cmd :enable-analyzers))
+         (provider-from-opt (clingon:getopt cmd :provider))
          (use-sonnet (clingon:getopt cmd :sonnet))
          (use-gemini (clingon:getopt cmd :gemini))
+         (use-gpt (clingon:getopt cmd :gpt))
+         (use-opus (clingon:getopt cmd :opus))
          (use-gemini-free (clingon:getopt cmd :gemini-free))
          (use-deepseek (clingon:getopt cmd :deepseek))
          (use-deepseek-free (clingon:getopt cmd :deepseek-free))
-         (use-o4 (clingon:getopt cmd :o4))
          (immediate-query (clingon:getopt cmd :immediate-query))
          (execute-query (clingon:getopt cmd :execute))
          (execute-immediately-query (clingon:getopt cmd :execute-immediately))
@@ -1602,12 +1615,13 @@ This is installed via HANDLER-BIND in the REPL and must accept exactly one argum
     (when (or immediate-query execute-query execute-immediately-query free-args acp-flag mcp-flag agentshell-flag lisp-rpc-flag)
       (setf *silent* t))	  ; Enable silent mode for non-interactive modes
 
-    (when use-sonnet (setf model "anthropic/claude-3-7-sonnet-20250219"))
-    (when use-gemini (setf model "gemini/gemini-2.5-pro-exp-03-25"))
+    (when use-sonnet (setf model (format nil "~A/claude-sonnet-4.6" (or provider-from-opt "anthropic"))))
+    (when use-gemini (setf model (format nil "~A/gemini-3-pro-preview" (or provider-from-opt "gemini"))))
+    (when use-gpt (setf model (format nil "~A/gpt-5.4" (or provider-from-opt "openai"))))
+    (when use-opus (setf model (format nil "~A/claude-opus-4.6" (or provider-from-opt "anthropic"))))
     (when use-gemini-free (setf model "openrouter/google/gemini-2.5-pro-exp-03-25:free"))
     (when use-deepseek (setf model "openrouter/deepseek/deepseek-chat-v3-0324"))
     (when use-deepseek-free (setf model "openrouter/deepseek/deepseek-v3-base:free"))
-    (when use-o4 (setf model "openai/o4-mini"))
 
     (ensure-directories-exist (directory-namestring (get-models-config-path)))
     (ensure-directories-exist (merge-pathnames "hactar/" (get-xdg-config-dir)))

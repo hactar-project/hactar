@@ -215,7 +215,7 @@
   max_output_tokens: 4000
   max_input_tokens: 4000
   cache_control: true
-- name: github_copilot/o3-mini
+- name: copilot/o3-mini
   edit_format: diff
   model_name: o3-mini
   use_repo_map: true
@@ -230,7 +230,7 @@
   max_input_tokens: 120000
   cache_control: true
   supports: ["vision"]
-- name: github_copilot/o4-mini
+- name: copilot/o4-mini
   edit_format: diff
   model_name: o4-mini
   use_repo_map: true
@@ -245,7 +245,7 @@
   max_input_tokens: 120000
   cache_control: true
   supports: ["vision"]
-- name: github_copilot/gemini-2.5-pro
+- name: copilot/gemini-2.5-pro
   edit_format: diff
   model_name: gemini-2.5-pro
   use_repo_map: true
@@ -260,7 +260,7 @@
   max_input_tokens: 120000
   cache_control: true
   supports: ["vision"]
-- name: github_copilot/claude-sonnet-4
+- name: copilot/claude-sonnet-4
   edit_format: diff
   model_name: claude-sonnet-4
   use_repo_map: true
@@ -275,7 +275,7 @@
   max_input_tokens: 120000
   cache_control: true
   supports: ["vision"]
-- name: github_copilot/gpt-4o
+- name: copilot/gpt-4o
   edit_format: diff
   model_name: gpt-4o
   use_repo_map: true
@@ -290,7 +290,7 @@
   max_input_tokens: 120000
   cache_control: true
   supports: ["vision"]
-- name: github_copilot/gpt-4.1
+- name: copilot/gpt-4.1
   edit_format: diff
   model_name: gpt-4.1
   use_repo_map: true
@@ -742,6 +742,53 @@
 - name: anthropic/claude-opus-4.6
   edit_format: diff
   model_name: claude-opus-4.6
+  use_repo_map: true
+  examples_as_sys_msg: true
+  max_output_tokens: 8192
+  max_input_tokens: 120000
+  cache_control: true
+- name: copilot/gpt-5.4
+  edit_format: diff
+  model_name: gpt-5.4
+  use_repo_map: true
+  examples_as_sys_msg: true
+  extra_params:
+    max_tokens: 100000
+    extra_headers:
+      Editor-Version: Hactar/0.1
+      Copilot-Integration-Id: copilot-chat
+      Copilot-Vision-Request: "true"
+  max_output_tokens: 8192
+  max_input_tokens: 120000
+  cache_control: true
+  supports: ["vision"]
+- name: openrouter/claude-sonnet-4.6
+  edit_format: diff
+  model_name: anthropic/claude-sonnet-4.6
+  use_repo_map: true
+  examples_as_sys_msg: true
+  max_output_tokens: 8192
+  max_input_tokens: 120000
+  cache_control: true
+- name: openrouter/claude-opus-4.6
+  edit_format: diff
+  model_name: anthropic/claude-opus-4.6
+  use_repo_map: true
+  examples_as_sys_msg: true
+  max_output_tokens: 8192
+  max_input_tokens: 120000
+  cache_control: true
+- name: openrouter/gpt-5.4
+  edit_format: diff
+  model_name: openai/gpt-5.4
+  use_repo_map: true
+  examples_as_sys_msg: true
+  max_output_tokens: 8192
+  max_input_tokens: 120000
+  cache_control: true
+- name: openai/gpt-5.4
+  edit_format: diff
+  model_name: gpt-5.4
   use_repo_map: true
   examples_as_sys_msg: true
   max_output_tokens: 8192

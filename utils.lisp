@@ -247,8 +247,8 @@ Accepted inputs:
   "Manually parse free args from uiop:command-line-arguments for a given subcommand.
    This is a workaround because clingon doesn't expose them easily."
   (let* ((all-cli-args (uiop:command-line-arguments))
-         (opts-with-arg '("--model" "-m" "--name" "--author" "--config-path" "-c" "--slynk-port" "-p" "--disable-analyzers" "--enable-analyzers" "--http-port" "--query" "-q" "--execute" "-e" "--execute-immediately" "--output" "--path" "-p" "--starter"))
-         (flag-opts '("--sonnet" "--gemini" "--gemini-free" "--deepseek" "--deepseek-free" "--o4" "--assistant" "--audio" "--react" "--sinatra" "--in-editor" "--mcp" "--acp" "--lisp"))
+         (opts-with-arg '("--model" "-m" "--provider" "--name" "--author" "--config-path" "-c" "--slynk-port" "-p" "--disable-analyzers" "--enable-analyzers" "--http-port" "--query" "-q" "--execute" "-e" "--execute-immediately" "--output" "--path" "-p" "--starter"))
+         (flag-opts '("--sonnet" "--gemini" "--gpt" "--opus" "--gemini-free" "--deepseek" "--deepseek-free" "--assistant" "--audio" "--react" "--sinatra" "--in-editor" "--mcp" "--acp" "--lisp"))
          (command-pos (position command-name all-cli-args :test #'string=))
          (args-to-scan (if command-pos (nthcdr (+ 1 command-pos) all-cli-args) '())))
     (loop with i = 0
