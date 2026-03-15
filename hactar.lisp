@@ -1644,18 +1644,7 @@ This is installed via HANDLER-BIND in the REPL and must accept exactly one argum
     (when embedding-model-from-opt
       (setf *embedding-model* embedding-model-from-opt))
     (setf *completion-model* *current-model*)
-    ;; (setf *repo-root*
-    ;;       (handler-case
-    ;; 	      (find-git-repo-root (if path
-    ;; 				      (uiop:ensure-directory-pathname (uiop:parse-native-namestring path))
-    ;; 				    (uiop:getcwd)))
-    ;;         (error (e)
-    ;; 		   (log-warning "Failed to detect git repository root (continuing without repo): ~A" e)
-    ;; 		   (when path
-    ;;                  (uiop:ensure-directory-pathname (uiop:parse-native-namestring path))))))
-
-    (debug-log (format nil "Repository root set to: ~A~%" *repo-root*))
-
+    
     (when name-from-opt
       (setf *name* name-from-opt))
 
