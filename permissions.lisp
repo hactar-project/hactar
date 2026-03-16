@@ -255,19 +255,6 @@ BODY: Code evaluated with TOOL-NAME (string) and ARGS (plist) bound.
 
 ;;* Built-in Predicates
 
-(defun path-in-project? (path)
-  "Returns T if PATH resolves to within *repo-root*."
-  (when (and path *repo-root*)
-    (handler-case
-        (let* ((full-path (namestring (truename (merge-pathnames path *repo-root*))))
-               (root (namestring (truename *repo-root*))))
-          (str:starts-with-p root full-path))
-      (error () nil))))
-
-(defun path-matches? (path pattern)
-  "Returns T if path matches the regex pattern."
-  (when (and path pattern)
-    (not (null (cl-ppcre:scan pattern path)))))
 
 (defun path-is-readonly? (path)
   "Returns T if path is in a known read-only location (node_modules, .git, etc.)."

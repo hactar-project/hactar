@@ -477,7 +477,7 @@ RESULTS is a list from execute-xml-tool-calls."
                          :required t))
   :description "Write content to a file at the specified path. If the file exists, it will be overwritten. If it doesn't exist, it will be created. Automatically creates any needed directories."
   :rules "ALWAYS provide the COMPLETE intended content of the file, without any truncation or omissions. Include ALL parts of the file, even if they haven't been modified."
-  :permissions :confirm
+  :permissions :auto
   (let ((file-path (getf args :path))
         (content (getf args :content)))
     (handler-case
@@ -486,13 +486,7 @@ RESULTS is a list from execute-xml-tool-calls."
             (when (acp-fs-write-text-file (namestring full-path) content)
               (return-from tool-write-to-file
                 (format nil "Successfully wrote ~A bytes to ~A" (length content) file-path))))
-          (ensure-directories-exist full-path)
-          (with-open-file (stream full-path
-                                  :direction :output
-                                  :if-exists :supersede
-                                  :if-does-not-exist :create
-                                  :external-format :utf-8)
-            (write-string content stream))
+          (safe-write-to-file file-path content)
           (format nil "Successfully wrote ~A bytes to ~A" (length content) file-path))
       (error (e)
         (format nil "Error writing file: ~A" e)))))
@@ -508,30 +502,13 @@ RESULTS is a list from execute-xml-tool-calls."
                            :required t))
   :description "Replace a section of content in an existing file. Searches for the exact text and replaces the first occurrence with the new text. Use this for targeted changes to specific parts of a file."
   :rules "SEARCH content must match EXACTLY character-for-character including whitespace and indentation. Only replaces the first match occurrence. Use empty REPLACE to delete code. For multiple replacements, call the tool multiple times."
-  :permissions :confirm
+  :permissions :auto
   (let ((file-path (getf args :path))
         (search-text (getf args :search))
         (replace-text (getf args :replace)))
     (handler-case
-        (let ((full-path (merge-pathnames file-path *repo-root*)))
-          (unless (probe-file full-path)
-            (return-from tool-replace-in-file 
-              (format nil "Error: File not found: ~A" file-path)))
-          
-          (let* ((file-content (uiop:read-file-string full-path))
-                 (pos (search search-text file-content)))
-            (if pos
-                (let ((modified-content
-                        (concatenate 'string
-                                     (subseq file-content 0 pos)
-                                     replace-text
-                                     (subseq file-content (+ pos (length search-text))))))
-                  (with-open-file (stream full-path
-                                          :direction :output
-                                          :if-exists :supersede
-                                          :external-format :utf-8)
-                    (write-string modified-content stream))
-                  (format nil "Successfully replaced text in ~A" file-path))
-                (format nil "Error: Search text not found in ~A" file-path))))
+        (if (safe-replace-in-file file-path search-text replace-text)
+            (format nil "Successfully replaced text in ~A" file-path)
+            (format nil "Error: Search text not found in ~A" file-path))
       (error (e)
         (format nil "Error modifying file: ~A" e)))))

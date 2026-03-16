@@ -404,6 +404,44 @@ Otherwise, treat the literal character 'n' as a newline placeholder (for tests u
       (format *error-output* "Error writing file ~A: ~A~%" filename e)
       nil)))
 
+(defun safe-write-to-file (file-path content)
+  "Safely write content to a file, ensuring it is within the project root."
+  (let* ((full-path (merge-pathnames file-path *repo-root*))
+         (dir-path (uiop:pathname-directory-pathname full-path)))
+    (ensure-directories-exist dir-path)
+    (unless (path-in-project? dir-path)
+      (error "Security error: Path ~A is outside the project root." file-path))
+    (with-open-file (stream full-path
+                            :direction :output
+                            :if-exists :supersede
+                            :if-does-not-exist :create
+                            :external-format :utf-8)
+      (write-string content stream))
+    full-path))
+
+(defun safe-replace-in-file (file-path search-text replace-text)
+  "Safely replace text in an existing file, ensuring it is within the project root."
+  (let ((full-path (merge-pathnames file-path *repo-root*)))
+    (unless (probe-file full-path)
+      (error "File not found: ~A" file-path))
+    (unless (path-in-project? full-path)
+      (error "Security error: Path ~A is outside the project root." file-path))
+    (let* ((file-content (uiop:read-file-string full-path))
+           (pos (search search-text file-content)))
+      (if pos
+          (let ((modified-content
+                  (concatenate 'string
+                               (subseq file-content 0 pos)
+                               replace-text
+                               (subseq file-content (+ pos (length search-text))))))
+            (with-open-file (stream full-path
+                                    :direction :output
+                                    :if-exists :supersede
+                                    :external-format :utf-8)
+              (write-string modified-content stream))
+            t)
+          nil))))
+
 (defun to-json (alist)
   (let* ((shasht:*write-alist-as-object* t)
          (shasht:*write-plist-as-object* t)
@@ -414,6 +452,20 @@ Otherwise, treat the literal character 'n' as a newline placeholder (for tests u
     result))
 
 ;;** File utils
+(defun path-matches? (path pattern)
+  "Returns T if path matches the regex pattern."
+  (when (and path pattern)
+    (not (null (cl-ppcre:scan pattern path)))))
+
+(defun path-in-project? (path)
+  "Returns T if PATH resolves to within *repo-root*."
+  (when (and path *repo-root*)
+    (handler-case
+        (let* ((full-path (namestring (truename (merge-pathnames path *repo-root*))))
+               (root (namestring (truename *repo-root*))))
+          (str:starts-with-p root full-path))
+      (error () nil))))
+
 (defun expand-path (path)
   "Expand ~ to user home directory in path string."
   (if (and (stringp path) (> (length path) 0) (char= (char path 0) #\~))

@@ -253,7 +253,7 @@ Generated using tree-sitter")
 (defvar *agent-retry-limit* 10
                             "Default retry limit for agents.")
 (defvar *live-dangerously* nil
-                           "Set to T to allow agents to run without a safe environment.")
+                           "Set to T to disable safety checks and allow agents to run without a safe environment.")
 (defvar *agent-safe-env* nil
                           "Set to T if running in a container or other safe environment, allowing agents to run.")
 

@@ -58,6 +58,30 @@ Outro")
       (is (string= (hactar::read-file-content p) content))
       (is (string= (hactar::get-file-content p) content)))))
 
+(test safe-write-and-replace-test
+  "Test safe-write-to-file and safe-replace-in-file."
+  (let* ((temp-dir (make-temp-dir))
+         (hactar::*repo-root* temp-dir))
+    (let ((test-file "safe-test.txt")
+          (outside-file "../outside.txt"))
+      
+      ;; Test safe write
+      (is-true (hactar::safe-write-to-file test-file "initial content"))
+      (is (string= (hactar::read-file-content (merge-pathnames test-file temp-dir)) "initial content"))
+      
+      ;; Test safe replace
+      (is-true (hactar::safe-replace-in-file test-file "initial" "updated"))
+      (is (string= (hactar::read-file-content (merge-pathnames test-file temp-dir)) "updated content"))
+      
+      ;; Test safe replace not found
+      (is (null (hactar::safe-replace-in-file test-file "missing" "new")))
+      
+      ;; Test outside write
+      (signals error (hactar::safe-write-to-file outside-file "bad"))
+      
+      ;; Test outside replace
+      (signals error (hactar::safe-replace-in-file outside-file "x" "y")))))
+
 (test to-json-test
   "Encode an alist to JSON with downcased keys."
   (let ((json (hactar::to-json '((:foo . 1) (:bar . "baz")))))
