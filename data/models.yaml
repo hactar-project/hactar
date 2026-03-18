@@ -455,6 +455,36 @@
   max_input_tokens: 120000
   cache_control: true
   supports: ["vision"]
+- name: copilot/gpt-5.4
+  edit_format: diff
+  model_name: gpt-5.4
+  use_repo_map: true
+  examples_as_sys_msg: true
+  extra_params:
+    max_tokens: 100000
+    extra_headers:
+      Editor-Version: Hactar/0.1
+      Copilot-Integration-Id: copilot-chat
+      Copilot-Vision-Request: "true"
+  max_output_tokens: 8192
+  max_input_tokens: 120000
+  cache_control: true
+  supports: ["vision"]
+- name: copilot/gpt-5.4-mini
+  edit_format: diff
+  model_name: gpt-5.4-mini
+  use_repo_map: true
+  examples_as_sys_msg: true
+  extra_params:
+    max_tokens: 100000
+    extra_headers:
+      Editor-Version: Hactar/0.1
+      Copilot-Integration-Id: copilot-chat
+      Copilot-Vision-Request: "true"
+  max_output_tokens: 8192
+  max_input_tokens: 120000
+  cache_control: true
+  supports: ["vision"]
 - name: copilot/gpt-5-codex
   edit_format: diff
   model_name: gpt-5-codex
