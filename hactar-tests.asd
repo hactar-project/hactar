@@ -6,6 +6,7 @@
   :components ((:file "tests/package")
                (:file "tests/suite")
                (:file "tests/core.test")
+               (:file "tests/errors.test")
                (:file "tests/org-parser.test")
                (:file "tests/org-utils.test")
                (:file "tests/router.test")

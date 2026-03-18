@@ -136,18 +136,35 @@
             (format t "Error '~A' added.~%" title))
           (format t "Missing required arguments. Need --code, --title, --message, --cause, --solution.~%")))))
 
+(defun run-errors-lookup (args)
+  "Common logic for errors-find and errors-lookup."
+  (let* ((format-opt (getf args :format))
+         (pos-args (append (uiop:ensure-list (getf args :subcommand))
+                           (uiop:ensure-list (getf args :args))))
+         (query (format nil "~{~A~^ ~}" pos-args)))
+    (if (string= query "")
+        (format t "Usage: /errors-lookup query [--format=json]~%")
+        (let ((results (errors-find :text query :limit 20)))
+          (if (string-equal format-opt "json")
+              (let ((json-str (format nil "#+begin_src json :type errors-lookup-output~%~A~%#+end_src~%" (to-json (coerce results 'vector)))))
+                (editor-output json-str :type "json" :success "true"))
+              (if results
+                  (let ((selected (select-error-with-fzf results)))
+                    (when selected
+                      (add-error-to-context selected)))
+                  (format t "No errors found matching query: ~A~%" query)))))))
+
 (define-command errors-find (args)
   "Search in DB using a query and add selected to context.
-   Usage: /errors-find <query>"
-  (let ((query (format nil "~{~A~^ ~}" args)))
-    (if (string= query "")
-        (format t "Please provide a search query.~%")
-        (let ((results (errors-find :text query :limit 20)))
-          (if results
-              (let ((selected (select-error-with-fzf results)))
-                (when selected
-                  (add-error-to-context selected)))
-              (format t "No errors found matching query: ~A~%" query))))))
+   Usage: /errors-find <query> [--format=json]"
+  (run-errors-lookup args)
+  :cli-options ((:long "format" :description "Output format (json)")))
+
+(define-command errors-lookup (args)
+  "Lookup errors by text query.
+Usage: /errors-lookup query [--format=json]"
+  (run-errors-lookup args)
+  :cli-options ((:long "format" :description "Output format (json)")))
 
 (define-command errors-add-to-context (args)
   "Select and add a known error to context (from *errors*)."

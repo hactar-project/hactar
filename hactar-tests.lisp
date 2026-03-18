@@ -84,6 +84,7 @@ Returns true iff all suites pass."
         ;; Keep this list in sync with the suites defined across tests/*.test.lisp
         ;; and with hactar-tests.asd components.
         (let* ((suites '(hactar-tests
+                         errors-tests
                          org-mode-parser-tests
                          org-mode-tests
                          utils-tests
