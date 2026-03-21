@@ -718,7 +718,7 @@ Usage: hactar preset list
 
 (defpreset core
   "Hactar core development files"
-  :files ("globals.lisp"
+  :files ("state.lisp"
           "hactar.lisp"
           "context.lisp"
           "commands.lisp")

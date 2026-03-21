@@ -46,7 +46,7 @@
 	       ;; core extras
 	       (:file "hooks")
 	       ;; state
-	       (:file "globals")
+	       (:file "state")
 	       (:file "config")
 	       ;; utils and backing libs
 	       (:file "utils")
