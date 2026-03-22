@@ -381,6 +381,39 @@
   (format t "Dot System Prompt:~%")
   (format t "  ~A~%" (dot-system-prompt)))
 
+(define-command state (args)
+  "View and inspect Hactar state variables."
+  (let ((var-name (first args)))
+    (if var-name
+        (let* ((search-name (string-downcase (string-trim '(#\*) var-name)))
+               (info (gethash (format nil "*~A*" search-name) *state-registry*))
+               (info-exact (gethash (string-downcase var-name) *state-registry*))
+               (found (or info-exact info)))
+          (if found
+              (format t "~A~%" (format-state-xml found))
+              (format t "</notfound>~%")))
+        (if *in-editor*
+            (progn
+              (format t "<state>~%")
+              (maphash (lambda (k info)
+                         (declare (ignore k))
+                         (format t "~A~%" (format-state-xml info)))
+                       *state-registry*)
+              (format t "</state>~%"))
+            (let* ((items (loop for k being the hash-keys of *state-registry*
+                                for info being the hash-values of *state-registry*
+                                collect `((:item . ,k)
+                                          (:preview . ,(format nil "Type: ~A~%~A" (getf info :type) (or (getf info :doc) ""))))))
+                   (selected-item (when (fboundp 'fuzzy-select)
+                                    (fuzzy-select items))))
+              (if selected-item
+                  (let ((info (gethash (cdr (assoc :item selected-item)) *state-registry*)))
+                    (format t "Variable: ~A~%" (getf info :name))
+                    (format t "Type: ~A~%" (getf info :type))
+                    (format t "Doc: ~A~%" (or (getf info :doc) "None")))
+                  (format t "Selection cancelled.~%"))))))
+  :acp t)
+
 (define-command settings (args)
                 "Print out the current settings."
                 (declare (ignore args))
