@@ -256,7 +256,7 @@ Generated using tree-sitter")
   "Default file extension for skill files.")
 
 (defstate *hactar-rules-path* (or (uiop:getenv "HACTAR_RULES_PATH")
-                                 (uiop:subpathname *hactar-data-path* "rules/"))
+                                 (uiop:subpathname *hactar-config-path* "rules/"))
   "Path to the rules directory.")
 
 ;;* Permissions
