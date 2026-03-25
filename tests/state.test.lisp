@@ -25,4 +25,4 @@
   "Test state command when variable is not found."
   (let ((output (with-output-to-string (*standard-output*)
                   (hactar::execute-command "/state" '("*nonexistent-var*")))))
-    (is-true (search "<notfound/>" output))))
+    (is-true (search "</notfound>" output))))
