@@ -42,6 +42,7 @@
 	       (:file "tests/acp.test")
 	       (:file "tests/mcp.test")
 	       (:file "tests/rules.test")
+	       (:file "tests/skills.test")
 	       (:file "tests/state.test")
 	       (:file "tests/to-org.test")
                (:file "tests/monolith.test")

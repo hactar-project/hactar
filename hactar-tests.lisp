@@ -116,6 +116,7 @@ Returns true iff all suites pass."
                          tui-tests
 			 to-org-tests
 			 rules-tests
+			 skills-tests
                          ;; monolith-tests
                          ;; litmode-tests
 			 ))
