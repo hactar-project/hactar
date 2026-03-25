@@ -255,6 +255,10 @@ Generated using tree-sitter")
 (defstate *skills-file-ext* "md"
   "Default file extension for skill files.")
 
+(defstate *hactar-rules-path* (or (uiop:getenv "HACTAR_RULES_PATH")
+                                 (uiop:subpathname *hactar-data-path* "rules/"))
+  "Path to the rules directory.")
+
 ;;* Permissions
 (defstate *permission-rules* '()
   "Ordered list of permission-rule structs, checked highest priority first.")

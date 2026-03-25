@@ -115,6 +115,7 @@ Returns true iff all suites pass."
 			 mcp-tests
                          tui-tests
 			 to-org-tests
+			 rules-tests
                          ;; monolith-tests
                          ;; litmode-tests
 			 ))
