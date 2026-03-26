@@ -22,6 +22,7 @@ pkgs.mkShell {
     sqlite
     sqlite-vec
     sqlite-utils
+    cmark
   ];
 
   shellHook = ''
@@ -34,6 +35,7 @@ pkgs.mkShell {
         pkgs.sqlite-vec
         pkgs.sqlite
         pkgs.openssl
+        pkgs.cmark
       ]
     }:$LD_LIBRARY_PATH
 

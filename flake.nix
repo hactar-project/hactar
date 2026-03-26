@@ -11,7 +11,7 @@
       let
         pkgs = nixpkgs.legacyPackages.${system};
 
-        nativeLibs = with pkgs; [ openssl sqlite libuv libyaml libev ];
+        nativeLibs = with pkgs; [ openssl sqlite libuv libyaml libev cmark ];
 
         nhooks = pkgs.sbcl.buildASDFSystem rec {
           pname = "nhooks";
@@ -107,7 +107,7 @@
         packages.default = hactar;
 
         devShells.default = pkgs.mkShell {
-          buildInputs = [ sbcl pkgs.sqlite-utils pkgs.rlwrap ] ++ nativeLibs;
+          buildInputs = [ sbcl pkgs.sqlite-utils pkgs.rlwrap pkgs.cmark ] ++ nativeLibs;
 
           shellHook = ''
             export CL_SOURCE_REGISTRY=$(pwd)''${CL_SOURCE_REGISTRY:+:$CL_SOURCE_REGISTRY}

@@ -87,6 +87,7 @@ Returns true iff all suites pass."
                          errors-tests
                          org-mode-parser-tests
                          org-mode-tests
+			 markdown-tests
                          utils-tests
                          router-tests
                          web-command-tests

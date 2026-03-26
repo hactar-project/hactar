@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/Bin/sh
 #|-*- mode:lisp -*-|#
 #|
 exec ros -Q -- $0 "$@"
@@ -146,8 +146,32 @@ exec ros -Q -- $0 "$@"
     (format *error-output* "Warning: Could not find or install sqlite-vec (~A).~%Set SQLITE_VEC_PATH manually.~%" vec-filename)
     nil))
 
+(defun check-and-install-cmark ()
+  "Check if cmark is installed, and attempt to install it if missing."
+  (multiple-value-bind (out err exit-code)
+      (uiop:run-program '("sh" "-c" "command -v cmark") 
+                        :output :string :error-output :string :ignore-error-status t)
+    (declare (ignore out err))
+    (unless (zerop exit-code)
+      (format *error-output* "cmark not found on PATH. Attempting to install...~%")
+      (cond
+        ((or (probe-file "/etc/NIXOS")
+             (probe-file "/run/current-system/sw/bin/nixos-version"))
+         (format *error-output* "Warning: On NixOS, please install cmark manually (e.g., add cmark to your environment).~%"))
+        ((probe-file "/usr/bin/pacman")
+         (format *error-output* "Installing cmark via pacman...~%")
+         (uiop:run-program '("sudo" "pacman" "-S" "--noconfirm" "cmark")
+                           :output *standard-output* :error-output *error-output* :ignore-error-status t))
+        ((probe-file "/usr/bin/apt")
+         (format *error-output* "Installing cmark via apt...~%")
+         (uiop:run-program '("sudo" "apt-get" "install" "-y" "cmark")
+                           :output *standard-output* :error-output *error-output* :ignore-error-status t))
+        (t
+         (format *error-output* "Warning: Could not detect a supported package manager. Please install cmark manually.~%"))))))
+
 (defun main (&rest argv)
   "Entry point for the Roswell-installed hactar command."
+  (check-and-install-cmark)
   (let ((vec-path (resolve-sqlite-vec-path)))
     (when vec-path
       (setf hactar:*sqlite-vec-path* vec-path)))

@@ -41,7 +41,8 @@
                #:alexandria
                #:str
 	       #:cl-charms
-               #:cl-ppcre)
+               #:cl-ppcre
+	       #:cmark)
   :components ((:file "packages")
 	       ;; core extras
 	       (:file "hooks")
@@ -52,6 +53,7 @@
 	       (:file "utils")
 	       (:file "org-mode-parser")
 	       (:file "org-mode")
+	       (:file "markdown")
 	       ;; core
 	       (:file "tui")
 	       (:file "db")

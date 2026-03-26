@@ -9,6 +9,7 @@
                (:file "tests/errors.test")
                (:file "tests/org-parser.test")
                (:file "tests/org-utils.test")
+	       (:file "tests/markdown.test")
                (:file "tests/router.test")
                (:file "tests/web-command.test")
                (:file "tests/ai-comment.test")
