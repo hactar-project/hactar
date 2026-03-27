@@ -17,7 +17,7 @@ For example:
 <path>src/worker.ts</path>
 </read_file>
 
-Do NOT escape html in your tool calls. Do NOT request to read a file that you see in context as a org-mode src block.
+Do NOT escape html in your tool calls. Do NOT request to read a file that you see in context as src block.
 
 {{tools}}
 
