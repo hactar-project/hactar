@@ -1,4 +1,4 @@
-#!/Bin/sh
+#!/bin/sh
 #|-*- mode:lisp -*-|#
 #|
 exec ros -Q -- $0 "$@"
