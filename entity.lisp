@@ -9,6 +9,7 @@
             defbehavior
             deftag
             defentity-recipe
+            defmold
             entity/create
             entity/list
             entity/update
@@ -31,7 +32,29 @@
             *entity-implementations*
             *behavior-registry*
             *tag-registry*
-            *skill-registry*)))
+            *skill-registry*
+            *molds*
+            *active-mold*
+            mold-definition
+            mold-definition-name
+            mold-definition-description
+            mold-definition-entities
+            mold-definition-interfaces
+            mold-definition-rules
+            mold-entity
+            mold-entity-name
+            mold-interface
+            mold-interface-name
+            mold-use
+            mold-show
+            mold-list
+            mold-install
+            mold-validate
+            mold-pour
+            mold-pour-all
+            mold-export
+            mold-init
+            mold-load-installed)))
 
 ;;* registries
 

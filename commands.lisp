@@ -293,4 +293,36 @@
             (if (cdr matches)
               (cons (str:prefix matches) matches)
               matches)))
+        ((member cmd '("/mold.use" "/mold.show" "/mold.export") :test #'string=)
+          (let ((matches (loop for name being the hash-keys of *molds*
+                               when (str:starts-with-p text name :ignore-case t)
+                               collect name)))
+            (if (cdr matches)
+              (cons (str:prefix matches) matches)
+              matches)))
+        ((string= cmd "/mold.pour")
+          (let ((matches (when *active-mold*
+                           (loop for entity in (mold-definition-entities *active-mold*)
+                                 for name = (string-downcase
+                                             (if (stringp (mold-entity-name entity))
+                                                 (mold-entity-name entity)
+                                                 (symbol-name (mold-entity-name entity))))
+                                 when (str:starts-with-p text name :ignore-case t)
+                                 collect name))))
+            (if (cdr matches)
+              (cons (str:prefix matches) matches)
+              matches)))
+        ((string= cmd "/mold.install")
+          ;; Complete with filenames for local installs
+          (let* ((prefix (if (string= text "") "./" text))
+                 (dir (directory-namestring prefix))
+                 (name-prefix (file-namestring prefix))
+                 (files (when (probe-file dir)
+                          (mapcar #'namestring
+                                  (directory (merge-pathnames
+                                               (make-pathname :name :wild :type :wild)
+                                               dir))))))
+            (remove-if-not (lambda (file)
+                             (str:starts-with-p name-prefix (file-namestring file) :ignore-case t))
+                           files)))
         (t nil)))))

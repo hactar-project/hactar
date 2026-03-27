@@ -406,6 +406,10 @@ Generated using tree-sitter")
 (defstate *recipes* (make-hash-table :test 'equal)
   "Registry of defined recipes by name.")
 
+;;** Mold System State
+(defstate *active-mold-name* nil
+  "Name of the currently active mold, or NIL.")
+
 (defstate *template-search-paths* (let ((env-paths (uiop:getenv "HACTAR_TEMPLATE_SEARCH_PATHS")))
                                   (if env-paths
                                       (mapcar #'uiop:ensure-directory-pathname (uiop:split-string env-paths :separator " "))
