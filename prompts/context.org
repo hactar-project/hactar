@@ -23,3 +23,7 @@ Documentation:
 Potential Errors you may encounter and their solutions:
 
 {{errors-context}}
+
+Active Mold:
+
+{{mold}}

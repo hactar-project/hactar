@@ -84,6 +84,7 @@
     (mustache:render* base-prompt
                       `((:language . ,(language))
                         (:rules . ,rules-text)
+                        (:mold . ,(mold-context-string))
                         (:guide . ,(or guide-content ""))
                         (:context . ,context)
                         (:tools . ,(or tools-xml ""))
@@ -199,7 +200,8 @@
        (:author . ,*author*)
        (:docs-context . ,(docs-context-string))
        (:errors-context . ,(errors-context-string))
-       (:images-context . ,(images-context-string))))))
+       (:images-context . ,(images-context-string))
+       (:mold . ,(mold-context-string))))))
 
 (defun read-context-from-file ()
   "Read the entire context from the exposed context file. Returns the file content as string."
@@ -223,6 +225,7 @@
              (repo-map-string (if *repo-map* *repo-map* ""))
              (stack-string (format nil "~{~A~^, ~}" *stack*))
              ;; Estimate tokens used by non-file parts
+             (mold-string (mold-context-string))
              (base-tokens (estimate-tokens
                            (mustache:render* base-context-template
                                              `((:repo-map . ,repo-map-string)
@@ -233,7 +236,8 @@
                                                (:name . ,*name*)
                                                (:author . ,*author*)
                                                (:docs-context . ,docs-string)
-                                               (:errors-context . ,errors-string)))))
+                                               (:errors-context . ,errors-string)
+                                               (:mold . ,mold-string)))))
              (max-input-tokens (if *current-model* (model-config-max-input-tokens *current-model*) 32000))
              (remaining-tokens-for-files (- max-input-tokens base-tokens))
              (files-context-string "")
@@ -259,7 +263,8 @@
                             (:name . ,*name*)
                             (:author . ,*author*)
                             (:docs-context . ,docs-string)
-                            (:errors-context . ,errors-string))))))
+                            (:errors-context . ,errors-string)
+                            (:mold . ,mold-string))))))
 
 (defun add-file-to-context (file-path)
   "Add a file to the context.

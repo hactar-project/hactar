@@ -983,6 +983,57 @@
     (when (> count 0)
       (debug-log "Loaded" count "mold(s) from" (namestring *molds-path*)))))
 
+;;* Mold Context Generation
+
+(defun mold-context-string ()
+  "Generate a context string describing the active mold for inclusion in the system prompt/context."
+  (if *active-mold*
+      (let ((m *active-mold*))
+        (with-output-to-string (s)
+          (format s "## Active Mold: ~A~%" (mold-definition-name m))
+          (when (mold-definition-description m)
+            (format s "~A~%~%" (mold-definition-description m)))
+          ;; Entities
+          (when (mold-definition-entities m)
+            (format s "### Entities~%")
+            (dolist (e (mold-definition-entities m))
+              (format s "- **~A**" (mold-entity-name e))
+              (when (mold-entity-description e)
+                (format s ": ~A" (mold-entity-description e)))
+              (format s "~%")
+              (when (mold-entity-default-tags e)
+                (format s "  Tags: ~{~A~^, ~}~%" (mold-entity-default-tags e)))
+              (when (mold-entity-example e)
+                (format s "  Example: ~A~%" (mold-entity-example e)))
+              (when (mold-entity-rules e)
+                (dolist (r (mold-entity-rules e))
+                  (format s "  - ~A~%" r))))
+            (format s "~%"))
+          ;; Interfaces
+          (when (mold-definition-interfaces m)
+            (format s "### Interfaces~%")
+            (dolist (iface (mold-definition-interfaces m))
+              (format s "- **~A**" (mold-interface-name iface))
+              (when (mold-interface-entity iface)
+                (format s " (entity: ~A)" (mold-interface-entity iface)))
+              (when (mold-interface-description iface)
+                (format s ": ~A" (mold-interface-description iface)))
+              (format s "~%")
+              (when (mold-interface-rules iface)
+                (dolist (r (mold-interface-rules iface))
+                  (format s "  - ~A~%" r))))
+            (format s "~%"))
+          ;; Rules
+          (when (mold-definition-rules m)
+            (format s "### Mold Rules~%")
+            (dolist (r (mold-definition-rules m))
+              (case (mold-rule-scope r)
+                (:generic (format s "- ~A~%" (mold-rule-text r)))
+                (:entity (format s "- [entity:~A] ~A~%" (mold-rule-target r) (mold-rule-text r)))
+                (:interface (format s "- [interface:~A] ~A~%" (mold-rule-target r) (mold-rule-text r)))
+                (t (format s "- ~A~%" (mold-rule-text r))))))))
+      ""))
+
 ;;* Commands
 
 ;;** mold.list

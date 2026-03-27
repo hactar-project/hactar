@@ -54,7 +54,8 @@
             mold-pour-all
             mold-export
             mold-init
-            mold-load-installed)))
+            mold-load-installed
+            mold-context-string)))
 
 ;;* registries
 
