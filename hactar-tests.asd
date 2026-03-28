@@ -39,6 +39,7 @@
                (:file "tests/tools.test")
 	       (:file "tests/lisp-rpc.test")
 	       (:file "tests/permissions.test")
+	       (:file "tests/mold.test")
                (:file "tests/tui.test")
 	       (:file "tests/acp.test")
 	       (:file "tests/mcp.test")

@@ -118,6 +118,7 @@ Returns true iff all suites pass."
 			 to-org-tests
 			 rules-tests
 			 skills-tests
+			 mold-tests
                          ;; monolith-tests
                          ;; litmode-tests
 			 ))

@@ -785,10 +785,36 @@
          (mold-entities '())
          (mold-interfaces '())
          (mold-rules '()))
+    ;; Reconstruct top-level sections: group level-1 headings with all their sub-headings
+    (let ((top-sections '())
+          (current-section nil))
+      (dolist (h headings)
+        (let ((level (getf h :level))
+              (title (getf h :title)))
+          (if (= level 1)
+              (progn
+                (when current-section
+                  (push (nreverse current-section) top-sections))
+                (setf current-section (list h)))
+              (when current-section
+                (push h current-section)))))
+      (when current-section
+        (push (nreverse current-section) top-sections))
+      (setf top-sections (nreverse top-sections))
+
     ;; Process top-level headings
-    (dolist (h headings)
-      (let ((title (string-trim '(#\Space #\Tab) (getf h :title)))
-            (content (getf h :content)))
+    (dolist (section top-sections)
+      (let* ((h (first section))
+             (title (string-trim '(#\Space #\Tab) (getf h :title)))
+             (content (with-output-to-string (s)
+                        ;; Include the level-1 heading's own content
+                        (write-string (or (getf h :content) "") s)
+                        ;; Include sub-heading lines and their content
+                        (dolist (sub (rest section))
+                          (format s "~%~A ~A~%"
+                                  (make-string (getf sub :level) :initial-element #\*)
+                                  (getf sub :title))
+                          (write-string (or (getf sub :content) "") s)))))
         (cond
           ;; Metadata section
           ((string-equal title "Metadata")
@@ -844,7 +870,7 @@
      :entities mold-entities
      :interfaces mold-interfaces
      :rules mold-rules
-     :source (namestring file-path))))
+     :source (namestring file-path)))))
 
 (defun %org-parse-entity-subsections (content)
   "Parse entity sub-sections from org content under the Entities heading."

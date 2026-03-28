@@ -107,6 +107,7 @@
 	       (:file "gpt-mode")
 	       (:file "mcp")
 	       (:file "acp")
+	       (:file "molds")
 	       (:file "to-org")
 	       (:file "lisp-rpc-protocol")
 	       (:file "lisp-rpc")
