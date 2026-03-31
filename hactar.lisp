@@ -45,6 +45,16 @@
 		  (get-llm-response question))
                 :acp t)
 
+(define-command correct (args)
+                "Resend the chat asking the LLM to fix its search/replace blocks.
+Optionally provide additional guidance about what went wrong."
+                (let* ((guidance (when args (format nil "~{~A~^ ~}" args)))
+                       (correction-prompt
+                         (format nil "Your previous response contained SEARCH/REPLACE blocks that did not match the existing file content. The SEARCH section must EXACTLY match the existing code, character for character.~%~%~@[The user says: ~A~%~%~]Please carefully re-read the file contents provided in the context and rewrite your SEARCH/REPLACE blocks so that each SEARCH section is an exact, character-for-character copy of the lines in the actual file. Pay close attention to whitespace, indentation, comments, and punctuation."
+                                 guidance)))
+                  (get-llm-response correction-prompt))
+                :acp t)
+
 ;; TODO: Add automatic skills lookup and insertion
 ;; the main purpose of a seperate /code command is so we can have smart prompts
 (define-command code (args)
