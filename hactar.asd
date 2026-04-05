@@ -91,6 +91,7 @@
 	       (:file "import")
 	       (:file "copilot")
                (:file "feature")
+	        (:file "proxy")
 	       ;; modes
 	       (:file "npm")
 	       (:file "sh-mode")
@@ -117,6 +118,7 @@
 	       (:file "hactar-monolith")
 	       (:file "session")
 	       (:file "litmode")
+	      
 	       (:file "hyperfractal")
 	       (:file "ruhe")
 	       (:file "hactar"))         ; Compile main hactar file last

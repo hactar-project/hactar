@@ -55,7 +55,7 @@
                    (let ((opt-short (getf opt :short))
                          (opt-long (getf opt :long))
                          (opt-desc (getf opt :description)))
-                     (format t "    ")
+                     (format t "  ")
                      (when opt-short (format t "-~A" opt-short))
                      (when (and opt-short opt-long) (format t ", "))
                      (when opt-long (format t "--~A" opt-long))

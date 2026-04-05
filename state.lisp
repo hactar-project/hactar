@@ -449,3 +449,12 @@ Generated using tree-sitter")
 (defstate *acp-cancelled* nil "T when the current prompt turn has been cancelled.")
 (defstate *acp-initialized* nil "T after the initialize handshake is complete.")
 (defstate *lisp-mode-enabled* nil "T when lisp mode enabled")
+
+;;** Proxy State
+(defstate *proxy-port* 4270
+  "Port for the LLM proxy server (defaults to HTTP port, routes are registered on *app*).")
+(defstate *proxy-upstream-url* (or (uiop:getenv "HACTAR_PROXY_UPSTREAM_URL")
+                                   "https://openrouter.ai/api/v1/chat/completions")
+  "Upstream LLM API URL that the proxy forwards requests to.")
+(defstate *proxy-auto-start* nil
+  "When T, automatically start the proxy on session init.")

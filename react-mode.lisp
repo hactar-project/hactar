@@ -271,6 +271,83 @@
   ((:create :file "src/auth/tokenRefresh.ts"
             :template "react/token-refresh.ts.mustache")))
 
+;;** React Proxy Hook
+;; Detects React-related content in proxy requests and injects React-specific rules.
+
+(defun react-proxy-rules-text ()
+  "Return the React rules text to inject into proxy requests."
+  "When working with React components:
+- Prefer functional components and hooks (useState, useEffect, useCallback, useMemo, etc.) over class components.
+- Use JSX for templating.
+- Follow standard React coding conventions and best practices.
+- Use TypeScript for type safety when .tsx/.ts files are present.
+- Prefer composition over inheritance.
+- Use React.memo() for expensive pure components.
+- Keep components small and focused (single responsibility).
+- Lift state up only when necessary; prefer local state and context.
+- Use custom hooks to extract reusable logic.
+- Always provide a key prop when rendering lists.
+- Use Error Boundaries for graceful error handling.
+- Prefer controlled components for form inputs.")
+
+(defun proxy-react-hook (request-plist)
+  "Proxy hook handler: detect React in request and inject React rules.
+   Detection checks: stack, message content mentions of React/JSX/hooks,
+   file extensions (.tsx, .jsx), and model context."
+  (let* ((messages (getf request-plist :messages))
+         (model (getf request-plist :model))
+         (system-prompt (getf request-plist :system-prompt))
+         (react-detected nil))
+
+    ;; Check 1: React is in the stack
+    (when (member "react" *stack* :test #'string-equal)
+      (setf react-detected t))
+
+    ;; Check 2: Messages mention React-related terms
+    (unless react-detected
+      (when (proxy-messages-contain-p messages
+                                       "react" "jsx" "tsx" "usestate" "useeffect"
+                                       "usecallback" "usememo" "useref" "usecontext"
+                                       "react-dom" "next.js" "nextjs" "remix"
+                                       "component" ".tsx" ".jsx")
+        (setf react-detected t)))
+
+    ;; Check 3: Files in context include React files
+    (unless react-detected
+      (when (some (lambda (f)
+                    (let ((ext (pathname-type (pathname f))))
+                      (or (string-equal ext "tsx")
+                          (string-equal ext "jsx"))))
+                  *files*)
+        (setf react-detected t)))
+
+    ;; Check 4: System prompt already mentions React
+    (unless react-detected
+      (when (and system-prompt
+                 (search "react" (string-downcase system-prompt)))
+        (setf react-detected t)))
+
+    ;; Inject React rules if detected
+    (when react-detected
+      (debug-log "Proxy: React detected, injecting React rules.")
+      (let* ((react-rules (react-proxy-rules-text))
+             (current-sys (or (getf request-plist :system-prompt) ""))
+             ;; Don't double-inject if rules already present
+             (already-injected (search "Prefer functional components and hooks" current-sys)))
+        (unless already-injected
+          (setf (getf request-plist :system-prompt)
+                (if (> (length current-sys) 0)
+                    (format nil "~A~%~%## React Development Rules~%~%~A" current-sys react-rules)
+                    (format nil "## React Development Rules~%~%~A" react-rules))))))
+
+    request-plist))
+
+;; Register the React proxy hook
+(nhooks:add-hook *proxy-request-hook*
+                 (make-instance 'nhooks:handler
+                                :fn #'proxy-react-hook
+                                :name 'proxy-react-hook))
+
 ;;** Auth Feature Definition
 
 (deffeature auth

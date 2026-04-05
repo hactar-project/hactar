@@ -480,7 +480,9 @@ Optionally provide additional guidance about what went wrong."
   (format t "  Session auto-save: ~A~%" (if *auto-save-session* "Enabled" "Disabled"))
   (format t "  System Prompt: ~A~%" (system-prompt))
   (format t " Dot System Prompt ~A~%" (dot-system-prompt))
-  (format t "  Repository root: ~A~%" (if *repo-root* (namestring *repo-root*) "Not set")))
+  (format t "  Repository root: ~A~%" (if *repo-root* (namestring *repo-root*) "Not set"))
+  (format t "  Proxy auto-start: ~A~%" (if *proxy-auto-start* "Enabled" "Disabled"))
+  (format t "  Proxy upstream: ~A~%" (or *proxy-upstream-url* "(default)")))
 
 (defun dump-dot-system-prompt ()
   (format t "Dot System Prompt:~%")
@@ -1332,6 +1334,15 @@ This is installed via HANDLER-BIND in the REPL and must accept exactly one argum
       (unless *silent*
         (format t "HTTP server potentially running on port ~A for API access.~%" *http-port*)))
 
+    ;; Start proxy if auto-start is enabled
+    (when *proxy-auto-start*
+      (with-suppressed-output-if-rpc
+        (start-proxy))
+      (when *lisp-rpc-mode*
+        (rpc-log :info "LLM Proxy started" :port *http-port*))
+      (unless *silent*
+        (format t "LLM Proxy running at http://localhost:~A/v1/chat/completions~%" *http-port*)))
+
     (setf *sessions-dir* (merge-pathnames ".hactar/sessions/" *repo-root*))
     (session/auto-restore)
 
@@ -1662,7 +1673,18 @@ This is installed via HANDLER-BIND in the REPL and must accept exactly one argum
     :description "TUI color theme name or path (e.g., gruvbox-dark, ~/my-theme.lisp)"
     :long-name "theme"
     :initial-value nil
-    :key :theme)))
+    :key :theme))
+  (clingon:make-option
+   :string
+   :description "Start the OpenRouter-compatible LLM proxy on startup."
+   :long-name "proxy"
+   :key :proxy)
+  (clingon:make-option
+   :string
+   :description "Upstream LLM API URL for the proxy to forward requests to."
+   :long-name "proxy-upstream"
+   :initial-value nil
+   :key :proxy-upstream))
 
 (defun handle-execute-flag (query run-immediately-p)
   "Handles --execute and --execute-immediately flags."
@@ -1743,9 +1765,12 @@ This is installed via HANDLER-BIND in the REPL and must accept exactly one argum
          (agent-command-str (clingon:getopt cmd :agent-command))
          (tui-flag (clingon:getopt cmd :tui))
          (theme-from-opt (clingon:getopt cmd :theme))
+         (proxy-flag (clingon:getopt cmd :proxy))
+         (proxy-upstream-opt (clingon:getopt cmd :proxy-upstream))
          (in-editor-flag (or (clingon:getopt cmd :in-editor)
                              (let ((env-val (uiop:getenv "HACTAR_IN_EDITOR")))
-                               (and env-val (not (string= env-val "")) (not (string-equal env-val "false"))))))
+                               (and env-val (not (string= env-val ""))
+				    (not (string-equal env-val "false"))))))
          (path (or (clingon:getopt cmd :path)
                    (let ((args-str (format nil "~{~A~^ ~}" free-args)))
                      (multiple-value-bind (match regs)
@@ -1828,6 +1853,11 @@ This is installed via HANDLER-BIND in the REPL and must accept exactly one argum
 		(set-analyzer-enabled analyzer-sym t)
 		(unless *silent* (format t "  Enabled analyzer via CLI: ~A~%" name-str)))
               (warn "Unknown analyzer specified in --enable-analyzers: ~A" name-str)))))
+
+    (when proxy-flag
+      (setf *proxy-auto-start* t))
+    (when proxy-upstream-opt
+      (setf *proxy-upstream-url* proxy-upstream-opt))
 
     (when watch-flag
       (set-analyzer-enabled 'ai-comment-edit t)

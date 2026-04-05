@@ -50,5 +50,6 @@
 	       (:file "tests/to-org.test")
                (:file "tests/monolith.test")
 	       (:file "tests/litmode.test")
+	       (:file "tests/proxy.test")
                (:file "hactar-tests"))
   :perform (asdf:test-op (op c) (uiop:symbol-call :hactar-tests '#:run-tests)))

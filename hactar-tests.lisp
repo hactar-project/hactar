@@ -120,6 +120,7 @@ Returns true iff all suites pass."
 			 rules-tests
 			 skills-tests
 			 mold-tests
+			 proxy-tests
                          ;; monolith-tests
                          ;; litmode-tests
 			 ))
