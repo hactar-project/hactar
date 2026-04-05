@@ -55,6 +55,7 @@
 	       (:file "org-mode")
 	       (:file "markdown")
 	       ;; core
+	       (:file "tui-theme")
 	       (:file "tui")
 	       (:file "db")
 	       (:file "rag")

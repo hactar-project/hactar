@@ -7,6 +7,11 @@
 (defvar *sub-commands* (make-hash-table :test 'equal)
                    "Hash table of available sub-commands for the CLI.")
 
+(defvar *command-completions* (make-hash-table :test 'equal)
+  "Hash table mapping command names (with /) to completion functions.
+   Each function takes (text args) where TEXT is the current word being completed
+   and ARGS is the list of already-typed arguments, and returns a list of completion strings.")
+
 (defvar *acp-commands* (make-hash-table :test 'equal)
   "Hash table of ACP-compatible slash commands. Keys are command names (with /),
    values are handler functions that return an alist suitable for JSON-RPC response.")
@@ -137,6 +142,7 @@
          (slash (getf plist :slash t))
          (subby (getf plist :sub nil))
          (acp-opt (getf plist :acp nil))
+         (completions-opt (getf plist :completions nil))
          (cli-options (getf plist :cli-options nil))
          (slash-body (append (when docstring (list docstring)) main-body (when cli-options `(:cli-options ,cli-options))))
          (sub-body (append (when docstring (list docstring)) main-body (when cli-options `(:cli-options ,cli-options))))
@@ -152,6 +158,8 @@
            `((define-slash-command ,name ,args ,@slash-body)))
        ,@(when subby
            `((define-sub-command ,name ,args ,@sub-body)))
+       ,@(when completions-opt
+           `((setf (gethash ,full-cmd-name *command-completions*) ,completions-opt)))
        ,@(when acp-opt
            (cond
              ((eq acp-opt t)
@@ -193,6 +201,14 @@
                      ,(or docstring "ACP command")
                      nil)))
        ',name)))
+
+(defun get-command-completions (cmd-name text args)
+  "Get completions for CMD-NAME's arguments. TEXT is the partial word being completed.
+   ARGS is the list of arguments typed so far. Returns a list of matching completion strings."
+  (let ((completer (gethash cmd-name *command-completions*)))
+    (if completer
+        (funcall completer text args)
+        nil)))
 
 (defun acp-command-p (cmd-name)
   "Return T if CMD-NAME (e.g. \"/add\") has an ACP-compatible handler."
@@ -253,19 +269,13 @@
            (words (cl-ppcre:split "\\s+" line))
            (cmd (first words)))
       (cond
-        ((member cmd '("/add" "/drop") :test #'string=)
-          ;; Complete with filenames
-          (let* ((prefix (if (string= text "") "./" text))
-                 (dir (directory-namestring prefix))
-                 (name-prefix (file-namestring prefix))
-                 (files (when (probe-file dir)
-                          (mapcar #'namestring
-                                  (directory (merge-pathnames
-                                               (make-pathname :name :wild :type :wild)
-                                               dir))))))
-            (remove-if-not (lambda (file)
-                             (str:starts-with-p name-prefix (file-namestring file) :ignore-case t))
-                           files)))
+        ;; Try registered completion functions first
+        ((gethash cmd *command-completions*)
+          (let* ((rest-words (rest words))
+                 (completions (get-command-completions cmd text rest-words)))
+            (if (cdr completions)
+              (cons (str:prefix completions) completions)
+              completions)))
         ((string= cmd "/docs-add")
           ;; Complete with filenames or suggest @p/
           (let* ((prefix text)
@@ -286,13 +296,6 @@
 	 nil)
         ((string= cmd "/guides-gen")
 	 nil)
-        ((string= cmd "/model")
-          (let ((matches (loop for model in *available-models*
-                               when (str:starts-with-p text (model-config-name model) :ignore-case t)
-                               collect (model-config-name model))))
-            (if (cdr matches)
-              (cons (str:prefix matches) matches)
-              matches)))
         ((member cmd '("/mold.use" "/mold.show" "/mold.export") :test #'string=)
           (let ((matches (loop for name being the hash-keys of *molds*
                                when (str:starts-with-p text name :ignore-case t)

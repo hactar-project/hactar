@@ -28,10 +28,11 @@
            #:fetch-url-content
            #:*repo-root*
            #:*sqlite-vec-path*
-	      #:get-all-md-src-blocks
-   #:render-markdown-to-html
-   #:insert-md-sibling
-   #:insert-md-child))
+	   #:get-all-md-src-blocks
+	   #:render-markdown-to-html
+	   #:insert-md-sibling
+	   #:insert-md-child
+	   #:make-tui-theme))
 
 (in-package :hactar)
 (defpackage :nhooks

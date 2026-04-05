@@ -537,6 +537,20 @@ Can provide image descriptions via -descriptions=\"desc1,desc2\""
                               (format t "Selected file appears to be an image. Use '/add <image_path>' to add it.~%")
                             (add-file-to-context selected-full-path)))
                       (format t "No file selected or no non-image tracked files found.~%"))))
+                :completions (lambda (text args)
+                               (declare (ignore args))
+                               (let* ((tracked (ignore-errors (list-git-tracked-files *repo-root*)))
+                                      (already (mapcar (lambda (f)
+                                                         (uiop:native-namestring
+                                                          (uiop:enough-pathname f *repo-root*)))
+                                                       *files*)))
+                                 (remove-if (lambda (f) (member f already :test #'string=))
+                                            (if (string= text "")
+                                                tracked
+                                                (remove-if-not
+                                                 (lambda (f)
+                                                   (str:starts-with-p text f :ignore-case t))
+                                                 tracked)))))
                 :acp (lambda (cmd-args)
                        (if cmd-args
                            (progn
@@ -565,6 +579,18 @@ Can provide image descriptions via -descriptions=\"desc1,desc2\""
                     (drop-file-from-context native-path)
                     (drop-image-from-context native-path)))
                 (format t "Dropped files/images from context: ~{~A~^, ~}~%" args)
+                :completions (lambda (text args)
+                               (declare (ignore args))
+                               (let ((in-context (mapcar (lambda (f)
+                                                           (uiop:native-namestring
+                                                            (uiop:enough-pathname f *repo-root*)))
+                                                         *files*)))
+                                 (if (string= text "")
+                                     in-context
+                                     (remove-if-not
+                                      (lambda (f)
+                                        (str:starts-with-p text f :ignore-case t))
+                                      in-context))))
                 :acp (lambda (cmd-args)
                        (let ((dropped '()))
                          (dolist (file-arg cmd-args)

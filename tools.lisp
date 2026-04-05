@@ -259,22 +259,31 @@ Uses the permissions system (resolve-permission) instead of simple :confirm chec
                (return-from execute-tool
                  (values "Tool execution denied by user." t nil)))))
           (:allow nil)))
-      (handler-case
-          (let ((result (funcall (tool-definition-function tool) args-plist)))
-            (when *in-editor*
-              (editor-log-write
-               (format nil "Tool: ~A~%Args: ~S~%Result: ~A" tool-name args-plist result)
-               :type "tool-result")
-              (editor-done-marker :success "true"))
-            (values result t nil))
-        (error (e)
-          (let ((err-msg (format nil "Error executing tool '~A': ~A" tool-name e)))
-            (when *in-editor*
-              (editor-log-write
-               (format nil "Tool: ~A~%Args: ~S~%Error: ~A" tool-name args-plist err-msg)
-               :type "tool-error")
-              (editor-done-marker :success "false"))
-            (values nil nil err-msg)))))))
+      (let ((tui-call-id (when *tui-running*
+                           (let ((id (format nil "tui_~A_~A" tool-name (get-universal-time))))
+                             (tui-add-tool-call id tool-name nil)
+                             (tui-update-tool-call id "in_progress")
+                             id))))
+        (handler-case
+            (let ((result (funcall (tool-definition-function tool) args-plist)))
+              (when tui-call-id
+                (tui-update-tool-call tui-call-id "completed"))
+              (when *in-editor*
+                (editor-log-write
+                 (format nil "Tool: ~A~%Args: ~S~%Result: ~A" tool-name args-plist result)
+                 :type "tool-result")
+                (editor-done-marker :success "true"))
+              (values result t nil))
+          (error (e)
+            (when tui-call-id
+              (tui-update-tool-call tui-call-id "failed"))
+            (let ((err-msg (format nil "Error executing tool '~A': ~A" tool-name e)))
+              (when *in-editor*
+                (editor-log-write
+                 (format nil "Tool: ~A~%Args: ~S~%Error: ~A" tool-name args-plist err-msg)
+                 :type "tool-error")
+                (editor-done-marker :success "false"))
+              (values nil nil err-msg))))))))
 
 (defun execute-xml-tool-calls (tool-calls)
   "Execute a list of parsed XML tool calls.

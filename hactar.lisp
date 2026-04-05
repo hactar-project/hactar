@@ -25,6 +25,92 @@
   "Generate the feature rules section for the system prompt from active features."
   (get-active-feature-rules))
 
+(define-command theme (args)
+  "Switch TUI theme. No args = fuzzy-select from available themes."
+  (if args
+      (let* ((theme-name (first args))
+             (theme (find-theme-by-name theme-name)))
+        (if theme
+            (progn
+              (setf *tui-theme-name* (tui-theme-name theme))
+              (setf *tui-theme* theme)
+              ;; If TUI is running, re-apply immediately
+              (when *tui-running*
+                (tui-apply-theme theme))
+              (format t "Theme set to: ~A~%" (tui-theme-name theme)))
+            (format t "Theme not found: ~A~%Available themes: ~{~A~^, ~}~%"
+                    theme-name
+                    (mapcar #'tui-theme-name (list-available-themes)))))
+      ;; No args: list or fuzzy-select
+      (cond
+        ((or *acp-mode* (not *in-repl*))
+         (let ((themes (list-available-themes)))
+           (format t "Available themes:~%")
+           (dolist (th themes)
+             (format t "  ~A~@[ (active)~]~%"
+                     (tui-theme-name th)
+                     (and *tui-theme*
+                          (string= (tui-theme-name th) (tui-theme-name *tui-theme*)))))))
+        (t
+         (let* ((themes (list-available-themes))
+                (items (loop for th in themes
+                             collect `((:item . ,(tui-theme-name th))
+                                       (:preview . ,(format nil "Theme: ~A~%BG: ~A~%FG: ~A~%Border: ~A~%Header: ~A~%Prompt: ~A"
+                                                            (tui-theme-name th)
+                                                            (or (tui-theme-bg th) "default")
+                                                            (or (tui-theme-fg th) "default")
+                                                            (or (tui-theme-border th) "default")
+                                                            (or (tui-theme-header th) "default")
+                                                            (or (tui-theme-prompt-marker th) "default"))))))
+                (selected (fuzzy-select items)))
+           (if selected
+               (let* ((selected-name (cdr (assoc :item selected)))
+                      (theme (find-theme-by-name selected-name)))
+                 (when theme
+                   (setf *tui-theme-name* (tui-theme-name theme))
+                   (setf *tui-theme* theme)
+                   (when *tui-running*
+                     (tui-apply-theme theme))
+                   (format t "Theme set to: ~A~%" (tui-theme-name theme))))
+               (format t "Theme selection cancelled.~%"))))))
+  :completions (lambda (text args)
+                 (declare (ignore args))
+                 (let ((names (mapcar #'tui-theme-name (list-available-themes))))
+                   (if (string= text "")
+                       names
+                       (remove-if-not
+                        (lambda (n) (str:starts-with-p text n :ignore-case t))
+                        names))))
+  :acp (lambda (cmd-args)
+         (if cmd-args
+             (let* ((theme-name (first cmd-args))
+                    (theme (find-theme-by-name theme-name)))
+               (if theme
+                   (progn
+                     (setf *tui-theme-name* (tui-theme-name theme))
+                     (setf *tui-theme* theme)
+                     (when *tui-running*
+                       (tui-apply-theme theme))
+                     `(("text" . ,(format nil "Theme set to: ~A" (tui-theme-name theme)))
+                       ("data" . (("theme" . ,(tui-theme-name theme))))))
+                   `(("text" . ,(format nil "Theme not found: ~A" theme-name)))))
+             (let ((themes (list-available-themes)))
+               `(("text" . ,(format nil "~A theme(s) available." (length themes)))
+                 ("data" . ,(coerce
+                             (mapcar (lambda (th)
+                                       `(("name" . ,(tui-theme-name th))
+                                         ("active" . ,(if (and *tui-theme*
+                                                               (string= (tui-theme-name th)
+                                                                        (tui-theme-name *tui-theme*)))
+                                                          t :false))))
+                                     themes)
+                             'vector)))))))
+
+(define-command tui (args)
+                "Launch the 3-column TUI interface (Crush-style)."
+                (declare (ignore args))
+                (run-tui))
+
 (define-command debug (args)
                 "Toggle debug mode for both hactar and llm packages."
                 (declare (ignore args))
@@ -188,6 +274,15 @@ Optionally provide additional guidance about what went wrong."
                            (set-current-model selected-model-name))
                          (format t "Model selection cancelled.~%"))))
                     (t (format t "No models available to select.~%"))))
+                :completions (lambda (text args)
+                               (declare (ignore args))
+                               (let ((names (mapcar #'model-config-name *available-models*)))
+                                 (if (string= text "")
+                                     names
+                                     (remove-if-not
+                                      (lambda (n)
+                                        (str:starts-with-p text n :ignore-case t))
+                                      names))))
                 :acp (lambda (cmd-args)
                        (if cmd-args
                            (let ((model-name (first cmd-args)))
@@ -1556,7 +1651,18 @@ This is installed via HANDLER-BIND in the REPL and must accept exactly one argum
     :description "Command to launch the ACP agent subprocess (for --agentshell)."
     :long-name "agent-command"
     :initial-value nil
-    :key :agent-command)))
+    :key :agent-command)
+   (clingon:make-option
+    :flag
+    :description "Start the 3-column TUI interface (Crush-style) instead of the readline REPL."
+    :long-name "tui"
+    :key :tui)
+   (clingon:make-option
+    :string
+    :description "TUI color theme name or path (e.g., gruvbox-dark, ~/my-theme.lisp)"
+    :long-name "theme"
+    :initial-value nil
+    :key :theme)))
 
 (defun handle-execute-flag (query run-immediately-p)
   "Handles --execute and --execute-immediately flags."
@@ -1635,6 +1741,8 @@ This is installed via HANDLER-BIND in the REPL and must accept exactly one argum
          (lisp-rpc-flag (clingon:getopt cmd :lisp-rpc))
          (agentshell-flag (clingon:getopt cmd :agentshell))
          (agent-command-str (clingon:getopt cmd :agent-command))
+         (tui-flag (clingon:getopt cmd :tui))
+         (theme-from-opt (clingon:getopt cmd :theme))
          (in-editor-flag (or (clingon:getopt cmd :in-editor)
                              (let ((env-val (uiop:getenv "HACTAR_IN_EDITOR")))
                                (and env-val (not (string= env-val "")) (not (string-equal env-val "false"))))))
@@ -1687,7 +1795,17 @@ This is installed via HANDLER-BIND in the REPL and must accept exactly one argum
     (when embedding-model-from-opt
       (setf *embedding-model* embedding-model-from-opt))
     (setf *completion-model* *current-model*)
-    
+
+    ;; Apply theme if specified via CLI or config
+    (when theme-from-opt
+      (setf *tui-theme-name* theme-from-opt))
+    (when *tui-theme-name*
+      (let ((theme (find-theme-by-name *tui-theme-name*)))
+        (when theme
+          (setf *tui-theme* theme)
+          (unless *silent*
+            (format t "Theme: ~A~%" (tui-theme-name theme))))))
+
     (when name-from-opt
       (setf *name* name-from-opt))
 
@@ -1784,6 +1902,28 @@ This is installed via HANDLER-BIND in the REPL and must accept exactly one argum
          ;; Enter the blocking main loop (no REPL)
          (unwind-protect
               (lisp-rpc-main-loop)
+           (ignore-errors (session/auto-save))
+           (delete-slynk-port-file)
+           (when *editor-log-file*
+             (ignore-errors (delete-file *editor-log-file*)))
+           (ignore-errors (stop-http-server))
+           (unless *file-watcher-stopped*
+             (setf *file-watcher-stopped* t)
+             (handler-case (stop-file-watcher)
+               (serious-condition (e) (format *error-output* "~&Cleanup error: ~A~%" e))))
+           (handler-case
+               (maphash (lambda (k v) (declare (ignore k))
+                          (handler-case (stop-watcher v)
+                            (serious-condition (e) (format *error-output* "~&Cleanup error: ~A~%" e))))
+                        *active-watchers*)
+             (serious-condition (e) (format *error-output* "~&Cleanup error: ~A~%" e))))))
+      (tui-flag
+       (progn
+         (load-chat-history)
+         (when lit-flag
+           (init-litmode))
+         (unwind-protect
+              (run-tui)
            (ignore-errors (session/auto-save))
            (delete-slynk-port-file)
            (when *editor-log-file*
