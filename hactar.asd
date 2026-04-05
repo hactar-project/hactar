@@ -57,6 +57,7 @@
 	       ;; core
 	       (:file "tui-theme")
 	       (:file "tui")
+	       (:file "llm-utils")
 	       (:file "db")
 	       (:file "rag")
 	       (:file "commands")

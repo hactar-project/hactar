@@ -41,6 +41,7 @@
 	       (:file "tests/permissions.test")
 	       (:file "tests/mold.test")
                (:file "tests/tui.test")
+	       (:file "tests/llm-utils.test")
 	       (:file "tests/acp.test")
 	       (:file "tests/mcp.test")
 	       (:file "tests/rules.test")

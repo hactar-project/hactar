@@ -115,6 +115,7 @@ Returns true iff all suites pass."
 			 acp-tests
 			 mcp-tests
                          tui-tests
+			 llm-utils-tests
 			 to-org-tests
 			 rules-tests
 			 skills-tests

@@ -84,6 +84,10 @@
 Generated using tree-sitter")
 
 ;;* Models
+(defstate *default-llm* (or (uiop:getenv "HACTAR_DEFAULT_LLM")
+                           "ollama/minimax-m2.5:cloud")
+  "The default LLM model name to use for utility functions like ask and moderate.")
+
 (nhooks:define-hook-type model-changed (function (t t) t)
   "Hook run when the current model changes. Handler is called with (new-model old-model).")
 (defstate *model-changed-hook* (make-instance 'hook-model-changed)
