@@ -178,28 +178,6 @@ Optionally provide additional guidance about what went wrong."
                     (let* ((command-info (gethash cmd *commands*))
                            (description (second command-info)))
                       (format t "  ~A - ~A~%" cmd description))))
-                (format t "~%Session commands:~%")
-                (format t "  /session           - List sessions or load by name~%")
-                (format t "  /session.save      - Save current state as a session~%")
-                (format t "  /session.load      - Load and restore a session~%")
-                (format t "  /session.list      - List all available sessions~%")
-                (format t "  /session.show      - Show session details~%")
-                (format t "  /session.delete    - Delete a session~%")
-                (format t "  /session.auto      - Toggle auto-save on exit~%")
-                (format t "~%Feature commands:~%")
-                (format t "  /feature <name>     - Activate a feature (e.g., /feature auth)~%")
-                (format t "  /feature <name> -v <variant> - Activate with variant~%")
-                (format t "  /feature list        - List all features~%")
-                (format t "  /feature active      - List active features~%")
-                (format t "  /feature off <name>  - Deactivate a feature~%")
-                (format t "  /feature show <name> - Show feature details~%")
-                (format t "~%Generation commands (/gen):~%")
-                (format t "  /gen <type> <name> - Generate code (component, route, model, etc.)~%")
-                (format t "  /gen/add <pattern> --to <glob> - Add a pattern to files~%")
-                (format t "  /gen/rm <type> <name> - Remove generated code~%")
-                (format t "  /gen/undo - Undo last generation~%")
-                (format t "  /gen/list - List available generators and patterns~%")
-                (format t "  /gen/history - Show generation history~%")
                 (format t "~%Available sub-commands:~%")
                 (let ((sorted-subcommands (sort (alexandria:hash-table-keys *sub-commands*) #'string<)))
                   (dolist (subcmd sorted-subcommands)
@@ -1673,18 +1651,18 @@ This is installed via HANDLER-BIND in the REPL and must accept exactly one argum
     :description "TUI color theme name or path (e.g., gruvbox-dark, ~/my-theme.lisp)"
     :long-name "theme"
     :initial-value nil
-    :key :theme))
-  (clingon:make-option
-   :string
-   :description "Start the OpenRouter-compatible LLM proxy on startup."
-   :long-name "proxy"
-   :key :proxy)
-  (clingon:make-option
-   :string
-   :description "Upstream LLM API URL for the proxy to forward requests to."
-   :long-name "proxy-upstream"
-   :initial-value nil
-   :key :proxy-upstream))
+    :key :theme)
+   (clingon:make-option
+    :string
+    :description "Start the OpenRouter-compatible LLM proxy on startup."
+    :long-name "proxy"
+    :key :proxy)
+   (clingon:make-option
+    :string
+    :description "Upstream LLM API URL for the proxy to forward requests to."
+    :long-name "proxy-upstream"
+    :initial-value nil
+    :key :proxy-upstream)))
 
 (defun handle-execute-flag (query run-immediately-p)
   "Handles --execute and --execute-immediately flags."
