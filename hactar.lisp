@@ -1794,7 +1794,7 @@ This is installed via HANDLER-BIND in the REPL and must accept exactly one argum
     (load-models-config (or config-path (get-models-config-path)))
     (set-current-model (or model
                            (uiop:getenv "HACTAR_MODEL")
-                           "ollama/minimax-m2.5:cloud"))
+                           "ollama/glm-5.1:cloud"))
     (when embedding-model-from-opt
       (setf *embedding-model* embedding-model-from-opt))
     (setf *completion-model* *current-model*)

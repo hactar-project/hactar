@@ -49,6 +49,14 @@
   max_input_tokens: 100000
   max_output_tokens: 8192
   cache_control: true
+- name: ollama/glm-5.1:cloud
+  edit_format: diff
+  model_name: ollama/glm-5.1:cloud
+  use_repo_map: true
+  examples_as_sys_msg: true
+  max_input_tokens: 100000
+  max_output_tokens: 8192
+  cache_control: true
 - name: ollama/glm-4.7-flash:q4_K_M
   edit_format: diff
   model_name: glm-4.7-flash:q4_K_M

@@ -85,7 +85,7 @@ Generated using tree-sitter")
 
 ;;* Models
 (defstate *default-llm* (or (uiop:getenv "HACTAR_DEFAULT_LLM")
-                           "ollama/minimax-m2.5:cloud")
+                           "ollama/glm-5.1:cloud")
   "The default LLM model name to use for utility functions like ask and moderate.")
 
 (nhooks:define-hook-type model-changed (function (t t) t)
@@ -100,15 +100,15 @@ Generated using tree-sitter")
   "Model to use for generating embeddings.")
 
 (defstate *completion-model* (or (uiop:getenv "HACTAR_COMPLETION_MODEL")
-			       "ollama/minimax-m2.5:cloud")
+			       "ollama/glm-5.1:cloud")
                            "Model configuration specifically for the /complete command and endpoint.")
 
 (defstate *chunking-llm* (or (uiop:getenv "HACTAR_CHUNKING_MODEL")
-			   "ollama/minimax-m2.5:cloud")
+			   "ollama/glm-5.1:cloud")
   "Model configuration specifically for chunk processing tasks.")
 
 (defstate *cheap-model* (or (uiop:getenv "HACTAR_CHEAP_MODEL")
-			  "ollama/minimax-m2.5:cloud")
+			  "ollama/glm-5.1:cloud")
   "The cheap model to use when cost is more of a concern.")
 
 (defstate *docs-meta-model* (or (uiop:getenv "HACTAR_DOCS_META_MODEL")
