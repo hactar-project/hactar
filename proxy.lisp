@@ -32,14 +32,16 @@
   "Extract system prompt from messages array/list. Returns (values system-prompt-string remaining-messages)."
   (let ((system-prompt nil)
         (remaining '()))
-    (loop for msg across (if (vectorp messages) messages (coerce messages 'vector))
-          do (let ((role (or (gethash "role" msg)
-                             (cdr (assoc :role msg))
-                             (cdr (assoc :|role| msg)))))
+    (loop for msg across (the simple-vector (if (vectorp messages) messages (coerce messages 'simple-vector)))
+          do (let ((role (typecase msg
+                           (hash-table (gethash "role" msg))
+                           (list (or (cdr (assoc :role msg))
+                                     (cdr (assoc :|role| msg)))))))
                (if (string-equal role "system")
-                   (let ((content (or (gethash "content" msg)
-                                      (cdr (assoc :content msg))
-                                      (cdr (assoc :|content| msg)))))
+                   (let ((content (typecase msg
+                                    (hash-table (gethash "content" msg))
+                                    (list (or (cdr (assoc :content msg))
+                                              (cdr (assoc :|content| msg)))))))
                      (setf system-prompt
                            (if system-prompt
                                (format nil "~A~%~%~A" system-prompt content)
@@ -105,7 +107,7 @@
   "Default proxy hook handler: injects Hactar context into the system prompt."
   (let* ((system-prompt (getf request-plist :system-prompt))
          (context (proxy-build-context-section))
-         (new-system-prompt (if (and system-prompt (> (length system-prompt) 0))
+         (new-system-prompt (if (and system-prompt (> (length (the string system-prompt)) 0))
                                 (if (> (length context) 0)
                                     (format nil "~A~%~%~A" system-prompt context)
                                     system-prompt)
@@ -126,7 +128,7 @@
 (defun proxy-reassemble-messages (system-prompt messages)
   "Reassemble messages with system prompt for forwarding to upstream API."
   (let ((result '()))
-    (when (and system-prompt (> (length system-prompt) 0))
+    (when (and system-prompt (> (length (the string system-prompt)) 0))
       (let ((sys-msg (make-hash-table :test 'equal)))
         (setf (gethash "role" sys-msg) "system")
         (setf (gethash "content" sys-msg) system-prompt)
@@ -244,8 +246,9 @@
                  (processed-plist (nhooks:run-hook *proxy-request-hook* request-plist)))
 
             ;; Forward to upstream
-            (multiple-value-bind (response status-code resp-headers response-type)
+            (multiple-value-bind (response status-code _resp-headers response-type)
                 (proxy-forward-request processed-plist)
+              (declare (ignore _resp-headers))
 
               (case response-type
                 (:stream
@@ -390,10 +393,11 @@
   "Return T if any message content in MESSAGES contains any of SEARCH-STRINGS (case-insensitive)."
   (let ((msgs (if (vectorp messages) (coerce messages 'list) messages)))
     (dolist (msg msgs)
-      (let ((content (or (gethash "content" msg)
-                         (cdr (assoc :content msg))
-                         (cdr (assoc :|content| msg)))))
-        (when (stringp content)
+      (let ((content (typecase msg
+                       (hash-table (gethash "content" msg))
+                       (list (or (cdr (assoc :content msg))
+                                 (cdr (assoc :|content| msg)))))))
+        (when (and content (stringp content))
           (let ((lower-content (string-downcase content)))
             (dolist (s search-strings)
               (when (search (string-downcase s) lower-content)
