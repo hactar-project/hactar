@@ -10,7 +10,7 @@ pkgs.mkShell {
     openssl
     zlib
     libyaml
-    sbcl
+    sbcl_2_4_6
     git
     cacert
     zlib
