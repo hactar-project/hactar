@@ -832,3 +832,34 @@
   max_output_tokens: 8192
   max_input_tokens: 120000
   cache_control: true
+- name: anthropic/claude-opus-4.7
+  edit_format: diff
+  model_name: claude-opus-4.7
+  use_repo_map: true
+  examples_as_sys_msg: true
+  max_output_tokens: 8192
+  max_input_tokens: 120000
+  cache_control: true
+- name: copilot/claude-opus-4.7
+  edit_format: diff
+  model_name: claude-opus-4.7
+  use_repo_map: true
+  examples_as_sys_msg: true
+  extra_params:
+    max_tokens: 120000
+    extra_headers:
+      Editor-Version: Hactar/0.1
+      Copilot-Integration-Id: copilot-chat
+      Copilot-Vision-Request: "true"
+  max_output_tokens: 8192
+  max_input_tokens: 120000
+  cache_control: true
+  supports: ["vision"]
+- name: openrouter/claude-opus-4.7
+  edit_format: diff
+  model_name: anthropic/claude-opus-4.7
+  use_repo_map: true
+  examples_as_sys_msg: true
+  max_output_tokens: 8192
+  max_input_tokens: 120000
+  cache_control: true
