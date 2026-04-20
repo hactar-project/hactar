@@ -32,7 +32,37 @@
 	   #:render-markdown-to-html
 	   #:insert-md-sibling
 	   #:insert-md-child
-	   #:make-tui-theme))
+	   #:make-tui-theme
+	   ;; Compiler API
+	   #:compile-string
+	   #:compile-file-to-string
+	   #:compile-toplevel
+	   #:check-toplevel
+	   #:check-string
+	   #:deftarget
+	   #:defemit
+	   #:defcheck
+	   #:make-vfs
+	   #:vfs-select-file
+	   #:vfs-write
+	   #:vfs-writeln
+	   #:vfs-get-content
+	   #:vfs-all-paths
+	   #:vfs-flush-to-disk
+	   #:vfs-flush-to-org
+	   #:vfs-flush-to-lisp
+	   #:vfs-flush-to-tags
+	   #:vfs-set-metadata
+	   #:vfs-get-metadata
+	   #:compile-form
+	   #:read-all-forms
+	   #:find-emitter
+	   #:check-unsupported-form
+	   #:check-result
+	   #:check-result-level
+	   #:check-result-message
+	   #:check-result-form
+	   #:run-checks))
 
 (in-package :hactar)
 (defpackage :nhooks

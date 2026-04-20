@@ -249,7 +249,7 @@
     (sqlite:with-transaction *connection*
       (let* ((embedding-text (format nil "Title: ~A~%Message: ~A~%Cause: ~A~%Solution: ~A" title message cause solution))
              (embedding (llm:ollama-embed embedding-text :model *embedding-model*))
-             (final-slug (or slug (if stack (format nil "~A:~A" stack code) code)))
+             (final-slug (or slug (format nil "~A:~A" stack code)))
              (insert-err-sql "INSERT INTO errors (code, stack, slug, title, message, cause, solution, tags) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
              (insert-vec-sql "INSERT INTO vec_errors (rowid, embedding) VALUES (?, ?)"))
 

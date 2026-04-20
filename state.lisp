@@ -325,12 +325,16 @@ Generated using tree-sitter")
                     "Port for the HTTP server.")
 (defstate *http-server* nil
                       "Instance of the running Clack server.")
+(defstate *http-auto-start* nil
+  "When T, automatically start the HTTP server on session init.")
 
 ;;** Slynk Server State
 (defstate *slynk-port* 4005
   "Port for the Slynk server.")
 (defstate *slynk-started* nil
   "T if Slynk server has been started.")
+(defstate *slynk-auto-start* nil
+  "When T, automatically start Slynk server on session init.")
 
 
 

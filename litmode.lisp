@@ -76,8 +76,9 @@
 
 (defun format-org-ts (universal-time)
   "Format a universal time as an org-mode timestamp."
-  (multiple-value-bind (sec min hour day month year dow)
+  (multiple-value-bind (_sec min hour day month year dow)
       (decode-universal-time universal-time)
+    (declare (ignore _sec))
     (let ((day-names #("Mon" "Tue" "Wed" "Thu" "Fri" "Sat" "Sun")))
       (format nil "[~4,'0D-~2,'0D-~2,'0D ~A ~2,'0D:~2,'0D]"
               year month day (aref day-names dow) hour min))))
@@ -467,11 +468,10 @@
   (when (and *litmode-parsed* *headline-index-cache*)
     (let ((index-heading (find-heading-by-custom-id *litmode-parsed* "headline-index")))
       (when index-heading
-        (let ((drawer nil))
+        (progn
           (dolist (child (copy-list (org-mode-parser:node-children index-heading)))
-            (if (typep child 'org-mode-parser:org-properties-drawer)
-                (setf drawer child)
-                (org-mode-parser:remove-node child)))
+            (unless (typep child 'org-mode-parser:org-properties-drawer)
+              (org-mode-parser:remove-node child)))
           (let ((table-content
                   (with-output-to-string (s)
                     (format s "| ID | Title | Tags | Depth | Tokens | Summary |~%")
@@ -1177,6 +1177,7 @@
 
 (defun register-block-as-tool (name language content tool-desc)
   "Register an org src block as a Hactar tool."
+  (declare (ignore language content))
   (let ((tool-name (substitute #\_ #\- name)))
     (setf (gethash tool-name *defined-tools*)
           (:make-tool-definition

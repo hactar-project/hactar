@@ -295,7 +295,6 @@
    Detection checks: stack, message content mentions of React/JSX/hooks,
    file extensions (.tsx, .jsx), and model context."
   (let* ((messages (getf request-plist :messages))
-         (model (getf request-plist :model))
          (system-prompt (getf request-plist :system-prompt))
          (react-detected nil))
 

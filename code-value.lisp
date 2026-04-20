@@ -200,9 +200,10 @@
     (values (str:join #\Newline selected)
             (cons start-line end-line))))
 
-(defun extract-function (content function-name file-path)
+(defun extract-function (content function-name &optional file-path)
   "Use LLM to extract a function from content.
    Returns (values function-text (start-line . end-line))."
+  (declare (ignore file-path))
   (let* ((prompt (format nil "Extract the function named '~A' from this code. ~
                               Return ONLY the function code, nothing else. ~
                               Also include a comment on the first line indicating ~
@@ -217,9 +218,10 @@
           (values (remove-line-comment response) lines))
         (values nil nil))))
 
-(defun extract-class (content class-name method-name file-path)
+(defun extract-class (content class-name method-name &optional file-path)
   "Use LLM to extract a class (and optionally a specific method) from content.
    Returns (values class-text (start-line . end-line))."
+  (declare (ignore file-path))
   (let* ((what (if method-name
                    (format nil "method '~A' from class '~A'" method-name class-name)
                    (format nil "class '~A'" class-name)))
@@ -881,12 +883,9 @@ Usage: /code/ask <id-or-name> <question>"
    - :matches - Regex pattern to match
    - :having - Feature the code must have
    - :not-having - Feature the code must not have"
-  (let* ((type (getf query-spec :type))
-         (in-pattern (getf query-spec :in))
+  (let* ((in-pattern (getf query-spec :in))
          (contains (getf query-spec :contains))
          (matches (getf query-spec :matches))
-         (having (getf query-spec :having))
-         (not-having (getf query-spec :not-having))
          (files (find-files-matching in-pattern))
          (results '()))
     

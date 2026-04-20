@@ -1,4 +1,7 @@
 (in-package :hactar)
+
+(defvar *commands*)  ; forward declaration — defined in commands.lisp
+
 ;;* tui state 
 (defvar *tui-running* nil "T when the 3-column TUI is active.")
 (defvar *tui-chat-lines* '() "List of chat line plists for the main panel.")
@@ -920,7 +923,7 @@
          (reader-instance nil)
          ;; We'll build up the current assistant message as a single chat-line
          ;; and update it in-place as chunks arrive.
-         (response-line-index nil))
+         )
 
     (handler-case
         (progn
@@ -946,7 +949,6 @@
 
             ;; Add an empty assistant line that we will update in-place
             (push (list :text "" :type :assistant :role "assistant") *tui-chat-lines*)
-            (setf response-line-index 0) ;; index 0 since we just pushed to front
 
             (loop for chunk = (llm:read-next-chunk reader-instance)
                   while chunk

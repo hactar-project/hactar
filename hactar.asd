@@ -91,7 +91,19 @@
 	       (:file "import")
 	       (:file "copilot")
                (:file "feature")
-	        (:file "proxy")
+	       (:file "proxy")
+	       ;; compiler
+	       (:file "vfs")
+	       (:file "compiler")
+	       (:file "checker")
+	       (:file "javascript-target")
+	       (:file "typescript-target")
+	       (:file "worker-target")
+	       (:file "json-target")
+	       (:file "toml-target")
+	       (:file "css-target")
+	       (:file "redwood-target")
+	       (:file "lsp")
 	       ;; modes
 	       (:file "npm")
 	       (:file "sh-mode")
@@ -118,7 +130,6 @@
 	       (:file "hactar-monolith")
 	       (:file "session")
 	       (:file "litmode")
-	      
 	       (:file "hyperfractal")
 	       (:file "ruhe")
 	       (:file "hactar"))         ; Compile main hactar file last

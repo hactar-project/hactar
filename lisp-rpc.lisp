@@ -106,6 +106,7 @@ Example:
            ',hactar-sym)))))
 
 (defun make-api-wrapper (impl-fn api-name permissions dangerous-p)
+  (declare (ignore permissions))
   "Create a permission-checking wrapper around an API implementation function."
   (lambda (&rest args)
     (let ((decision (if dangerous-p

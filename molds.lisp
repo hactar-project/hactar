@@ -778,7 +778,7 @@
   (let* ((parsed (org-mode:parse-org-file-full file-path))
          (headings (getf parsed :headings))
          (file-props (getf parsed :properties))
-         (mold-name (or (cdr (assoc :NAME file-props)) 
+         (mold-name (or (cdr (assoc :NAME file-props))
                         (pathname-name file-path)))
          (mold-desc nil)
          (mold-llms '(:all))
@@ -789,8 +789,7 @@
     (let ((top-sections '())
           (current-section nil))
       (dolist (h headings)
-        (let ((level (getf h :level))
-              (title (getf h :title)))
+        (let ((level (getf h :level)))
           (if (= level 1)
               (progn
                 (when current-section

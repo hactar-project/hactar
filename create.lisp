@@ -49,7 +49,6 @@ USER-PROMPT is the natural language query/instructions for the project."
   "Create a new project from a starter. Usage: hactar create --path <dir> --starter <starter> <prompt...>"
   (let* ((path (getf args :path))
          (starter (or (getf args :starter) "react"))
-         (subcommand (getf args :subcommand))
          (free-args (getf args :args))
          (user-prompt (when free-args (format nil "~{~A~^ ~}" (uiop:ensure-list free-args)))))
     (unless path

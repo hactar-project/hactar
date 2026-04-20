@@ -62,6 +62,7 @@ Returns T iff all results are true."
     all-passed))
 
 ;;; Function to run all tests
+;;* 
 (defun run-tests ()
   "Run all FiveAM test suites for Hactar.
 Sets up the test database, runs migrations, clears tables, then runs all suites.
@@ -121,6 +122,16 @@ Returns true iff all suites pass."
 			 skills-tests
 			 mold-tests
 			 proxy-tests
+			 compiler-tests
+			 json-target-tests
+			 toml-target-tests
+			 css-target-tests
+			 checker-tests
+			 javascript-target-tests
+			 typescript-target-tests
+			 worker-target-tests
+			 redwood-target-tests
+			 lsp-tests
                          ;; monolith-tests
                          ;; litmode-tests
 			 ))

@@ -250,6 +250,7 @@
 
 (defun parse-heading (state parent-level)
   "Parse a heading and its children from STATE."
+  (declare (ignore parent-level))
   (multiple-value-bind (level todo priority title tags)
       (parse-heading-line (parser-state-current-line state))
     (when level
@@ -635,7 +636,7 @@
 
 (defun heading-all-tags (heading)
   "Get all tags from a heading, including inherited tags."
-  (let ((tags (copy-list (or (heading-tags heading) '()))))
+  (let ((tags (copy-list (heading-tags heading))))
     ;; Walk up parents to collect inherited tags
     (let ((parent (node-parent heading)))
       (loop while (and parent (typep parent 'org-heading))

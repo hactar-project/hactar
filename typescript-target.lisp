@@ -1,0 +1,116 @@
+(in-package :hactar)
+(deftarget :typescript
+  :parent :javascript
+  :file-extension "ts")
+
+;;* Helpers 
+(defun extract-type-annotation (arg-form)
+  "Parse (name :type 'typename) or just name. Returns (values clean-name type-string-or-nil)."
+  (if (and (listp arg-form) (member :type arg-form))
+      (values (first arg-form)
+              (let ((type-val (getf (cdr arg-form) :type)))
+                (if (and (listp type-val) (eq (first type-val) 'quote))
+                    (invert-case-symbol-name (second type-val))
+                    (format nil "~A" type-val))))
+      (values (if (listp arg-form) (first arg-form) arg-form)
+              nil)))
+;;* Emitters 
+(defemit :typescript defun (name args &body body)
+  (let ((return-type nil)
+        (clean-body body))
+    ;; Extract :return type
+    (when (and (keywordp (first body)) (eq (first body) :return))
+      (setf return-type (let ((tv (second body)))
+                          (if (and (listp tv) (eq (first tv) 'quote))
+                              (invert-case-symbol-name (second tv))
+                              (format nil "~A" tv))))
+      (setf clean-body (cddr body)))
+    (compiler-emit "function ")
+    (emit-name name)
+    (compiler-emit "(")
+    (loop for (arg . rest) on args
+          do (multiple-value-bind (aname atype) (extract-type-annotation arg)
+               (emit-name aname)
+               (when atype
+                 (compiler-emit ": ")
+                 (compiler-emit atype)))
+          when rest do (compiler-emit ", "))
+    (compiler-emit ")")
+    (when return-type
+      (compiler-emit ": ")
+      (compiler-emit return-type))
+    (compiler-emit " ")
+    (emit-block clean-body)))
+
+(defemit :typescript let (bindings &body body)
+  (dolist (binding bindings)
+    (multiple-value-bind (var-form type-str)
+        (if (listp (first binding))
+            (extract-type-annotation (first binding))
+            (values (first binding) nil))
+      (let ((val (second binding)))
+        (emit-indent)
+        (compiler-emit "let ")
+        (emit-name var-form)
+        (when type-str
+          (compiler-emit ": ")
+          (compiler-emit type-str))
+        (when val
+          (compiler-emit " = ")
+          (compile-form val))
+        (compiler-emitln ";"))))
+  (dolist (form body)
+    (emit-indent)
+    (compile-form form)
+    (compiler-emitln ";")))
+
+(defemit :typescript let* (bindings &body body)
+  (dolist (binding bindings)
+    (multiple-value-bind (var-form type-str)
+        (if (listp (first binding))
+            (extract-type-annotation (first binding))
+            (values (first binding) nil))
+      (let ((val (second binding)))
+        (emit-indent)
+        (compiler-emit "const ")
+        (emit-name var-form)
+        (when type-str
+          (compiler-emit ": ")
+          (compiler-emit type-str))
+        (when val
+          (compiler-emit " = ")
+          (compile-form val))
+        (compiler-emitln ";"))))
+  (dolist (form body)
+    (emit-indent)
+    (compile-form form)
+    (compiler-emitln ";")))
+
+(defemit :typescript lambda (args &body body)
+  (compiler-emit "(")
+  (loop for (arg . rest) on args
+        do (cond
+             ((and (listp arg) (eq (first arg) :destructure))
+              (emit-js-arg arg))
+             (t
+              (multiple-value-bind (aname atype) (extract-type-annotation arg)
+                (if (and (listp aname) (eq (first aname) :destructure))
+                    (emit-js-arg aname)
+                    (emit-name aname))
+                (when atype
+                  (compiler-emit ": ")
+                  (compiler-emit atype)))))
+        when rest do (compiler-emit ", "))
+  (compiler-emit ") => ")
+  (if (and (= 1 (length body))
+           (not (js-statement-p (first body))))
+      (compile-form (first body))
+      (emit-block body)))
+
+(defemit :typescript const-typed (name type-str value)
+  (compiler-emit "const ")
+  (emit-name name)
+  (compiler-emit ": ")
+  (compiler-emit type-str)
+  (compiler-emit " = ")
+  (compile-form value))

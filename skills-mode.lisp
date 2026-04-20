@@ -228,9 +228,10 @@
          (ensure-directories-exist temp-dir)
          (format t "Cloning ~A...~%" source)
 	 (format t "Clone command ~A" (list "git" "clone" "--depth" "1" source (uiop:native-namestring temp-dir)))
-         (multiple-value-bind (out err code)
+         (multiple-value-bind (_out err code)
              (uiop:run-program (list "git" "clone" "--depth" "1" source (uiop:native-namestring temp-dir))
                                :ignore-error-status t :output :string :error-output :string)
+           (declare (ignore _out))
            (if (zerop code)
                (progn
                  (if subpath

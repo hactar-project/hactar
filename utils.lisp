@@ -288,7 +288,7 @@ Accepted inputs:
 						))
 	     (exit-status (uiop:wait-process process-info)))
         (zerop exit-status))
-    (error (e)
+    (error ()
       nil)))
 
 (defun copy-to-clipboard (text)
@@ -861,8 +861,8 @@ Otherwise, treat the literal character 'n' as a newline placeholder (for tests u
          (tmp (merge-pathnames (format nil ".hactar-write-test-~A" (uuid:make-v4-uuid)) dir-path)))
     (handler-case
         (progn
-          (with-open-file (s tmp :direction :output :if-exists :supersede :if-does-not-exist :create)
-            (declare (ignore s)))
+          (with-open-file (stream tmp :direction :output :if-exists :supersede :if-does-not-exist :create)
+            (declare (ignore stream)))
           (ignore-errors (delete-file tmp))
           t)
       (error (e)
@@ -1184,6 +1184,9 @@ Otherwise, treat the literal character 'n' as a newline placeholder (for tests u
   "Same as glob-matches, except first argument is a compiled pattern (via compile-pattern function)."
   (matches-all compiled-pattern (pathspec->pathparts pathname)))
 
+(defun safe-char= (c1 c2)
+  (and c1 c2 (char= c1 c2)))
+
 (defun compile-pattern (pattern)
   "Compile the pattern.
 
@@ -1309,9 +1312,6 @@ Otherwise, treat the literal character 'n' as a newline placeholder (for tests u
 
 (defun char-or-nil (string index)
   (when (< -1 index (length string)) (char string index)))
-
-(defun safe-char= (c1 c2)
-  (and c1 c2 (char= c1 c2)))
 
 (defun safe-position (item sequence start)
   (when (< start (length sequence))

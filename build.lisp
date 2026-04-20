@@ -1,5 +1,4 @@
 (require :asdf)
-(declaim (optimize (speed 3) (safety 1) (debug 0)))
 ;; Load the ASDF system definition from the current directory
 (push (uiop:getcwd) asdf:*central-registry*)
 ;; Load the systems

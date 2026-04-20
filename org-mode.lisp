@@ -62,10 +62,6 @@
                  (unless found-target
                    (setf current-start nil current-level nil current-headline nil)))
 
-               (when (and current-start (<= level current-level)) ; End of current section
-                 (unless found-target
-                   (setf current-start nil current-level nil current-headline nil)))
-
                (unless current-start ; Start of a new potential section
                  (setf current-start i
                        current-level level
@@ -100,10 +96,7 @@
                             (setf target-end k)
                             (return))) ; Found next sibling or parent
                  (return-from find-headline-region (values target-start target-end target-level target-headline)))))
-    ;; If loop finishes without finding target or if target is the last element
-    (if found-target
-        (values target-start (or target-end num-lines) target-level target-headline)
-        (values nil nil nil nil))))
+    (values nil nil nil nil)))
 
 
 (defun adjust-headline-levels (org-string delta)
@@ -417,7 +410,7 @@ Returns concatenated org text of matching headlines (subtrees). If TAGS is empty
                    (lambda (node)
                      (and (typep node 'org-mode-parser:org-heading)
                           (let* ((node-tags (org-mode-parser:heading-tags node))
-                                 (lower (mapcar #'string-downcase (or node-tags '()))))
+                                 (lower (mapcar #'string-downcase node-tags)))
                             (subsetp required lower :test #'string=)))))))
     (let ((buf (make-string-output-stream)))
       (dolist (h matches)

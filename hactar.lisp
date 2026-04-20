@@ -1,6 +1,8 @@
 ;;* Core commands and chat/repl handling
 (in-package :hactar)
 
+(declaim (ftype function lisp-mode-intercept start-agentshell))
+
 (defvar *file-watcher-stopped* nil
   "Track whether STOP-FILE-WATCHER has already been requested, to prevent
    double-stopping underlying libuv watchers.")
@@ -24,6 +26,95 @@
 (defun get-feature-rules-section ()
   "Generate the feature rules section for the system prompt from active features."
   (get-active-feature-rules))
+
+(defmacro with-suppressed-output-if-rpc (&body body)
+  "In lisp-rpc-mode, suppress stdout/stderr during BODY to avoid polluting the s-expression protocol stream."
+  `(if *lisp-rpc-mode*
+       (let ((*standard-output* (make-broadcast-stream))
+             (*error-output*   (make-broadcast-stream)))
+         ,@body)
+       (progn ,@body)))
+
+(defun start-http ()
+  "Start the HTTP server if not already running."
+  (if *http-server*
+      (progn
+        (unless *silent*
+          (if *lisp-rpc-mode*
+              (rpc-log :info "HTTP server already running" :port *http-port*)
+              (format t "HTTP server already running on port ~A.~%" *http-port*)))
+        *http-port*)
+      (handler-case
+          (progn
+            (with-suppressed-output-if-rpc
+              (start-http-server :port *http-port*))
+            (when *lisp-rpc-mode*
+              (rpc-log :info "HTTP server started" :port *http-port*))
+            (unless *silent*
+              (format t "HTTP server running on port ~A.~%" *http-port*))
+            *http-port*)
+        (error (e)
+          (if *lisp-rpc-mode*
+              (rpc-error (format nil "Failed to start HTTP server: ~A" e))
+              (format *error-output* "~&Error starting HTTP server: ~A~%" e))
+          nil))))
+
+(define-command http (args)
+  "Start the HTTP API server manually (if not already running)."
+  (declare (ignore args))
+  (let ((port (start-http)))
+    (when port
+      (format t "HTTP server running on port ~A.~%" port)))
+  :acp (lambda (cmd-args)
+         (declare (ignore cmd-args))
+         (let ((port (start-http)))
+           (if port
+               `(("text" . ,(format nil "HTTP server running on port ~A." port))
+                 ("data" . (("port" . ,port))))
+               `(("text" . "Failed to start HTTP server."))))))
+
+(defun start-slynk ()
+  "Start the Slynk server if not already running."
+  (if *slynk-started*
+      (progn
+        (unless *silent*
+          (if *lisp-rpc-mode*
+              (rpc-log :info "Slynk already running" :port *slynk-port*)
+              (format t "Slynk server already running on port ~A.~%" *slynk-port*)))
+        *slynk-port*)
+      (let ((actual-slynk-port (find-free-port *slynk-port*)))
+        (handler-case
+            (with-suppressed-output-if-rpc
+              (unless *silent*
+                (format t "~&Starting Slynk server on port ~A...~%" actual-slynk-port))
+              (slynk:create-server :port actual-slynk-port :dont-close t))
+          (error (e)
+            (if *lisp-rpc-mode*
+                (rpc-error (format nil "Failed to start Slynk: ~A" e))
+                (progn
+                  (format *error-output* "~&Error starting Slynk server: ~A~%" e)
+                  (format *error-output* "~&Ensure Slynk is installed and port ~A is free.~%" actual-slynk-port)))
+            (return-from start-slynk nil)))
+        (write-slynk-port-file actual-slynk-port)
+        (setf *slynk-port* actual-slynk-port)
+        (setf *slynk-started* t)
+        (when *lisp-rpc-mode*
+          (rpc-log :info "Slynk started" :port *slynk-port*))
+        actual-slynk-port)))
+
+(define-command slynk (args)
+  "Start the Slynk server manually (if not already running)."
+  (declare (ignore args))
+  (let ((port (start-slynk)))
+    (when port
+      (format t "Slynk server running on port ~A.~%" port)))
+  :acp (lambda (cmd-args)
+         (declare (ignore cmd-args))
+         (let ((port (start-slynk)))
+           (if port
+               `(("text" . ,(format nil "Slynk server running on port ~A." port))
+                 ("data" . (("port" . ,port))))
+               `(("text" . "Failed to start Slynk server."))))))
 
 (define-command theme (args)
   "Switch TUI theme. No args = fuzzy-select from available themes."
@@ -421,14 +512,6 @@ Optionally provide additional guidance about what went wrong."
                       ;; Let toplevel UNWIND-PROTECT handle cleanup; it is more robust and
                       ;; already handles errors. Avoid double-stopping watchers here.
                       (uiop:quit))))
-(defmacro with-suppressed-output-if-rpc (&body body)
-  "In lisp-rpc-mode, suppress stdout/stderr during BODY to avoid polluting the s-expression protocol stream."
-  `(if *lisp-rpc-mode*
-       (let ((*standard-output* (make-broadcast-stream))
-             (*error-output*   (make-broadcast-stream)))
-         ,@body)
-       (progn ,@body)))
-
 (defun dump-settings ()
   (format t "Current settings:~%")
   (format t "  Model: ~A~%" (if *current-model* (model-config-name *current-model*) "None"))
@@ -1285,32 +1368,11 @@ This is installed via HANDLER-BIND in the REPL and must accept exactly one argum
           (unless *silent* (format t "Auto-typecheck enabled. Starting typecheck agent...~%"))
           (start-agent agent-def nil))))
 
-    (unless *slynk-started*
-      (let ((actual-slynk-port (find-free-port *slynk-port*)))
-        (handler-case
-            (with-suppressed-output-if-rpc
-              (unless *silent*
-                (format t "~&Starting Slynk server on port ~A...~%" actual-slynk-port))
-              (slynk:create-server :port actual-slynk-port :dont-close t))
-          (error (e)
-            (if *lisp-rpc-mode*
-                (rpc-error (format nil "Failed to start Slynk: ~A" e))
-                (progn
-                  (format *error-output* "~&Error starting Slynk server: ~A~%" e)
-                  (format *error-output* "~&Ensure Slynk is installed (e.g., via Quicklisp) and the port ~A is free.~%" actual-slynk-port)))))
-        (write-slynk-port-file actual-slynk-port)
-        (setf *slynk-port* actual-slynk-port)
-        (setf *slynk-started* t)
-        (when *lisp-rpc-mode*
-          (rpc-log :info "Slynk started" :port *slynk-port*))))
+    (when (and *slynk-auto-start* (not *slynk-started*))
+      (start-slynk))
 
-    (unless *http-server*
-      (with-suppressed-output-if-rpc
-        (start-http-server :port *http-port*))
-      (when *lisp-rpc-mode*
-        (rpc-log :info "HTTP server started" :port *http-port*))
-      (unless *silent*
-        (format t "HTTP server potentially running on port ~A for API access.~%" *http-port*)))
+    (when (and *http-auto-start* (not *http-server*))
+      (start-http))
 
     ;; Start proxy if auto-start is enabled
     (when *proxy-auto-start*
@@ -1653,6 +1715,16 @@ This is installed via HANDLER-BIND in the REPL and must accept exactly one argum
     :initial-value nil
     :key :theme)
    (clingon:make-option
+    :flag
+    :description "Start the HTTP API server on startup."
+    :long-name "http"
+    :key :http)
+   (clingon:make-option
+    :flag
+    :description "Start the Slynk server on startup."
+    :long-name "slynk"
+    :key :slynk)
+   (clingon:make-option
     :string
     :description "Start the OpenRouter-compatible LLM proxy on startup."
     :long-name "proxy"
@@ -1743,6 +1815,8 @@ This is installed via HANDLER-BIND in the REPL and must accept exactly one argum
          (agent-command-str (clingon:getopt cmd :agent-command))
          (tui-flag (clingon:getopt cmd :tui))
          (theme-from-opt (clingon:getopt cmd :theme))
+         (http-flag (clingon:getopt cmd :http))
+         (slynk-flag (clingon:getopt cmd :slynk))
          (proxy-flag (clingon:getopt cmd :proxy))
          (proxy-upstream-opt (clingon:getopt cmd :proxy-upstream))
          (in-editor-flag (or (clingon:getopt cmd :in-editor)
@@ -1832,6 +1906,10 @@ This is installed via HANDLER-BIND in the REPL and must accept exactly one argum
 		(unless *silent* (format t "  Enabled analyzer via CLI: ~A~%" name-str)))
               (warn "Unknown analyzer specified in --enable-analyzers: ~A" name-str)))))
 
+    (when http-flag
+      (setf *http-auto-start* t))
+    (when slynk-flag
+      (setf *slynk-auto-start* t))
     (when proxy-flag
       (setf *proxy-auto-start* t))
     (when proxy-upstream-opt
@@ -1975,7 +2053,7 @@ This is installed via HANDLER-BIND in the REPL and must accept exactly one argum
            (handler-case (stop-file-watcher)
              (serious-condition (e) (format *error-output* "~&Cleanup error (stop-file-watcher): ~A~%" e))))
          (handler-case
-           (maphash (lambda (k v) (declare (ignore k))
+           (maphash (lambda (k v)
                       (handler-case (stop-watcher v)
                         (serious-condition (e) (format *error-output* "~&Cleanup error (stop-watcher ~A): ~A~%" k e))))
                     *active-watchers*)
@@ -1990,7 +2068,6 @@ This is installed via HANDLER-BIND in the REPL and must accept exactly one argum
          (repo-dir-native (uiop:native-namestring (uiop:ensure-directory-pathname repo-dir)))
 	 (data-dir (%to-pathname *hactar-data-path*))
          (config-dir (%to-pathname *hactar-config-path*))
-         (config-dir-native (uiop:native-namestring (uiop:ensure-directory-pathname config-dir)))
          (prompts-src (uiop:subpathname (uiop:ensure-directory-pathname repo-dir) "prompts/"))
          (prompts-dst (uiop:subpathname (uiop:ensure-directory-pathname config-dir) "prompts/"))
          (models-src (uiop:subpathname (uiop:ensure-directory-pathname repo-dir) "data/models.yaml"))
@@ -2003,7 +2080,7 @@ This is installed via HANDLER-BIND in the REPL and must accept exactly one argum
               (multiple-value-bind (out err code)
                   (uiop:run-program (list "git" "-C" repo-dir-native "rev-parse" "--is-inside-work-tree")
                                     :output :string :error-output :string :ignore-error-status t)
-                (declare (ignore out))
+                (declare (ignore out err))
                 (if (zerop code)
                     (progn
                       (format t "Updating Hactar repo at ~A...~%" repo-dir-native)

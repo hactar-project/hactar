@@ -146,7 +146,6 @@ Otherwise, return VALUE as-is."
                                 arg))
                           (cdr value))))
        (apply (symbol-function fn) args)))
-    ((stringp value) value) ; Return strings as-is
     (t value)))
 
 (defun execute-web-command (command-name args)

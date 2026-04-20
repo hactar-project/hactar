@@ -304,7 +304,7 @@
               (cons (str:prefix matches) matches)
               matches)))
         ((string= cmd "/mold.pour")
-          (let ((matches (when *active-mold*
+          (let ((matches (when (and (boundp '*active-mold*) *active-mold*)
                            (loop for entity in (mold-definition-entities *active-mold*)
                                  for name = (string-downcase
                                              (if (stringp (mold-entity-name entity))

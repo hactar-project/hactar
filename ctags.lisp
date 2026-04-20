@@ -64,8 +64,9 @@
                       args
                       (list (uiop:native-namestring *repo-root*)))))
     (format t "Running ctags: ~{~A~^ ~}~%" cmd)
-    (multiple-value-bind (output error-output exit-code)
+    (multiple-value-bind (_output error-output exit-code)
         (uiop:run-program cmd :output :string :error-output :string :ignore-error-status t)
+      (declare (ignore _output))
       (if (zerop exit-code)
           (progn
             (format t "Ctags indexing complete.~%")

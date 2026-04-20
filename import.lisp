@@ -83,7 +83,7 @@
                                    (consp (first body))
                                    (eq (car (first body)) 'lambda))
                               (first body)
-                              `(lambda ,(or params '())
+                              `(lambda ,params
                                  ,@body))))
       `(progn
          (register-import-source ',name
@@ -312,9 +312,9 @@ USAGE is the usage string to print when args are missing."
       (let* ((uri-arg (first args))
              (metadata-args (rest args))
 	     (parsed-metadata (parse-cli-args-s  (join-strings " " metadata-args)))
-             (tags (getf parsed-metadata :tags #()))
-             (covers (getf parsed-metadata :covers #()))
-             (meta (getf parsed-metadata :meta nil))
+             (tags (getf parsed-metadata :tags))
+             (covers (getf parsed-metadata :covers))
+             (meta (getf parsed-metadata :meta))
              (provided-tags-list (cond
                                    ((vectorp tags) (coerce tags 'list))
                                    ((listp tags) tags)

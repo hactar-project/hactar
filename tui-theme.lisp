@@ -4,6 +4,16 @@
 
 (in-package :hactar)
 
+;; Forward declarations — defined in tui.lisp
+(defvar *tui-project-name*)
+(defvar *tui-project-path*)
+(defvar *tui-sidebar-model*)
+(defvar *tui-sidebar-files*)
+(defvar *tui-sidebar-lsps*)
+(defvar *tui-sidebar-mcps*)
+(defvar *tui-sidebar-tool-calls*)
+(defvar *tui-thinking-seconds*)
+
 ;;; ============================================================
 ;;; Theme struct
 ;;; ============================================================

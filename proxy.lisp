@@ -33,15 +33,9 @@
   (let ((system-prompt nil)
         (remaining '()))
     (loop for msg across (the simple-vector (if (vectorp messages) messages (coerce messages 'simple-vector)))
-          do (let ((role (typecase msg
-                           (hash-table (gethash "role" msg))
-                           (list (or (cdr (assoc :role msg))
-                                     (cdr (assoc :|role| msg)))))))
+          do (let ((role (gethash "role" msg)))
                (if (string-equal role "system")
-                   (let ((content (typecase msg
-                                    (hash-table (gethash "content" msg))
-                                    (list (or (cdr (assoc :content msg))
-                                              (cdr (assoc :|content| msg)))))))
+                   (let ((content (gethash "content" msg)))
                      (setf system-prompt
                            (if system-prompt
                                (format nil "~A~%~%~A" system-prompt content)
@@ -90,13 +84,13 @@
             sections))
 
     ;; Entity rules (from features/BOT)
-    (let ((entity-rules (get-entity-rules-section)))
-      (when (and entity-rules (> (length entity-rules) 0))
+    (let ((entity-rules (the (or null string) (get-entity-rules-section))))
+      (when (and entity-rules (> (length (the string entity-rules)) 0))
         (push (format nil "## Entity Rules~%~%~A" entity-rules) sections)))
 
     ;; Feature rules
-    (let ((feature-rules (get-feature-rules-section)))
-      (when (and feature-rules (> (length feature-rules) 0))
+    (let ((feature-rules (the (or null string) (get-feature-rules-section))))
+      (when (and feature-rules (> (length (the string feature-rules)) 0))
         (push (format nil "## Feature Rules~%~%~A" feature-rules) sections)))
 
     (if sections
@@ -105,7 +99,7 @@
 
 (defun proxy-inject-context (request-plist)
   "Default proxy hook handler: injects Hactar context into the system prompt."
-  (let* ((system-prompt (getf request-plist :system-prompt))
+  (let* ((system-prompt (the (or null string) (getf request-plist :system-prompt)))
          (context (proxy-build-context-section))
          (new-system-prompt (if (and system-prompt (> (length (the string system-prompt)) 0))
                                 (if (> (length context) 0)
@@ -393,15 +387,14 @@
   "Return T if any message content in MESSAGES contains any of SEARCH-STRINGS (case-insensitive)."
   (let ((msgs (if (vectorp messages) (coerce messages 'list) messages)))
     (dolist (msg msgs)
-      (let ((content (typecase msg
-                       (hash-table (gethash "content" msg))
-                       (list (or (cdr (assoc :content msg))
-                                 (cdr (assoc :|content| msg)))))))
-        (when (and content (stringp content))
-          (let ((lower-content (string-downcase content)))
-            (dolist (s search-strings)
-              (when (search (string-downcase s) lower-content)
-                (return-from proxy-messages-contain-p t)))))))
+      (let ((content (gethash "content" msg)))
+        (when content
+          (let ((c (if (stringp content) content (gethash "content" msg))))
+            (when (stringp c)
+              (let ((lower-content (string-downcase c)))
+                (dolist (s search-strings)
+                  (when (search (string-downcase s) lower-content)
+                    (return-from proxy-messages-contain-p t)))))))))
     nil))
 
 (defun proxy-model-matches-p (model &rest patterns)

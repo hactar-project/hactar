@@ -311,8 +311,9 @@
 
 ;;** Indexing
 
-(defun index-monolith (&key force)
+(defun index-monolith (&key force &allow-other-keys)
   "Index the entire knowledge monolith."
+  (declare (ignore force))
   (unless *monolith-path*
     (error "Monolith not initialized. Run /monolith-init first."))
   
@@ -428,6 +429,7 @@
 
 (defun index-code-block (block source-path)
   "Index a code block into the database."
+  (declare (ignore source-path))
   (sqlite:with-open-database (db *monolith-db-path*)
     (sqlite:execute-non-query db
       "INSERT OR REPLACE INTO code_blocks 
@@ -963,8 +965,9 @@ Usage: /remember <thought>
         (when (zerop (file-length s))
           (format s "#+TITLE: Journal ~A~%~%" today))
         (format s "~%* ~A~%" 
-                (multiple-value-bind (sec min hour)
+                (multiple-value-bind (_sec min hour)
                     (decode-universal-time (get-universal-time))
+                  (declare (ignore _sec))
                   (format nil "~2,'0D:~2,'0D" hour min)))
         (format s "~A~%" thought)
         (when link-to

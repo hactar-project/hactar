@@ -57,11 +57,11 @@
           (ensure-directories-exist (uiop:ensure-directory-pathname dir))
           (if (probe-file db)
               ;; Try opening for output append to verify write permission without recreating
-              (with-open-file (s db :direction :output :if-exists :append)
-                (declare (ignore s)))
+              (with-open-file (_s db :direction :output :if-exists :append)
+                (declare (ignorable _s)))
               ;; Create an empty file if missing
-              (with-open-file (s db :direction :output :if-exists :supersede :if-does-not-exist :create)
-                (declare (ignore s))))
+              (with-open-file (_s db :direction :output :if-exists :supersede :if-does-not-exist :create)
+                (declare (ignorable _s))))
           (log-good "Database file is writable: ~A" (uiop:native-namestring db))
           t)
       (error (e)

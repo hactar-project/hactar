@@ -121,7 +121,7 @@
   :category :context
   :returns "List of file paths containing matches"
   :examples '((hactar::search-project "defun main"))
-  (or (search-files-with-rg query *repo-root*) '()))
+  (or (search-files-with-rg query *repo-root*) nil))
 
 ;;** Shell API
 
@@ -191,4 +191,5 @@
   (format nil "Committed: ~A" message))
 
 (define-command ls-rpc (args)
-		(rpc-hello *hactar-version*))
+  (declare (ignore args))
+  (rpc-hello *hactar-version* nil))

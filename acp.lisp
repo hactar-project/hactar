@@ -1418,7 +1418,7 @@ Example:
 
 (defun acp-on-model-changed (new-model old-model)
   "Hook handler: resend config options when model changes."
-  (declare (ignore old-model))
+  (declare (ignore new-model old-model))
   (when *acp-session-id*
     (acp-send-config-options)))
 
