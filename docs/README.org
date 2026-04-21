@@ -1,4 +1,4 @@
-# Created 2026-03-01 Sun 01:06
+# Created 2026-04-21 Tue 14:06
 #+title: Hactar Docs
 #+author: k
 * Hactar Docs
@@ -30,7 +30,7 @@ Some of Hactar's features:
 The preferred way to run hactar is via roswell. If you have it already do:
 
 #+begin_src sh
-  ros install hactarproject/hactar
+  ros install hactar-project/hactar
 #+end_src
 
 If you don't have roswell yet install it or use the hactar script:
@@ -38,7 +38,6 @@ If you don't have roswell yet install it or use the hactar script:
 #+begin_src sh
   curl -L https://hactar.space/install.sh | bash
 #+end_src
-
 
 Nix:
 
@@ -150,9 +149,57 @@ Hactar supports all the usual plugin managers:
   })
 #+end_src
 **** Emacs agent-shell.el
-Hactar includes ACP and the Emacs extension provides integration with agent-shell.el. Just call = agent-shell-hactar-start= and you will be up and running. See the Emacs extension docs for more details
-**** TODO Zed
-**** TODO avante.nvim
+Hactar includes ACP support and the Emacs extension provides integration with agent-shell.el. Just call =agent-shell-hactar-start= and you will be up and running. See the [[https://hactar.space/docs/emacs][Emacs extension docs]] for more details
+**** Zed
+Add the following to your settings.json:
+
+#+begin_src json
+  "agent_servers": {
+    "Hactar": {
+      "type": "custom",
+      "command": "hactar",
+      "args": ["--acp"],
+      "env": {},
+    },
+  },
+#+end_src
+**** avante.nvim
+Add the following to your lua config:
+
+#+begin_src lua
+  {
+    "yetone/avante.nvim",
+    event = "VeryLazy",
+    version = false,
+    build = "make",
+    opts = {
+      provider = "hactar",
+      mode = "agentic",
+      acp_providers = {
+        hactar = {
+          command = os.getenv("HOME") .. "/bin/hactar",
+          args = { "--acp" },
+          env = {
+            HOME = os.getenv("HOME"),
+            PATH = os.getenv("PATH"),
+          },
+        },
+      },
+    },
+    dependencies = {
+      "nvim-lua/plenary.nvim",
+      "MunifTanjim/nui.nvim",
+      "nvim-tree/nvim-web-devicons",
+      {
+        "MeanderingProgrammer/render-markdown.nvim",
+        opts = {
+          file_types = { "markdown", "Avante" },
+        },
+        ft = { "markdown", "Avante" },
+      },
+    },
+  },
+#+end_src
 *** From Source
 Hactar is a Common LISP project. This makes it very hackable and you might want to run it from source.
 
@@ -312,7 +359,37 @@ Pass the =--acp= flag to enable ACP mode.
 - Ignore port files with =.hactar*.port=
 - Ignore transcripts with =.hactar*.transcript.json=
 - Ignore session files with =.hactar*.session.lisp=
-*** Writing
+*** How to theme the TUI?
+Use the =hactar:make-tui-theme= function:
+
+Example:
+
+#+begin_src lisp
+  (hactar:make-tui-theme
+   :name "catppuccin-mocha"
+   :bg "#1e1e2e" :fg "#cdd6f4"
+   :border "#585b70" :border-accent "#89b4fa"
+   :header "#f5c2e7" :header-bold "#f5c2e7"
+   :selected-fg "#1e1e2e" :selected-bg "#f5c2e7"
+   :muted "#6c7086" :prompt-marker "#89b4fa"
+   :status-info-fg "#cdd6f4" :status-info-bg nil
+   :status-ok-fg "#1e1e2e" :status-ok-bg "#a6e3a1"
+   :status-error-fg "#cdd6f4" :status-error-bg "#f38ba8"
+   :sidebar-title "#f5c2e7" :sidebar-label "#89b4fa"
+   :file-added "#a6e3a1" :file-removed "#f38ba8"
+   :modal-bg-fg "#cdd6f4" :modal-bg-bg "#313244"
+   :modal-border "#89b4fa"
+   :modal-input-fg "#cdd6f4" :modal-input-bg "#45475a"
+   :tab-active-fg "#1e1e2e" :tab-active-bg "#f5c2e7"
+   :tab-inactive-fg "#6c7086" :tab-inactive-bg nil
+   :keyhint "#89b4fa"
+   :lsp-ok "#a6e3a1"
+   :tool-pending "#f9e2af" :tool-running "#89b4fa"
+   :tool-done "#a6e3a1" :tool-failed "#f38ba8"
+   :chat-user "#89b4fa" :chat-assistant nil
+   :chat-thought "#6c7086" :chat-bash "#a6e3a1" :chat-error "#f38ba8"
+   :completion-fg "#cdd6f4" :completion-bg "#313244")
+#+end_src
 ** Usage
 The main workflow for hactar is:
 
@@ -485,6 +562,8 @@ By default Hactar will try to guess your lint command based on stack and files i
 ***** Tips
 - You can use =gen.project.config= to automatically generate a project config with the correct lint command. That way you don't need to keep adding stuff like package.json to the context.
 *** Flags/Options
+**** --tui
+A flag to enable a full ncurses based tui. By default it is disabled so integration in your editor of choice is easier.
 **** --assistant
 Enable assistant mode for visual interaction.
 **** --audio
@@ -1998,6 +2077,26 @@ Then use them like this:
             (get-llm-response full-command :dot-command-p t)
             ))
 #+end_src
+*** Writing Tools
+You can define custom tools using the =deftool= macro.
+
+#+begin_src lisp
+  (hactar:deftool echo-message ((message :string :description "Message to echo" :required t))
+    :description "Echoes a message back to the user."
+    :rules "Use this to verify communication."
+    :permissions :auto
+    (let ((msg (getf hactar:args :message)))
+      (format nil "Echo: ~A" msg)))
+#+end_src
+
+The =deftool= macro takes:
+- =name=: The symbol naming the tool (e.g. =echo-message= becomes =echo_message=).
+- =params=: A list of parameter specs. Each spec can be just a name (defaults to a required string) or a full spec: =(name type :description "..." :required t :enum '("a" "b"))=.
+- Options:
+  - =:description=: A required description of what the tool does.
+  - =:rules=: Optional rules for when/how the LLM should use the tool.
+  - =:permissions=: Either =:confirm= (ask the user before running) or =:auto= (run automatically). Default is =:confirm=.
+- =body=: The Lisp code to execute. The arguments provided by the LLM are available in a plist named =args= (interned in the hactar package, or accessible via =getf hactar:args :param-name=).
 *** Add new Import Sources for Documentation and Other Things
 Hactar is designed to let you quickly extend import sources. A similar development philosophy to devdocs, we want you to be able to import any of your common doc sources.
 
@@ -2109,7 +2208,7 @@ You can run the release script for this. By default it will be a dry run. Pass t
   release --version 0.0.1 --description ./RELEASE_0_1.md
 #+end_src
 ** Hactar API Reference
-*Note*: These API docs are generated by Hactar and then human checked. They may be subject to errors. Last updated <2025-11-25 Tue>. It is not necessary to copy and paste them into Hactar projects. Hactar has it's own API docs that are auto updated.
+*Note*: These API docs are generated by Hactar and then human checked. They may be subject to errors. Last updated <2026-04-21 Tue>. It is not necessary to copy and paste them into Hactar projects. Hactar has it's own API docs that are auto updated.
 *** Packages
 **** org-mode-parser Package
 This package provides a robust parser for Org-mode text, converting it into a structured Lisp representation (a plist).
@@ -2208,6 +2307,7 @@ These functions modify a file in place. They are wrappers around the pure functi
 - =(get-tags-from-headline headline-line)=: Extracts a list of tags
   (e.g., =("api" "public")=) from a headline string.
 **** hactar
+This is the main package most extension authors and advanced users interact with. It contains the REPL commands, state, context management, generation systems, protocol integrations, compiler targets, and the majority of Hactar's extension surface.
 ***** Components
 ****** globals
 ******* General State
@@ -3004,7 +3104,7 @@ Asks the LLM to generate a single-line Git commit message based on the last two 
 
 *Return Value:* A string containing the suggested commit message, or =NIL= on failure.
 ****** db
-The =db= functionality in Hactar manages the connection to the SQLite database, which stores documentation, starters, and other persistent data. It uses the =sqlite= library and the =sqlite-vec= extension for vector search.
+The =db= functionality in Hactar manages the connection to the SQLite database, which stores documentation, starters, errors, embeddings, and other persistent data. It uses the =sqlite= library and the =sqlite-vec= extension for vector search.
 ******* Configuration
 Database connection parameters are configured via environment variables or globals.
 
@@ -3030,6 +3130,12 @@ Disconnects the top-level database connection.
 #+end_src
 
 Deletes all documents from the =documents= and =vec_documents= tables in the database. This action requires user confirmation via the command line. It also clears the in-memory =*docs-context*= list.
+******** errors-clear-database
+#+begin_src lisp
+  (errors-clear-database)
+#+end_src
+
+Deletes all errors from the =errors= and =vec_errors= tables in the database. This action requires user confirmation and also clears the in-memory =*errors-context*= list.
 ******* Utility Functions
 These are internal helper functions for formatting data for SQL queries.
 ******** format-vector-for-sqlite-vec
@@ -3583,8 +3689,104 @@ Execute a named src block. Supports shell commands and Lisp code.
 - =/run <name>=: Run a named src block from the Tooling section.
 - =/litmode-summarize=: Auto-generate summaries for headlines without one.
 - =/litmode-status=: Show literate mode status.
+****** compiler targets
+Hactar includes a language-target compiler layer for generating source files from Lisp forms. These targets are especially useful for starter kits, code generators, literate workflows, and deterministic scaffolding.
+******* javascript target
+The =javascript-target.lisp= component defines the core JS emitter layer.
+
+Key capabilities include:
+- function and variable emission
+- conditionals and boolean operators
+- object and array literals
+- imports and exports
+- async/await
+- JSX-adjacent support consumed by higher-level targets
+******* typescript target
+The =typescript-target.lisp= component extends the JavaScript target with type-aware emitters.
+
+Key capabilities include:
+- typed function arguments
+- optional return type support
+- typed let/const bindings
+- typed lambdas
+- =const-typed= helper emission
+******* worker target
+The =worker-target.lisp= component targets Cloudflare Worker-style modules.
+
+Key capabilities include:
+- =defworker= emitter for =export default { async fetch(...) { ... } }=
+- =json-response= macro
+- =text-response= macro
+- worker-style =fetch= emission with option object handling
+******* json target
+The =json-target.lisp= component emits structured JSON using Lisp forms.
+
+Key forms include:
+- =json-value=
+- =json-array=
+- =json-object=
+******* toml target
+The =toml-target.lisp= component emits TOML configuration files.
+
+Key forms include:
+- =toml-array=
+- =toml-pairs=
+- =toml-table=
+******* css target
+The =css-target.lisp= component emits CSS and supports a nested DSL for selectors and declarations.
+
+Key forms include:
+- =css-decl=
+- =css-rule=
+- =css-nested-rule=
+- =css-at-rule=
+- =css-stylesheet=
+- =defcss=
+******* redwood target
+The =redwood-target.lisp= component builds on the TypeScript target to generate RedwoodSDK-style Cloudflare/React applications.
+
+Key capabilities include:
+- JSX emitters and HTML tag macros
+- =defcomponent=, =defclient=, =defaction=
+- =defconfig= for =package.json=
+- =deftsconfig=
+- =defviteconfig=
+- =defwrangler=
+- =defapp=
+- auto-emission of default config files during finalize
+******* compiler entry points
+******** compile-string
+#+begin_src lisp
+  (compile-string source &key target (check t))
+#+end_src
+
+Compile a string of Lisp forms into a virtual file system.
+******** compile-file-to-string
+#+begin_src lisp
+  (compile-file-to-string source &key target)
+#+end_src
+
+Compile source and return the first output file as a string.
+******** compile-toplevel
+#+begin_src lisp
+  (compile-toplevel forms &key target (vfs (make-vfs)) (check t))
+#+end_src
+
+Compile a list of forms into the provided virtual file system.
+******** check-string
+#+begin_src lisp
+  (check-string source &key target)
+#+end_src
+
+Run target-specific checks without compiling.
+******** /compile
+#+begin_src
+  /compile file1.lisp [file2.lisp ...] [-o output-dir] [-f format] [--dry]
+#+end_src
+
+Compile source files to target output. Targets are auto-detected from =(target :keyword)= forms.
 ****** core and other
-Hactar is built around an extensible architecture using hooks and macros. If you are LISPer you will feel right at home.
+Hactar is built around an extensible architecture using hooks and macros. If you are a LISPer you will feel right at home.
 
 - *Hooks*: A publish/subscribe system (=nhooks=) that allows different parts of the application to react to events, such as file changes
   (=*file-event-hook*=) or LLM responses (=*process-history-hook*=).
@@ -3950,8 +4152,54 @@ Extensions can attach to these hooks to react to events.
 - =*stack-changed-hook*=:
   Fired when the stack variable changes. Handler receives the new stack list.
 ******* Hook Usage Examples
+****** lsp
+The =lsp.lisp= component exposes Hactar as a Language Server Protocol server over stdio.
+
+It currently focuses on diagnostics and a provider architecture so different analyzers or checkers can contribute editor-visible issues.
+******* lsp-diagnostic
+Structure describing a single diagnostic, including:
+- start and end line/column
+- severity
+- source
+- message
+******* deflsp-provider
+#+begin_src lisp
+  (deflsp-provider name &body body)
+#+end_src
+
+Define a diagnostic provider.
+
+Important keys:
+- =:languages=: Language IDs handled by the provider.
+- =:enabled=: Whether it is active by default.
+
+The implementation receives =(source file-path)= and returns a list of =lsp-diagnostic= structs.
+******* lsp-collect-diagnostics
+#+begin_src lisp
+  (lsp-collect-diagnostics source file-path language-id)
+#+end_src
+
+Run all matching providers and collect diagnostics for a document.
+******* lsp-publish-diagnostics
+#+begin_src lisp
+  (lsp-publish-diagnostics uri)
+#+end_src
+
+Publish diagnostics for an open document using =textDocument/publishDiagnostics=.
+******* start-lsp
+#+begin_src lisp
+  (start-lsp)
+#+end_src
+
+Start the LSP server.
+******* hactar lsp
+#+begin_src
+  hactar lsp
+#+end_src
+
+Run Hactar as an LSP server over stdio.
 ****** router
-This file provides a generic router using regex pattern matching. It is used by `import.lisp` and can be used for other dispatching needs.
+This file provides a generic router using regex pattern matching. It is used by =import.lisp= and other subsystems that need declarative string-to-handler dispatch.
 ******* defroute
 #+begin_src lisp
   (defroute pattern args &rest rest-args)
@@ -3998,6 +4246,8 @@ Match and execute a route for the given input string.
 *Return Value:* The result of the route handler, or NIL if no match.
 ****** gen
 Generative commands that use LLMs to generate code or configuration.
+
+The =gen.lisp= layer is Hactar's higher-level scaffolding system. It sits above raw SEARCH/REPLACE editing and lets you define generators, patterns, and recipes that can mix deterministic operations with LLM planning.
 ******* generate-project-config-toml
 #+begin_src lisp
   (generate-project-config-toml)
@@ -4005,7 +4255,92 @@ Generative commands that use LLMs to generate code or configuration.
 
 Generate a TOML configuration string for the current project using the LLM and repository context.
 
-*Return Value:* A string containing the generated .hactar.toml content.
+*Return Value:* A string containing the generated =.hactar.toml= content.
+******* defgenerator
+#+begin_src lisp
+  (defgenerator name description &body body)
+#+end_src
+
+Define a generator that can compile a high-level intent into concrete operations.
+
+Important keys include:
+- =:when=: Predicate controlling whether the generator is active.
+- =:hooks=: Hooks that may activate the generator.
+- =:priority=: Higher-priority generators win when names overlap.
+- =:args=: Argument specification.
+- =:infer-from-context=: Values to infer from project state.
+- =:operations=: Operation templates such as =:create=, =:modify=, =:install=, or =:run=.
+- =:templates=: Associated template references.
+- =:compose=: Other generators to compose.
+******* defpattern
+#+begin_src lisp
+  (defpattern name description &body body)
+#+end_src
+
+Define a reusable implementation pattern that can be applied to files or project structures.
+
+Patterns support keys such as:
+- =:when=
+- =:hooks=
+- =:priority=
+- =:requires=
+- =:package=
+- =:config-schema=
+- =:operations=
+******* execute-gen-plan
+#+begin_src lisp
+  (execute-gen-plan operations &key dry-run confirm)
+#+end_src
+
+Execute a compiled list of generation operations.
+
+- =operations=: List of =gen-operation= structs.
+- =dry-run=: If =T=, only preview the changes.
+- =confirm=: If =T=, prompt before execution.
+
+*Return Value:* A =gen-result= struct describing what succeeded, failed, or changed.
+******* gen-undo
+#+begin_src lisp
+  (gen-undo)
+#+end_src
+
+Undo the most recent generation run by replaying rollback operations captured during execution.
+******* /gen
+#+begin_src
+  /gen <generator|description> [args...]
+#+end_src
+
+Run a named generator or use natural-language generation to produce a plan.
+******* /gen/add
+#+begin_src
+  /gen/add <pattern> --to <glob>
+#+end_src
+
+Apply a named pattern to matching files.
+******* /gen/rm
+#+begin_src
+  /gen/rm <type> <name>
+#+end_src
+
+Ask the LLM to generate a removal plan for some generated artifact.
+******* /gen/undo
+#+begin_src
+  /gen/undo
+#+end_src
+
+Undo the last generation operation batch.
+******* /gen/history
+#+begin_src
+  /gen/history
+#+end_src
+
+Show recent generation history entries.
+******* /gen/list
+#+begin_src
+  /gen/list [--all]
+#+end_src
+
+List active generators and patterns, or all of them when =--all= is used.
 ******* generate-rule-code
 #+begin_src lisp
   (generate-rule-code instruction)
@@ -4018,6 +4353,69 @@ Generate a defrule form based on the instruction.
 *Return Value:* A string containing the generated Lisp code for the rule.
 ****** npm
 NPM package management and documentation utilities.
+
+This layer wraps the npm registry and package metadata so Hactar can fetch docs, package metadata, and search results without relying entirely on an LLM.
+****** proxy
+The =proxy.lisp= component implements an OpenRouter-compatible chat-completions proxy that injects Hactar context into upstream requests.
+******* proxy-build-context-section
+#+begin_src lisp
+  (proxy-build-context-section)
+#+end_src
+
+Build the injected proxy context string from:
+- active rules
+- current stack
+- files in context
+- docs in context
+- entity rules
+- feature rules
+
+*Return Value:* A string suitable for appending to a system prompt.
+******* proxy-inject-context
+#+begin_src lisp
+  (proxy-inject-context request-plist)
+#+end_src
+
+Default request hook that merges Hactar context into the request's system prompt.
+******* proxy-forward-request
+#+begin_src lisp
+  (proxy-forward-request request-plist)
+#+end_src
+
+Forward a processed request to the upstream provider.
+
+*Return Value:* Raw Drakma response values plus a response type marker:
+- =:stream=
+- =:body=
+******* handle-proxy-request
+#+begin_src lisp
+  (handle-proxy-request params env)
+#+end_src
+
+Main Ningle route handler for the proxy. It:
+- parses the incoming OpenAI/OpenRouter-style payload
+- extracts system messages
+- runs proxy hooks
+- forwards the request upstream
+- returns either JSON or SSE output
+******* start-proxy
+#+begin_src lisp
+  (start-proxy &key (port *proxy-port*))
+#+end_src
+
+Register proxy routes and ensure the HTTP server is running.
+******* /proxy.start
+#+begin_src
+  /proxy.start
+#+end_src
+
+Start the LLM proxy.
+******* /proxy.status
+#+begin_src
+  /proxy.status
+#+end_src
+
+Show current proxy status, upstream URL, handler counts, and context summary.
 ******* get-npm-docs
 #+begin_src lisp
   (get-npm-docs package-name &optional version-spec)
@@ -4042,6 +4440,8 @@ Search NPM packages and return results.
 *Return Value:* A list of package objects.
 ****** processors
 Functions for parsing and applying LLM output blocks.
+
+Processors are one of the most important extension points in Hactar. They run after assistant output is added to history, which makes them ideal for turning plain model output into concrete effects like file edits, file creation, tool execution, or follow-up prompts.
 ******* parse-file-blocks
 #+begin_src lisp
   (parse-file-blocks text)
@@ -4079,7 +4479,46 @@ Applies the changes defined in the parsed blocks list to the filesystem.
 
 - =blocks=: A list of plists as returned by =parse-search-replace-blocks=.
 - =autocommit=: Boolean, if T, performs a git commit after applying changes.
-****** Tools System
+****** create
+The =create.lisp= component powers starter-based project creation. It combines a starter guide, repository context, and a create-specific system prompt to generate a new codebase.
+******* create-project
+#+begin_src lisp
+  (create-project starter user-prompt)
+#+end_src
+
+Create a new project from a starter guide.
+
+- =starter=: Either a known starter name such as ="react"= or ="sinatra"=, a file path, or a pathname to a starter file.
+- =user-prompt=: Natural-language description of the project to generate.
+
+*Behavior:*
+- Loads starter content from the built-in starters path or the provided file.
+- Renders the =system.create.org= prompt using the current language and generated context.
+- Sends the final prompt to the selected model.
+- Adds the interaction to chat history.
+******* /create
+#+begin_src
+  /create <starter> <prompt...>
+#+end_src
+
+Create a new project from a starter inside the current repository context.
+******* hactar create
+#+begin_src
+  hactar create --path <dir> [--starter <starter>] <prompt...>
+#+end_src
+
+Create a new project in a target directory. This subcommand:
+- Ensures the target directory exists.
+- Initializes a git repository if one is missing.
+- Sets =*repo-root*= to the target directory.
+- Invokes =create-project= with the requested starter.
+******* /create.agent
+#+begin_src
+  /create.agent [prompt...]
+#+end_src
+
+Create a new agent-oriented project using the Agent starter guide.
+****** processors
 ******* deftool (Macro)
 #+begin_src lisp
   (deftool name (&rest params) &body body)
@@ -4479,6 +4918,14 @@ The following rules are registered by default at system startup:
 |       10 | tool-default-permissions         | :any            | Fall through to the tool's own =:permissions= setting |
 ****** Agent Client Protocol (ACP)
 The =acp.lisp= file implements the Agent Client Protocol (ACP) over JSON-RPC 2.0 via stdio. This allows Hactar to integrate deeply with editors and other clients, exposing capabilities and consuming client-provided capabilities.
+
+ACP is the main structured editor-integration surface for modern Hactar clients. It supports:
+- capability negotiation
+- session lifecycle management
+- streaming message chunks
+- tool-call progress updates
+- client-mediated permissions
+- filesystem and terminal round-trips
 ******* Macros
 ******** defcapability
 #+begin_src lisp
@@ -4646,6 +5093,8 @@ Initialize and start the MCP stdio server.
 Start Hactar as a Model Context Protocol (MCP) server over stdio.
 ****** Lisp-RPC Mode
 Lisp-RPC mode allows Hactar to expose a Lisp API surface to the LLM and evaluate Lisp forms returned by the LLM in a sandboxed environment. It also provides a standard output protocol for editor integration.
+
+This mode is intentionally opinionated: the model is expected to return Lisp forms explicitly, and evaluation is constrained by a whitelist-based validator before any form is executed.
 ******* Core Concepts
 - *Sandboxed Evaluation*: The LLM can emit Lisp forms inside =```lisp= or =<lisp>= blocks. These forms are read using a restricted readtable and validated against a whitelist of allowed symbols before evaluation.
 - *API Registry*: Functions exposed to the LLM are defined using the =defapi= macro and stored in =*api-registry*=.
@@ -4968,6 +5417,8 @@ CLI Sub-commands:
 - =hactar preset show <name>=
 ****** Session Management
 The =session.lisp= file provides a system for capturing, saving, and restoring the full state of a Hactar instance. Sessions are persisted as human-readable Lisp forms, allowing users to switch contexts, resume previous work, and maintain project-local or global session histories.
+
+This is distinct from snapshots in =preset.lisp=. Snapshots focus on context state; sessions aim to restore the whole working session, including models, chat history, active presets, flags, and context selections.
 ******* Structs
 ******** hactar-session
 #+begin_src lisp
@@ -5889,4 +6340,22 @@ The agents ecosystem has a lot of emerging standards. Choosing a tool that works
                   (format t "  - Mittens~%")
                   (format t "  - Whiskers~%")
                   (format t "  - Shadow~%"))
+#+end_src
+*** A Basic Customization Example With a Custom Agent
+#+begin_src lisp
+  ;; (format t "look ma I'm loaded?")
+
+  (in-package :hactar)
+
+  (defagent hello (name)
+    "A simple helloworld agent that greets a person."
+    :init (progn
+            (setf (gethash 'loop-count (agent-instance-state agent-instance)) 0)
+            (format t "Agent 'hello' initialized for ~A.~%" name))
+    :run (progn
+           (format t "Hello agent loop... (~A/3)~%" (1+ (gethash 'loop-count (agent-instance-state agent-instance))))
+           (sleep 1)
+           (incf (gethash 'loop-count (agent-instance-state agent-instance))))
+    :stop-condition (>= (gethash 'loop-count (agent-instance-state agent-instance) 0) 3)
+    :cleanup (get-llm-response (format nil "Say hello to ~A." name)))
 #+end_src
