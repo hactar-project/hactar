@@ -57,6 +57,14 @@
   max_input_tokens: 100000
   max_output_tokens: 8192
   cache_control: true
+- name: ollama/kimi-k2.6:cloud
+  edit_format: diff
+  model_name: ollama/kimi-k2.6:cloud
+  use_repo_map: true
+  examples_as_sys_msg: true
+  max_input_tokens: 100000
+  max_output_tokens: 8192
+  cache_control: true
 - name: ollama/glm-4.7-flash:q4_K_M
   edit_format: diff
   model_name: glm-4.7-flash:q4_K_M
@@ -858,6 +866,14 @@
 - name: openrouter/claude-opus-4.7
   edit_format: diff
   model_name: anthropic/claude-opus-4.7
+  use_repo_map: true
+  examples_as_sys_msg: true
+  max_output_tokens: 8192
+  max_input_tokens: 120000
+  cache_control: true
+- name: openrouter/kimi-k2.6
+  edit_format: diff
+  model_name: moonshotai/kimi-k2.6
   use_repo_map: true
   examples_as_sys_msg: true
   max_output_tokens: 8192
