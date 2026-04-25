@@ -1,4 +1,4 @@
-# Created 2026-04-21 Tue 14:06
+# Created 2026-04-24 Fri 21:44
 #+title: Hactar Docs
 #+author: k
 * Hactar Docs
@@ -643,49 +643,330 @@ Hactar commands are divided into three types:
 **** Subcommands
 ***** hactar.init
 Initialize Hactar: clone repo and install default prompts and models.
+***** acp
+Start Hactar in Agent Client Protocol (ACP) mode over stdio.
+***** agent.run
+Run an agent by name.
+
+Usage:
+#+begin_src sh
+  hactar agent.run <agent_name> [agent_args...]
+#+end_src
+***** agent.stop
+Stop a running agent by its ID.
+
+Usage:
+#+begin_src sh
+  hactar agent.stop <agent_id>
+#+end_src
+***** agents
+List currently running agents.
+***** browse
+Browse web pages as plaintext.
+
+Supported route:
+- =browse <url> [--format markdown|org]= — Fetch and convert a URL to plaintext.
+***** check
+Run environment and setup checks and exit with appropriate status.
+***** check-file
+Check source files for issues and output diagnostics.
+
+Usage:
+#+begin_src sh
+  hactar check-file file1.lisp [file2.lisp ...] [-f format]
+#+end_src
+
+Target is auto-detected from =(target :xxx)= declarations in source files. Formats: =xml= (default), =json=.
+***** code.index
+Index the codebase using ctags.
+***** compile
+Compile Lisp source files to a target language.
+
+Usage:
+#+begin_src sh
+  hactar compile file1.lisp [file2.lisp ...] [-o output-dir] [-f format] [--dry]
+#+end_src
+
+Target is auto-detected from =(target :xxx)= declarations in source files. If =--format= is set, outputs in that format (=org=, =lisp=). Otherwise flushes to =--output= dir. If neither =--format= nor =--output= is set, defaults to dry run with =<file>= tag output.
+***** component.create
+Create a new component.
+***** component.list
+List all components.
+***** copilotapi
+GitHub Copilot API commands: models, authorize, complete.
 ***** create
 Create a new project from a starter.
-Usage: hactar create --path <dir> --starter <starter> <prompt...>
+
+Usage:
+#+begin_src sh
+  hactar create --path <dir> --starter <starter> <prompt...>
+#+end_src
 ***** help
 Display comprehensive help information about Hactar.
 ***** check
 Run environment and setup checks and exit with appropriate status.
+***** docs-import
+Import a text file into the documentation database.
 ***** docs.db
 List all known documentation in the dataabase and select one. In non-interactive mode, prints the path of the selected doc.
 ***** errors.db
-List all known error docs and select one to add to context.
-***** pro.install
-Clone the Pro repo (if needed) and copy the selected content DB into *db-path*.
+Alias for =errors-db=.
+***** feature
+Activate or manage features.
+
+Usage:
+#+begin_src sh
+  hactar feature <name> [-v/--variant <variant>]
+  hactar feature list
+  hactar feature active
+  hactar feature off <name>
+  hactar feature show <name>
+  hactar feature --dry-run <name>
+#+end_src
+***** frameworkroute.create
+Create a new frameworkroute.
+***** frameworkroute.list
+List all frameworkroutes.
+***** gen
+Generate code using Hactar's generative layer.
+
+Usage:
+#+begin_src sh
+  hactar gen <generator|description> [args...]
+#+end_src
+***** hactar.init
+Initialize Hactar: clone repo and install default prompts and models.
+***** help
+Display comprehensive help information about Hactar.
+***** hn
+Fetch news from news.ycombinator.com (Hacker News).
+
+Supported routes:
+- =newest= — Fetch newest posts from Hacker News.
+- =top= — Fetch top posts from Hacker News.
+***** hyperfractal
+Fetch a URL and convert it to plaintext.
+
+Usage:
+#+begin_src sh
+  hactar hyperfractal [options] <url>
+#+end_src
+
 Options:
-  --content, -c VALUE   Select which content DB to copy (default: all).
-***** pro.update
-Update the Pro repository by running 'git pull'. Clones first if missing.
+- =-m, --model MODEL= — LLM model to use
+- =-f, --format FORMAT= — Output format (=markdown= or =org=)
+- =--clear-cache= — Clear the cache
+***** import
+Import documentation from various sources (npm, file, http, github, etc.).
+***** import.docs
+Import documentation (alias of =/docs.import=).
+***** import.starter
+Import a starter document and automatically tag it with =starter=.
+***** lib.create
+Create a new lib.
+***** lib.list
+List all libs.
+***** litmode.drift
+Detect drift between org and tangled code.
+
+Usage:
+#+begin_src sh
+  hactar litmode.drift
+#+end_src
+***** litmode.index
+Build the headline index.
+
+Usage:
+#+begin_src sh
+  hactar litmode.index
+#+end_src
+***** litmode.init
+Initialize literate single-file mode.
+
+Usage:
+#+begin_src sh
+  hactar litmode.init [path]
+#+end_src
+***** litmode.tangle
+Tangle code from =.hactar.org= to files.
+
+Usage:
+#+begin_src sh
+  hactar litmode.tangle [--dry-run]
+#+end_src
+***** lsp
+Start Hactar as a Language Server Protocol (LSP) server over stdio.
+***** mcp
+Start Hactar as a Model Context Protocol (MCP) server over stdio.
+***** model.create
+Create a new model.
+***** model.list
+List all models.
+***** mold.export
+Export the active mold as a portable schema.
+
+Usage:
+#+begin_src sh
+  hactar mold.export --format json|org|xml
+#+end_src
+***** mold.init
+Scaffold a mold for the current project.
+
+Usage:
+#+begin_src sh
+  hactar mold.init [mold-name]
+#+end_src
+***** mold.install
+Install a mold from various sources.
+
+Usage:
+#+begin_src sh
+  hactar mold.install <source>
+#+end_src
+***** mold.list
+List all available molds.
+***** mold.pour
+Ask AI to implement an entity from the mold.
+
+Usage:
+#+begin_src sh
+  hactar mold.pour <entity-name>
+  hactar mold.pour --all
+#+end_src
+***** mold.show
+Display the current project's mold (all entities, interfaces, rules).
+
+Usage:
+#+begin_src sh
+  hactar mold.show [mold-name]
+#+end_src
+***** mold.use
+Activate a mold for the current project.
+
+Usage:
+#+begin_src sh
+  hactar mold.use <mold-name>
+#+end_src
+***** mold.validate
+Check that all code conforms to the active mold.
+***** molds
+Mold management commands. Without arguments, lists available molds.
+***** monolith.concept
+Manage concepts.
+
+Usage:
+#+begin_src sh
+  hactar monolith.concept new <title> [--maturity <level>]
+  hactar monolith.concept find <query>
+  hactar monolith.concept list
+#+end_src
+***** monolith.drift
+Detect drift between org and tangled code.
+
+Usage:
+#+begin_src sh
+  hactar monolith.drift [--project <name>] [--all]
+#+end_src
+***** monolith.index
+Index the knowledge monolith.
+
+Usage:
+#+begin_src sh
+  hactar monolith.index [--force]
+#+end_src
+***** monolith.init
+Initialize a knowledge monolith.
+
+Usage:
+#+begin_src sh
+  hactar monolith.init [path]
+#+end_src
+***** monolith.synthesize
+Synthesize code from concepts.
+
+Usage:
+#+begin_src sh
+  hactar monolith.synthesize <description> --draw-from <patterns...>
+#+end_src
+***** monolith.tangle
+Tangle code from org files.
+
+Usage:
+#+begin_src sh
+  hactar monolith.tangle --project <name> [--lang <language>] [--dry-run]
+#+end_src
+***** npm
+NPM package management and documentation.
+
+Supported routes:
+- =search <query>=
+- =docs <package@version>=
+- =meta <package@version>=
+***** preset
+Manage context presets.
+
+Usage:
+#+begin_src sh
+  hactar preset list
+  hactar preset load <name>
+  hactar preset show <name>
+#+end_src
 ***** pro.check
-Run environment/setup checks (alias for run-all-checks-and-report).
-***** agent.run
-Run an agent by name. Usage: hactar agent.run <agent_name> [agent_args...]
-***** agent.stop
-Stop a running agent by its ID. Usage: hactar agent.stop <agent_id>
-***** agents
-List currently running agents.
-***** copilotapi
-GitHub Copilot API commands: models, authorize, complete.
+Run environment/setup checks (alias for =run-all-checks-and-report=).
+***** pro.install
+Clone the Pro repo (if needed) and copy the selected content DB into =*db-path*=.
+
+Options:
+- =--content, -c VALUE= — Select which content DB to copy (default: all).
+***** pro.update
+Update the Pro repository by running =git pull=. Clones first if missing.
+***** react-router.docs.gen
+Generate API reference docs for React Router from GitHub.
+***** react.docs.gen
+Generate API reference docs for React from react.dev.
+***** ruhe
+Process a text file and generate an updated feed.
+***** rules.add
+Attach a rule to the current context by loading its lisp file.
+***** rules.install
+Install rules from a GitHub repository.
+***** rules.list
+List available rules.
+***** rules.show
+Show currently active rules.
+***** session
+Manage hactar sessions.
+
+Usage:
+#+begin_src sh
+  hactar session list
+  hactar session save <name> [--description "..."]
+  hactar session load <name>
+  hactar session show <name>
+  hactar session delete <name>
+#+end_src
 ***** sh
 Generate a shell command from a query, print it, and copy it to the clipboard.
 ***** sh!
 Generate a shell command from a query and execute it immediately.
-***** npm
-NPM package management and documentation.
-***** hn
-Fetch news from news.ycombinator.com (Hacker News).
-***** import
-Import documentation from various sources (npm, file, http, github, etc.).
-***** docs-import
-Import a text file into the documentation database.
-***** import.docs
-Import documentation (alias of /docs.import).
-***** import.starter
-Import a starter document and automatically tag it with 'starter'.
+***** sinatra.docs.gen
+Generate API reference docs for Sinatra using rdoc and pandoc.
+***** skills.add
+Add a skill from a source.
+***** skills.doc
+Generate documentation for available skills.
+***** skills.help
+Show help for skills commands.
+***** skills.list
+List available skills.
+***** skills.search
+Search skills and load one.
+***** skills.validate
+Validate a skill directory or name.
+***** stripe.docs.gen
+Generate API reference docs for Stripe from =hactar-project/llm-txts=.
+***** to-org
+Transform the codebase into a literate =.hactar.org= file.
 **** NPM Commands
 ***** npm search <query>
 Search npm packages.
@@ -709,72 +990,279 @@ Fetch top posts from Hacker News.
 ***** /!
 Run a shell command and optionally add the output to the chat.
 ***** /add
-Add files or images to the chat. If no arguments are given, uses fzf to select a file. Can provide image descriptions via -descriptions="desc1,desc2"
+Add files or images to the chat. If no arguments are given, uses fzf to select a file. Can provide image descriptions via =-descriptions="desc1,desc2"=.
+***** /agent
+Interact with a monolith agent.
+
+Usage:
+#+begin_src
+  /agent <name> <task>
+#+end_src
+
+Available agents: =librarian=, =architect=, =implementer=, =critic=.
 ***** /agent-run
 Run an agent. With no arguments, it shows a selector. Otherwise, runs the agent named in the first argument.
 ***** /agent-stop
 Select and stop a running agent.
+***** /allow
+Add a session override to always allow a tool.
+
+Usage:
+#+begin_src
+  /allow <tool_name>
+#+end_src
 ***** /ask
 Ask questions about the code base without editing any files.
 ***** /assistant-update
 Manually trigger assistant screen analysis with an optional prompt.
 ***** /autocommit
 Toggle git autocommit on/off.
+***** /brief
+Alias for =/ruhe-summary=.
+
+Usage:
+#+begin_src
+  /brief [length]
+#+end_src
 ***** /cheap-model
 Set the cheap model to use when cost is a concern.
+***** /check
+Run environment and setup checks. Prints a Good/Warning line for each check.
+***** /check-file
+Check source files for issues and output diagnostics.
+
+Usage:
+#+begin_src
+  /check-file file1.lisp [file2.lisp ...] [-f format]
+#+end_src
+
+Target is auto-detected from =(target :xxx)= declarations in source files. Formats: =xml= (default), =json=.
 ***** /clear
 Clear the chat history.
 ***** /code
 Make changes and refactors to code.
+***** /code/apply
+Apply staged code-values.
+
+Usage:
+#+begin_src
+  /code/apply
+  /code/apply <id>
+#+end_src
+***** /code/ask
+Ask a question about a code-value.
+
+Usage:
+#+begin_src
+  /code/ask <id-or-name> <question>
+#+end_src
+***** /code/clear
+Clear all registered code-values.
+***** /code/commit
+Apply staged changes and create a git commit.
+
+Usage:
+#+begin_src
+  /code/commit <message>
+#+end_src
+***** /code/describe
+Analyze a code-value semantically using LLM.
+
+Usage:
+#+begin_src
+  /code/describe <id-or-name>
+#+end_src
+***** /code/generate
+Generate a transformation using LLM (explicit LLM call).
+
+Usage:
+#+begin_src
+  /code/generate <id> <description>
+#+end_src
+***** /code/list
+List all registered code-values.
+***** /code/preview
+Preview staged changes.
+
+Usage:
+#+begin_src
+  /code/preview
+  /code/preview <id>
+#+end_src
+***** /code/select
+Select code and create a code-value.
+
+Usage:
+#+begin_src
+  /code/select <file> [--function NAME] [--class NAME] [--lines START-END] [--name NAME]
+#+end_src
+
+Examples:
+#+begin_src
+  /code/select src/auth.ts
+  /code/select src/auth.ts --function validateToken
+  /code/select src/auth.ts --lines 10-50 --name my-selection
+#+end_src
+***** /code/show
+Show details of a code-value by ID or name.
+
+Usage:
+#+begin_src
+  /code/show <id-or-name>
+#+end_src
+***** /code/stage
+Stage a code-value for application.
+
+Usage:
+#+begin_src
+  /code/stage <id>
+#+end_src
+***** /code/staged
+List all staged code-values.
+***** /code/transform
+Transform a code-value.
+
+Usage:
+#+begin_src
+  /code/transform <id> <transform-name>
+#+end_src
+***** /code/transforms
+List available transforms.
+***** /code/undo
+Undo the last applied code-value operation.
+***** /compile
+Compile Lisp source files to a target language.
+
+Usage:
+#+begin_src
+  /compile file1.lisp [file2.lisp ...] [-o output-dir] [-f format] [--dry]
+#+end_src
+
+Target is auto-detected from =(target :xxx)= declarations in source files. If =--format= is set, outputs in that format (=org=, =lisp=). Otherwise flushes to =--output= dir. If neither =--format= nor =--output= is set, defaults to dry run with =<file>= tag output.
 ***** /complete
 Complete the provided text using the configured completion model.
 ***** /compress
 Manually trigger chat history compression.
+***** /concept-find
+Find concepts.
+
+Usage:
+#+begin_src
+  /concept-find <query> [--maturity <level>] [--lang <language>]
+#+end_src
+***** /concept-mature
+Promote a concept to a higher maturity level.
+
+Usage:
+#+begin_src
+  /concept-mature <id-or-title> --to <maturity>
+#+end_src
+***** /concept-new
+Create a new concept.
+
+Usage:
+#+begin_src
+  /concept-new <title> [--maturity <level>] [--lang <languages>]
+#+end_src
 ***** /context
 List files in the current context.
 ***** /context.expose
-Expose the current context to =hactar.{pid}.context.org= and keep it synchronized.
+Expose the current context to =hactar.{pid}.context.org= and keep it synchronized:
+
+- Adds/removes src blocks under the =Files= headline when files are added/dropped.
+- Automatically updates block contents when files change on disk.
+- Syncs project variables to =Project Details= section.
 ***** /copy
 Copy the last assistant message to the clipboard.
+***** /correct
+Resend the chat asking the LLM to fix its SEARCH/REPLACE blocks. Optionally provide additional guidance about what went wrong.
 ***** /cost
 Estimate the cost of sending the current chat history as input.
 ***** /create
-Create a new project from a starter. Usage: /create <starter> <prompt...>
+Create a new project from a starter.
+
+Usage:
+#+begin_src
+  /create <starter> <prompt...>
+#+end_src
 ***** /create.agent
-Create a new Agent project using the AgentStarter guide. Usage: /create.agent [prompt...]
+Create a new Agent project using the AgentStarter guide.
+
+Usage:
+#+begin_src
+  /create.agent [prompt...]
+#+end_src
 ***** /debug
 Toggle debug mode for both hactar and llm packages.
+***** /deny
+Add a session override to always deny a tool.
+
+Usage:
+#+begin_src
+  /deny <tool_name>
+#+end_src
 ***** /docs
 Find and select documentation relevant to the current project stack. In non-interactive mode, prints the path of the selected doc.
+
+The =*docs*= global is considered to always be relevant to current stack. When there are no docs in =*docs*= we query the DB. Use =/docs-db= to always select from the DB.
+
+Usage:
+#+begin_src
+  /docs [--format=json]
+#+end_src
 ***** /docs-add
-Add documentation from file, URL, package name (@p/name@ver), or fzf selection.
-Optionally include metadata: /docs-add <source> -tags=tag1,tag2 -covers=react
+Add documentation from file, URL, package name (=@p/name@ver=), or fzf selection.
+
+Optionally include metadata:
+#+begin_src
+  /docs-add <source> -tags=tag1,tag2 -covers=cover1
+#+end_src
 ***** /docs-add-to-context
-Add a known document (from *docs*) to the context by its URI or Source.
-Usage: /docs-add-to-context <uri>
+Add a known document (from =*docs*=) to the context by its URI or Source.
+
+Usage:
+#+begin_src
+  /docs-add-to-context <uri>
+#+end_src
 ***** /docs-ask
 Ask the LLM to find documentation for a query, fetch it, and add it.
 ***** /docs-clear
 Delete all documents from the database (requires confirmation).
 ***** /docs-context
 Show documentation currently added to the context.
+***** /docs-db
+List all known documentation and select one. In non-interactive mode, prints the path of the selected doc.
+
+Options: =-t/--tags <tag>=, =-l/--limit <n>=
 ***** /docs-find
 Search documentation database by text query and add selected doc to context.
 ***** /docs-guess
 Guess relevant documentation based on the last added file's content.
 ***** /docs-import
 Import a text file into the documentation database.
-Usage: /docs.import <uri> -tags=tag1,tag2 -covers=cover1
-***** /docs-db
-List all known documentation in DB and select one. In non-interactive mode, prints the path of the selected doc.
+
+Usage:
+#+begin_src
+  /docs.import <uri> -tags=tag1,tag2 -covers=cover1
+#+end_src
 ***** /docs-meta-model
 Set the model to use for generating documentation metadata.
+***** /dots
+Display available dot commands and their descriptions.
+***** /drift
+Detect drift between org and tangled code.
+
+Usage:
+#+begin_src
+  /drift --project <name>
+  /drift --all
+#+end_src
 ***** /drop
 Remove files or images from the chat session.
 ***** /drop-image
 Remove an image from the context by its path.
 ***** /dump
-Dump settings, context, and debug info
+Dump settings, context, and debug info.
 ***** /dump-api-keys
 Print out the API keys for each platform.
 ***** /dump-context
@@ -787,100 +1275,710 @@ Open an editor to write a prompt.
 Find and select errors relevant to the current project/context.
 ***** /errors-add
 Add a new error entry manually.
-Usage: /errors-add --code CODE --title TITLE --message MSG --cause CAUSE --solution SOL --stack STACK --slug SLUG
+
+Usage:
+#+begin_src
+  /errors-add --code CODE --title TITLE --message MSG --cause CAUSE --solution SOL --stack STACK --slug SLUG
+#+end_src
 ***** /errors-add-to-context
-Select and add a known error to context (from *errors*).
+Select and add a known error to context (from =*errors*=).
 ***** /errors-db
 List all known error docs and select one to add to context.
 ***** /errors-db-clear
 Clear database of errors.
 ***** /errors-find
 Search in DB using a query and add selected to context.
-Usage: /errors-find <query>
+
+Usage:
+#+begin_src
+  /errors-find <query> [--format=json]
+#+end_src
+***** /errors-lookup
+Lookup errors by text query.
+
+Usage:
+#+begin_src
+  /errors-lookup query [--format=json]
+#+end_src
 ***** /errors.import
 Import an error document (Org format).
+
+Usage:
+#+begin_src
+  hactar errors.import <file.org>
+#+end_src
+***** /expand
+Expand context to include additional headlines.
+
+Usage:
+#+begin_src
+  /expand <id1> [id2 ...]
+#+end_src
+***** /feature
+Activate or manage features.
+
+Usage:
+#+begin_src
+  /feature <name> [-v/--variant <variant>]
+  /feature list
+  /feature active
+  /feature off <name>
+  /feature show <name>
+  /feature --dry-run <name>
+#+end_src
+***** /focus
+Focus context on a single headline.
+
+Usage:
+#+begin_src
+  /focus <id>
+  /focus --clear
+#+end_src
+***** /gen
+Generate code using a generator or natural language.
+
+Usage:
+#+begin_src
+  /gen <generator> [name] [options...]
+  /gen "natural language description"
+#+end_src
+
+Examples:
+#+begin_src
+  /gen component Button --props "label:string"
+  /gen route /api/users --method GET,POST
+  /gen "a form component for user registration"
+#+end_src
 ***** /gen.project.config
-Generate a .hactar.toml for the current project using the LLM, based on repository context and files added.
+Generate a =.hactar.toml= for the current project using the LLM, based on repository context and files added.
+***** /gen.rule
+Generate a new Hactar rule (=defrule=) based on instructions.
+
+Usage:
+#+begin_src
+  /gen.rule <instructions>
+#+end_src
+***** /gen/add
+Add a pattern to files.
+
+Usage:
+#+begin_src
+  /gen/add <pattern> --to <glob>
+#+end_src
+
+Examples:
+#+begin_src
+  /gen/add rate-limiting --to "src/api/**/*.ts"
+  /gen/add error-boundary --wrap "src/components/*.tsx"
+#+end_src
+***** /gen/history
+Show generation history.
+***** /gen/list
+List available generators and patterns. Use =--all= to show inactive ones too.
+***** /gen/rm
+Remove generated code.
+
+Usage:
+#+begin_src
+  /gen/rm <type> <name>
+#+end_src
+***** /gen/undo
+Undo the last generation operation.
+***** /graph-query
+Query the knowledge graph.
+
+Usage:
+#+begin_src
+  /graph-query <natural language query>
+#+end_src
 ***** /guide
 Print the content of the currently active guide file.
 ***** /guide-add-api
-Search docs tagged 'api', select one, and add/update it under the 'APIs' (:apis:) headline.
+Search docs tagged =api=, select one, and add/update it under the =APIs= (=:apis:=) headline.
 ***** /guide-add-docs
-Search docs tagged 'docs', select one, and add/update it under the 'Documentation' (:docs:) headline.
+Search docs tagged =docs=, select one, and add/update it under the =Documentation= (=:docs:=) headline.
 ***** /guide-add-example
-Search docs tagged 'example', select one, and add/update it under the 'Examples' (:examples:) headline.
+Search docs tagged =example=, select one, and add/update it under the =Examples= (=:examples:=) headline.
 ***** /guides
-List available *.guide.* files and select one to activate.
+List available =*.guide.*= files and select one to activate.
 ***** /guides-gen
-Generate or update the .hactar.guide.* file using the LLM.
+Generate or update the =.hactar.guide.*= file using the LLM.
 ***** /help
 Display available commands and their descriptions.
+***** /hf
+Browse a URL and convert to plaintext.
+
+Usage:
+#+begin_src
+  /hf <url> [--format markdown|org]
+#+end_src
+***** /hf-back
+Go back in Hyperfractal navigation history.
+***** /hf-cache-clear
+Clear the Hyperfractal cache.
+***** /hf-forward
+Go forward in Hyperfractal navigation history.
+***** /hf-goto
+Go to a link by number from =/hf-links= output.
+***** /hf-links
+Show links from the last viewed page.
+***** /http
+Start the HTTP API server manually (if not already running).
 ***** /images
 List images currently in the context.
 ***** /import
 Import documentation from various sources (npm, file, http, github, etc.).
-Usage: /import <uri> -tags=tag1,tag2 -covers=cover1
+
+Usage:
+#+begin_src
+  /import <uri> -tags=tag1,tag2 -covers=cover1
+#+end_src
+
+Examples:
+#+begin_src
+  /import npm:react@19.2
+  /import file:~/docs/REACT.md
+  /import https://website.xyz/a-page
+  /import https://github.com/user/repo
+#+end_src
 ***** /import.docs
-Import documentation (alias of /docs.import).
-Usage: /import.docs <uri> -tags=tag1,tag2 -covers=cover1
+Import documentation (alias of =/docs.import=).
+
+Usage:
+#+begin_src
+  /import.docs <uri> -tags=tag1,tag2 -covers=cover1
+#+end_src
 ***** /import.starter
-Import a starter document and automatically tag it with 'starter'.
-Usage: /import.starter <uri> -tags=tag1,tag2 -covers=cover1
-***** /ls
-List all known files and indicate which are included in the chat session.
+Import a starter document and automatically tag it with =starter=.
+
+Usage:
+#+begin_src
+  /import.starter <uri> -tags=tag1,tag2 -covers=cover1
+#+end_src
+***** /lisp-rpc
+Manage Lisp-RPC mode.
+
+Usage:
+#+begin_src
+  /lisp-rpc [status|eval|log|expose|api]
+#+end_src
+***** /litmode-drift
+Detect drift between org source and tangled files.
+
+Usage:
+#+begin_src
+  /litmode-drift
+#+end_src
+***** /litmode-index
+Rebuild the headline index.
+
+Usage:
+#+begin_src
+  /litmode-index
+#+end_src
+***** /litmode-init
+Initialize literate single-file mode.
+
+Usage:
+#+begin_src
+  /litmode-init [path]
+#+end_src
+***** /litmode-locks
+Show active agent locks.
+
+Usage:
+#+begin_src
+  /litmode-locks [--cleanup]
+#+end_src
+***** /litmode-status
+Show literate mode status.
+
+Usage:
+#+begin_src
+  /litmode-status
+#+end_src
+***** /litmode-summarize
+Auto-generate summaries for headlines without one.
+
+Usage:
+#+begin_src
+  /litmode-summarize
+#+end_src
+***** /litmode-tangle
+Tangle code from =.hactar.org= to files.
+
+Usage:
+#+begin_src
+  /litmode-tangle [--dry-run]
+  /litmode-tangle <heading-id>
+#+end_src
+***** /litmode-task-do
+Transition a task to a new state.
+
+Usage:
+#+begin_src
+  /litmode-task-do <task-id> <state>
+#+end_src
+***** /litmode-tasks
+Show tasks from =.hactar.org=.
+
+Usage:
+#+begin_src
+  /litmode-tasks [--state <TODO|DOING|DONE|BLOCKED>]
+#+end_src
+***** /litmode-untangle
+Pull changes from tangled files back into =.hactar.org=.
+
+Usage:
+#+begin_src
+  /litmode-untangle <file-path>
+#+end_src
 ***** /lookup
 Lookup symbols in documentation covers.
-Usage: /lookup symbol1,symbol2 [--format=json]
+
+Usage:
+#+begin_src
+  /lookup symbol1,symbol2 [--format=json]
+#+end_src
 ***** /lookup-in-files
 Lookup symbols in files using rg.
-Usage: /lookup-in-files symbol1,symbol2 [--format=json]
+
+Usage:
+#+begin_src
+  /lookup-in-files symbol1,symbol2 [--format=json]
+#+end_src
+***** /ls
+List all known files and indicate which are included in the chat session.
+
+Usage:
+#+begin_src
+  /ls [--format=json]
+#+end_src
+***** /ls-rpc
+No description available.
 ***** /model
 Switch to a new LLM. Uses fuzzy-select if no model name is provided.
 ***** /models
 Search the list of available models.
+***** /mold.export
+Export the active mold as a portable schema.
+
+Usage:
+#+begin_src
+  /mold.export --format json|org|xml
+#+end_src
+***** /mold.init
+Scaffold a mold for the current project.
+
+Usage:
+#+begin_src
+  /mold.init [mold-name]
+#+end_src
+***** /mold.install
+Install a mold from various sources.
+
+Usage:
+#+begin_src
+  /mold.install <source>
+#+end_src
+
+Sources:
+- =/mold.install saas-api= — from hactar registry
+- =/mold.install ./my-company-mold= — from local path
+- =/mold.install github:org/mold= — from GitHub
+***** /mold.list
+List all available molds.
+***** /mold.pour
+Ask AI to implement an entity from the mold.
+
+Usage:
+#+begin_src
+  /mold.pour <entity-name>
+  /mold.pour --all
+#+end_src
+***** /mold.show
+Display the current project's mold (all entities, interfaces, rules).
+
+Usage:
+#+begin_src
+  /mold.show [mold-name]
+#+end_src
+***** /mold.use
+Activate a mold for the current project.
+
+Usage:
+#+begin_src
+  /mold.use <mold-name>
+#+end_src
+***** /mold.validate
+Check that all code conforms to the active mold.
+***** /molds
+Mold management commands. Without arguments, lists available molds.
+
+Usage:
+#+begin_src
+  /molds [list|install|use]
+#+end_src
+***** /monolith-index
+Index the knowledge monolith.
+
+Usage:
+#+begin_src
+  /monolith-index [--force]
+#+end_src
+***** /monolith-init
+Initialize a new knowledge monolith.
+
+Usage:
+#+begin_src
+  /monolith-init [path]
+#+end_src
+***** /monolith-status
+Show status of the knowledge monolith.
+***** /permissions
+#+begin_src
+  /permissions [clear|log|reset]
+#+end_src
+
+View and manage permission rules.
+- No args: List all active rules and session overrides.
+- =clear=: Clear session overrides.
+- =log=: Show recent permission decisions.
+- =reset=: Remove all non-system rules and clear session overrides.
 ***** /playaudio
-Plays an audio file. Usage: /playaudio <file_path>
+Plays an audio file.
+
+Usage:
+#+begin_src
+  /playaudio <file_path>
+#+end_src
+***** /preset
+Load a preset or list available presets.
+
+Usage:
+- =/preset= — list available presets
+- =/preset <name>= — load a preset
+***** /preset.active
+Show currently active presets.
+***** /preset.list
+List available presets with details.
+***** /preset.load
+Load a preset by name.
+
+Usage:
+#+begin_src
+  /preset.load <name>
+#+end_src
+***** /preset.reload
+Reload a preset or all active presets.
+
+Usage:
+#+begin_src
+  /preset.reload [name]
+#+end_src
+***** /preset.save
+Save current context as a new preset.
+
+Usage:
+#+begin_src
+  /preset.save <name> [description]
+#+end_src
+***** /preset.show
+Show details of a specific preset.
+
+Usage:
+#+begin_src
+  /preset.show <name>
+#+end_src
+***** /preset.unload
+Unload a preset or all presets.
+
+Usage:
+#+begin_src
+  /preset.unload [name]
+#+end_src
+***** /proxy.start
+Start the OpenRouter-compatible LLM proxy.
+***** /proxy.status
+Show proxy status and configuration.
 ***** /quit
 Exit the application.
+***** /recipe/execute
+Execute a recipe.
+
+Usage:
+#+begin_src
+  /recipe/execute <name>
+#+end_src
+***** /recipe/list
+List all defined recipes.
+***** /recipe/plan
+Preview a recipe without executing.
+
+Usage:
+#+begin_src
+  /recipe/plan <name>
+#+end_src
 ***** /reload
 Reload hactar. Clear chat history, empty context, and reload the config.
+***** /remember
+Quick capture of ideas with auto-linking.
+
+Usage:
+#+begin_src
+  /remember <thought>
+  /remember --link-to <concept> <thought>
+#+end_src
 ***** /rerun
 Re-run a non-daemon watcher command.
 ***** /reset
 Drop all files and clear the chat history.
+***** /rules.add
+Attach a rule to the current context by loading its lisp file.
+***** /ruhe-ask
+Ask a question about the current document.
+
+Usage:
+#+begin_src
+  /ruhe-ask <query>
+#+end_src
+***** /ruhe-compile
+Compile the current feed specification to Lisp.
+
+Usage:
+#+begin_src
+  /ruhe-compile [output-file]
+#+end_src
+***** /ruhe-cron
+Generate a cron command for scheduling feed updates.
+
+Usage:
+#+begin_src
+  /ruhe-cron <schedule> [file]
+#+end_src
+***** /ruhe-sources
+Extract and list sources from the current document.
+
+Usage:
+#+begin_src
+  /ruhe-sources
+#+end_src
+***** /ruhe-summary
+Generate a summary of the current document.
+
+Usage:
+#+begin_src
+  /ruhe-summary [length]
+#+end_src
+***** /ruhe-urls
+Extract all URLs from the current document.
+
+Usage:
+#+begin_src
+  /ruhe-urls
+#+end_src
+***** /rules.install
+Install rules from a GitHub repository.
+
+Usage:
+#+begin_src
+  /rules.install <source>
+#+end_src
+
+Source can be:
+- =user/repo= (shorthand for GitHub)
+- =https://github.com/...=
+***** /rules.list
+List available rules.
+***** /rules.show
+Show currently active rules.
 ***** /run
-Run a shell command and optionally add the output to the chat.
+Run a named src block from the Tooling section.
+
+Usage:
+#+begin_src
+  /run <name>
+#+end_src
+***** /scope
+Set or show the active scope profile.
+
+Usage:
+#+begin_src
+  /scope [name]
+  /scope --list
+#+end_src
 ***** /search
 Search GitHub for code snippets based on a query.
-Usage: /search <natural language query for code>
+
+Usage:
+#+begin_src
+  /search <natural language query for code>
+#+end_src
 ***** /search-add-files
 Search for files containing a text pattern using rg, and add them to context.
+***** /session
+Manage sessions.
+
+Usage:
+- =/session= — list sessions
+- =/session <name>= — load a session
+***** /session.auto
+Toggle auto-save session on exit.
+
+Usage:
+#+begin_src
+  /session.auto [on|off]
+#+end_src
+***** /session.delete
+Delete a session.
+
+Usage:
+#+begin_src
+  /session.delete <name> [--global]
+#+end_src
+***** /session.list
+List all available sessions.
+***** /session.load
+Load and restore a session.
+
+Usage:
+#+begin_src
+  /session.load <name> [--global]
+#+end_src
+***** /session.new
+Initialize a new session with a path to a git repository.
+***** /session.save
+Save current state as a session.
+
+Usage:
+#+begin_src
+  /session.save <name> [--global] [--description "desc"]
+#+end_src
+***** /session.show
+Show details of a session without loading it.
+
+Usage:
+#+begin_src
+  /session.show <name>
+#+end_src
 ***** /set-completion-model
-Set the model used for the /complete command and HTTP endpoint. Uses fuzzy-select if no model name is provided.
+Set the model used for the =/complete= command and HTTP endpoint. Uses fuzzy-select if no model name is provided.
 ***** /settings
 Print out the current settings.
-***** /sh
-Generate a shell command based on a query and prompt for confirmation before running.
-***** /sh!
-Generate a shell command based on a query and execute it immediately.
+***** /skills.add
+Add a skill from a source.
+
+Usage:
+#+begin_src
+  /skills.add <source> [path_in_repo]
+#+end_src
+
+Source can be:
+- =anthropics/skills= (shorthand for GitHub)
+- =https://github.com/...=
+- =./local/path=
+- =file.zip=
+***** /skills.doc
+Generate documentation for available skills.
+***** /skills.help
+Show help for skills commands.
+***** /skills.list
+List available skills.
+***** /skills.load
+Load a skill into context.
+
+Usage:
+#+begin_src
+  /skills.load <name> [--forms] [--ref]
+#+end_src
+***** /skills.search
+Search skills and load one.
+***** /skills.validate
+Validate a skill directory or name.
+***** /slynk
+Start the Slynk server manually (if not already running).
+***** /snapshot
+List snapshots or save current context.
+
+Usage:
+- =/snapshot= — list snapshots
+- =/snapshot <name>= — save snapshot with name
+***** /snapshot.delete
+Delete a snapshot.
+
+Usage:
+#+begin_src
+  /snapshot.delete <name>
+#+end_src
+***** /snapshot.list
+List all snapshots with details.
+***** /snapshot.restore
+Restore context from a snapshot.
+
+Usage:
+#+begin_src
+  /snapshot.restore <name>
+#+end_src
+***** /snapshot.save
+Save current context as a snapshot.
+
+Usage:
+#+begin_src
+  /snapshot.save <name> [--history] [--description "desc"]
+#+end_src
 ***** /starters
 Search for starters by text query, allow selection, and add the selected starter to the documentation context.
+
+Usage:
+#+begin_src
+  /starters <query> [--format=json]
+#+end_src
+***** /state
+View and inspect Hactar state variables.
+***** /synthesize
+Generate new code by composing existing concepts.
+
+Usage:
+#+begin_src
+  /synthesize <description> --draw-from <glob patterns>
+#+end_src
+***** /tangle
+Extract code from org files.
+
+Usage:
+#+begin_src
+  /tangle --project <name> [--lang <language>] [--dry-run]
+  /tangle --file <path> [--dry-run]
+#+end_src
+***** /theme
+Switch TUI theme. No args = fuzzy-select from available themes.
+***** /tldr
+Alias for =/ruhe-summary=.
+
+Usage:
+#+begin_src
+  /tldr [length]
+#+end_src
+***** /to-org
+Transform the codebase into a literate =.hactar.org= file.
+
+Usage:
+#+begin_src
+  /to-org [options]
+#+end_src
+
+Options:
+- =--output PATH= — Output file path (default: =.hactar.org=)
+- =--smart= — Use LLM for summaries and architecture
+- =--max-tokens N= — Skip files exceeding N tokens (default: 10000)
+- =--ignore PATS= — Additional ignore patterns (comma-separated)
+- =--include PATS= — Only include files matching patterns (comma-separated)
+- =--dry-run= — Print file list without generating
+- =--no-code= — Omit the Code zone
+- =--scope NAME= — Generate a default scope profile
+- =--force= — Overwrite existing file without prompting
 ***** /tokens
 Report on the number of tokens used by the current chat context.
-***** /tool-call
-Manually call a defined tool. Usage: /tool-call <tool_name> <json_args_or_key_value_pairs>
-***** /tools
-List available tools and their descriptions.
-***** /transcript
-View or manage the chat transcript.
-***** /undo
-Revert the last git commit made by hactar.
-***** /unwatch
-List active daemon watchers and stop the selected one.
-***** /version
-Print the version information.
-***** /watch
-List available watchers and start the selected one.
 ***** /tool-call
 #+begin_src
   /tool-call <tool_name> [key=value ...]
@@ -899,28 +1997,18 @@ List all available tools and their descriptions, parameters, and current mode (X
 #+end_src
 
 Toggle or set the tools mode. With no arguments, toggles between XML-in-system-prompt and API mode. Pass =prompt= or =api= to set explicitly.
-***** /permissions
-#+begin_src
-  /permissions [clear|log|reset]
-#+end_src
-
-View and manage permission rules.
-- No args: List all active rules and session overrides.
-- =clear=: Clear session overrides.
-- =log=: Show recent permission decisions.
-- =reset=: Remove all non-system rules and clear session overrides.
-***** /allow
-#+begin_src
-  /allow <tool_name>
-#+end_src
-
-Add a session override to always allow a tool for the current session.
-***** /deny
-#+begin_src
-  /deny <tool_name>
-#+end_src
-
-Add a session override to always deny a tool for the current session.
+***** /transcript
+View or manage the chat transcript.
+***** /tui
+Launch the 3-column TUI interface (Crush-style).
+***** /undo
+Revert the last git commit made by hactar.
+***** /unwatch
+List active daemon watchers and stop the selected one.
+***** /version
+Print the version information.
+***** /watch
+List available watchers and start the selected one.
 **** Dot Commands
 ***** .cat
 Usage: cat <file1> [file2 ...]
@@ -2469,6 +3557,91 @@ These variables manage the general operational state of Hactar.
 - =*process-history-hook*=: Hook run after chat history is updated with an LLM response (Default: =(make-instance 'nhooks:hook)=).
 - =*agentshell-mode*=: T when running in AgentShell (ACP client) mode (Default: =nil=).
 - =*lisp-mode-enabled*=: T when lisp mode enabled (Default: =nil=).
+****** commands.lisp
+******* Variables
+- =*commands*= :: Hash table of registered slash commands.
+- =*sub-commands*= :: Hash table of registered CLI subcommands.
+- =*command-completions*= :: Hash table of completion functions keyed by command name.
+- =*acp-commands*= :: Hash table of ACP-compatible command handlers.
+******* Core Functions
+******** =%command-fn-name=
+#+begin_src lisp
+  (%command-fn-name prefix name-key)
+#+end_src
+
+Generate an interned symbol name for an internal command function.
+
+- =prefix= :: Namespace prefix like =\"SLASH-CMD\"=
+- =name-key= :: Normalized command name
+******** =get-command-completions=
+#+begin_src lisp
+  (get-command-completions cmd-name text args)
+#+end_src
+
+Run the registered completion function for a command.
+
+- =cmd-name= :: Command string such as =\"/add\"=
+- =text= :: Current partial token
+- =args= :: Already-entered argument list
+******** =acp-command-p=
+#+begin_src lisp
+  (acp-command-p cmd-name)
+#+end_src
+
+Return =T= if a command has an ACP handler.
+******** =execute-acp-command=
+#+begin_src lisp
+  (execute-acp-command cmd args)
+#+end_src
+
+Execute an ACP handler and return its result alist.
+******** =parse-command=
+#+begin_src lisp
+  (parse-command input)
+#+end_src
+
+Parse a command line into either a slash/dot command or a raw prompt.
+
+*Return Value:* Two values:
+1. Command name or =NIL=
+2. Parsed arguments or raw prompt text
+******** =execute-command=
+#+begin_src lisp
+  (execute-command cmd args)
+#+end_src
+
+Execute a slash command or dot command.
+******** =command-completer=
+#+begin_src lisp
+  (command-completer text start end)
+#+end_src
+
+Readline completion entry point for commands and command arguments.
+******* Macros
+******** =define-slash-command=
+#+begin_src lisp
+  (define-slash-command name args &body body)
+#+end_src
+
+Define a slash command, optionally with CLI-style option parsing.
+******** =define-sub-command=
+#+begin_src lisp
+  (define-sub-command name args &body body)
+#+end_src
+
+Define a CLI subcommand.
+******** =define-command=
+#+begin_src lisp
+  (define-command name args &body body)
+#+end_src
+
+Define a command that may register as slash, subcommand, and ACP command.
+******** =def-acp-command=
+#+begin_src lisp
+  (def-acp-command name args &body body)
+#+end_src
+
+Define an ACP-only command handler.
 ****** utils
 utils.lisp is where we keep all the lib stuff. Hactar tries to use few dependencies, the tradeoff is a rather large utils file:
 ******* Editor Log Utilities
@@ -3109,6 +4282,8 @@ The =db= functionality in Hactar manages the connection to the SQLite database, 
 Database connection parameters are configured via environment variables or globals.
 
 - =*db-path*=: Path to the SQLite database file. (Default: =*hactar-data-path*/hactar.db= or from =$HACTAR_DB_PATH=)
+******* Vars and State
+- =*connection*= :: The global SQLite connection object.
 ******* Connection Management
 These functions manage the global database connection.
 ******** connect-db
@@ -3123,6 +4298,12 @@ Establishes a top-level connection to the database using the configured paramete
 #+end_src
 
 Disconnects the top-level database connection.
+******** with-db-connection
+#+begin_src lisp
+  (with-db-connection &body body)
+#+end_src
+
+Ensure a database connection for the dynamic extent of =body=.
 ******* Database Operations
 ******** docs-clear-database
 #+begin_src lisp
@@ -3689,6 +4870,92 @@ Execute a named src block. Supports shell commands and Lisp code.
 - =/run <name>=: Run a named src block from the Tooling section.
 - =/litmode-summarize=: Auto-generate summaries for headlines without one.
 - =/litmode-status=: Show literate mode status.
+****** vfs
+=vfs.lisp= Holds a virtual filesystem. This is used so stuff like create commands and compiler targets can generate any filesystem structure in one pass.
+******* Data Structures
+******** =vfs=
+A virtual file system that tracks files and the current output file.
+******** =vfs-file=
+A single virtual file with path, content buffer, and metadata.
+******* Core Functions
+******** =vfs-select-file=
+#+begin_src lisp
+  (vfs-select-file vfs path)
+#+end_src
+
+Select or create the current file.
+******** =vfs-current-vfs-file=
+#+begin_src lisp
+  (vfs-current-vfs-file vfs)
+#+end_src
+
+Return the currently selected VFS file.
+******** =vfs-write=
+#+begin_src lisp
+  (vfs-write vfs string)
+#+end_src
+
+Append text to the current file.
+******** =vfs-prepend=
+#+begin_src lisp
+  (vfs-prepend vfs string)
+#+end_src
+
+Prepend text to the current file.
+******** =vfs-writeln=
+#+begin_src lisp
+  (vfs-writeln vfs string)
+#+end_src
+
+Append text and newline.
+******** =vfs-get-content=
+#+begin_src lisp
+  (vfs-get-content vfs path)
+#+end_src
+
+Return file contents as a string.
+******** =vfs-all-paths=
+#+begin_src lisp
+  (vfs-all-paths vfs)
+#+end_src
+
+Return all VFS file paths.
+******** =vfs-flush-to-disk=
+#+begin_src lisp
+  (vfs-flush-to-disk vfs output-root)
+#+end_src
+
+Write all VFS files to disk.
+******** =vfs-flush-to-org=
+#+begin_src lisp
+  (vfs-flush-to-org vfs &optional (stream *standard-output*) (tangle-dir "."))
+#+end_src
+
+Emit all VFS files as Org tangled blocks.
+******** =vfs-flush-to-lisp=
+#+begin_src lisp
+  (vfs-flush-to-lisp vfs &optional (stream *standard-output*))
+#+end_src
+
+Emit Lisp code to reconstruct the VFS.
+******** =vfs-flush-to-tags=
+#+begin_src lisp
+  (vfs-flush-to-tags vfs &optional (stream *standard-output*))
+#+end_src
+
+Emit all VFS files in =<file>= tag format.
+******** =vfs-set-metadata=
+#+begin_src lisp
+  (vfs-set-metadata vfs path key value)
+#+end_src
+
+Set metadata on a VFS file.
+******** =vfs-get-metadata=
+#+begin_src lisp
+  (vfs-get-metadata vfs path key)
+#+end_src
+
+Get metadata from a VFS file.
 ****** compiler targets
 Hactar includes a language-target compiler layer for generating source files from Lisp forms. These targets are especially useful for starter kits, code generators, literate workflows, and deterministic scaffolding.
 ******* javascript target
@@ -3701,6 +4968,255 @@ Key capabilities include:
 - imports and exports
 - async/await
 - JSX-adjacent support consumed by higher-level targets
+******** Helper Functions
+********* =emit-name=
+#+begin_src lisp
+  (emit-name symbol)
+#+end_src
+
+Emit a Lisp symbol as a JavaScript identifier.
+********* =emit-atom=
+#+begin_src lisp
+  (emit-atom atom)
+#+end_src
+
+Emit an atom as JavaScript.
+********* =emit-funcall=
+#+begin_src lisp
+  (emit-funcall op args)
+#+end_src
+
+Emit a generic function call.
+********* =emit-separated=
+#+begin_src lisp
+  (emit-separated separator forms)
+#+end_src
+
+Emit forms separated by a delimiter.
+********* =emit-block=
+#+begin_src lisp
+  (emit-block body)
+#+end_src
+
+Emit a JavaScript block with indentation.
+********* =emit-js-arg=
+#+begin_src lisp
+  (emit-js-arg arg)
+#+end_src
+
+Emit a JavaScript function argument, including destructuring support.
+********* =js-statement-p=
+#+begin_src lisp
+  (js-statement-p form)
+#+end_src
+
+Return =T= if a form compiles to a statement form.
+******** Key Forms
+********* =defun=
+#+begin_src lisp
+  (defun name args &body body)
+#+end_src
+
+Emit a JavaScript function declaration.
+********* =defvar=
+#+begin_src lisp
+  (defvar name &optional value)
+#+end_src
+
+Emit a =var= declaration.
+********* =defconst=
+#+begin_src lisp
+  (defconst name &optional value)
+#+end_src
+
+Emit a =const= declaration.
+********* =let=
+#+begin_src lisp
+  (let (bindings) &body body)
+#+end_src
+
+Emit JavaScript =let= bindings.
+********* =let*=
+#+begin_src lisp
+  (let* (bindings) &body body)
+#+end_src
+
+Emit JavaScript =const= bindings.
+********* =setf=
+#+begin_src lisp
+  (setf place value)
+#+end_src
+
+Emit assignment.
+********* =if=
+#+begin_src lisp
+  (if condition then &optional else)
+#+end_src
+
+Emit an =if/else= statement.
+********* =cond=
+#+begin_src lisp
+  (cond &rest clauses)
+#+end_src
+
+Emit chained conditional logic.
+********* =lambda=
+#+begin_src lisp
+  (lambda args &body body)
+#+end_src
+
+Emit an arrow function.
+********* =async=
+#+begin_src lisp
+  (async form)
+#+end_src
+
+Emit =async= form.
+********* =await=
+#+begin_src lisp
+  (await form)
+#+end_src
+
+Emit =await= form.
+********* =return=
+#+begin_src lisp
+  (return form)
+#+end_src
+
+Emit a return statement.
+********* =@=
+#+begin_src lisp
+  (@ obj &rest keys)
+#+end_src
+
+Emit chained property access.
+********* =create=
+#+begin_src lisp
+  (create &rest pairs)
+#+end_src
+
+Emit an object literal.
+********* =array=
+#+begin_src lisp
+  (array &rest elements)
+#+end_src
+
+Emit an array literal.
+********* =try=
+#+begin_src lisp
+  (try &rest forms)
+#+end_src
+
+Emit a =try/catch= block.
+********* =throw=
+#+begin_src lisp
+  (throw form)
+#+end_src
+
+Emit a throw statement.
+********* =export=
+#+begin_src lisp
+  (export form)
+#+end_src
+
+Emit an export statement.
+********* =export-default=
+#+begin_src lisp
+  (export-default form)
+#+end_src
+
+Emit an export default statement.
+********* =import=
+#+begin_src lisp
+  (import what &key from)
+#+end_src
+
+Emit static or dynamic imports.
+********* =comment=
+#+begin_src lisp
+  (comment text)
+#+end_src
+
+Emit a single-line comment.
+********* =in-file=
+#+begin_src lisp
+  (in-file path)
+#+end_src
+
+Switch the active VFS file.
+********* =destructuring-const=
+#+begin_src lisp
+  (destructuring-const vars expr)
+#+end_src
+
+Emit destructuring assignment with =const=.
+********* =progn=
+#+begin_src lisp
+  (progn &rest forms)
+#+end_src
+
+Emit multiple forms sequentially.
+********* =template=
+#+begin_src lisp
+  (template &rest parts)
+#+end_src
+
+Emit a template literal.
+********* =|?:|=
+#+begin_src lisp
+  (|?:| condition then else)
+#+end_src
+
+Emit a ternary expression.
+********* =chain=
+#+begin_src lisp
+  (chain obj &rest calls)
+#+end_src
+
+Emit chained method calls.
+********* =json-stringify=
+#+begin_src lisp
+  (json-stringify data)
+#+end_src
+
+Emit =JSON.stringify(...)=.
+********* =json-parse=
+#+begin_src lisp
+  (json-parse data)
+#+end_src
+
+Emit =JSON.parse(...)=.
+******** Convenience Macros
+********* =when=
+#+begin_src lisp
+  (when condition &rest body)
+#+end_src
+
+Expand to a one-branch =if=.
+********* =unless=
+#+begin_src lisp
+  (unless condition &rest body)
+#+end_src
+
+Expand to a negated =if=.
+********* =map=
+#+begin_src lisp
+  (map arr fn)
+#+end_src
+
+Expand to =arr.map(fn)=.
+********* =filter=
+#+begin_src lisp
+  (filter arr fn)
+#+end_src
+
+Expand to =arr.filter(fn)=.
+********* =reduce=
+#+begin_src lisp
+  (reduce arr fn &optional initial)
+#+end_src
+
+Expand to =arr.reduce(...)=.  
 ******* typescript target
 The =typescript-target.lisp= component extends the JavaScript target with type-aware emitters.
 
@@ -3710,6 +5226,44 @@ Key capabilities include:
 - typed let/const bindings
 - typed lambdas
 - =const-typed= helper emission
+******** Helper Functions
+********* =extract-type-annotation=
+#+begin_src lisp
+  (extract-type-annotation arg-form)
+#+end_src
+
+Parse typed argument forms and return normalized name and type string.
+******** Key Forms
+********* =defun=
+#+begin_src lisp
+  (defun name args &body body)
+#+end_src
+
+Emit a typed TypeScript function declaration.
+********* =let=
+#+begin_src lisp
+  (let (bindings) &body body)
+#+end_src
+
+Emit typed =let= bindings.
+********* =let*=
+#+begin_src lisp
+  (let* (bindings) &body body)
+#+end_src
+
+Emit typed =const= bindings.
+********* =lambda=
+#+begin_src lisp
+  (lambda args &body body)
+#+end_src
+
+Emit an arrow function with typed parameters.
+********* =const-typed=
+#+begin_src lisp
+  (const-typed name type-str value)
+#+end_src
+
+Emit =const name: Type = value=.
 ******* worker target
 The =worker-target.lisp= component targets Cloudflare Worker-style modules.
 
@@ -3718,6 +5272,32 @@ Key capabilities include:
 - =json-response= macro
 - =text-response= macro
 - worker-style =fetch= emission with option object handling
+******** Key Forms
+********* =defworker=
+#+begin_src lisp
+  (defworker (args) &body body)
+#+end_src
+
+Emit a default-exported Cloudflare Worker object with async =fetch=.
+********* =fetch=
+#+begin_src lisp
+  (fetch url &rest opts)
+#+end_src
+
+Emit a =fetch(url, options)= call.
+******** Convenience Macros
+********* =json-response=
+#+begin_src lisp
+  (json-response data &key (status 200))
+#+end_src
+
+Emit a JSON Cloudflare =Response=.
+********* =text-response=
+#+begin_src lisp
+  (text-response data &key (status 200))
+#+end_src
+
+Emit a text Cloudflare =Response=.
 ******* json target
 The =json-target.lisp= component emits structured JSON using Lisp forms.
 
@@ -3725,6 +5305,44 @@ Key forms include:
 - =json-value=
 - =json-array=
 - =json-object=
+******** Helper Functions
+********* =json-emit-key=
+#+begin_src lisp
+  (json-emit-key key)
+#+end_src
+
+Emit a JSON key.
+********* =json-emit-primitive=
+#+begin_src lisp
+  (json-emit-primitive value)
+#+end_src
+
+Emit a primitive JSON value.
+********* =register-json-emitters=
+#+begin_src lisp
+  (register-json-emitters target)
+#+end_src
+
+Register JSON emitters onto a target.
+******** Key Forms
+********* =json-value=
+#+begin_src lisp
+  (json-value value)
+#+end_src
+
+Emit a JSON primitive.
+********* =json-array=
+#+begin_src lisp
+  (json-array &rest elements)
+#+end_src
+
+Emit a JSON array.
+********* =json-object=
+#+begin_src lisp
+  (json-object &rest key-value-pairs)
+#+end_src
+
+Emit a JSON object.
 ******* toml target
 The =toml-target.lisp= component emits TOML configuration files.
 
@@ -3732,6 +5350,38 @@ Key forms include:
 - =toml-array=
 - =toml-pairs=
 - =toml-table=
+******** Helper Functions
+********* =toml-emit-value=
+#+begin_src lisp
+  (toml-emit-value value)
+#+end_src
+
+Emit a TOML value.
+********* =register-toml-emitters=
+#+begin_src lisp
+  (register-toml-emitters target)
+#+end_src
+
+Register TOML emitters onto a target.
+******** Key Forms
+********* =toml-array=
+#+begin_src lisp
+  (toml-array &rest elements)
+#+end_src
+
+Emit a TOML array.
+********* =toml-pairs=
+#+begin_src lisp
+  (toml-pairs &rest key-value-pairs)
+#+end_src
+
+Emit TOML key/value pairs.
+********* =toml-table=
+#+begin_src lisp
+  (toml-table name &rest key-value-pairs)
+#+end_src
+
+Emit a TOML table.  
 ******* css target
 The =css-target.lisp= component emits CSS and supports a nested DSL for selectors and declarations.
 
@@ -3742,6 +5392,105 @@ Key forms include:
 - =css-at-rule=
 - =css-stylesheet=
 - =defcss=
+******** Helper Functions
+********* =css-selector-from-form=
+#+begin_src lisp
+  (css-selector-from-form selector)
+#+end_src
+
+Normalize a selector form into CSS selector text.
+********* =css-property-name=
+#+begin_src lisp
+  (css-property-name property)
+#+end_src
+
+Normalize a CSS property keyword.
+********* =css-at-rule-p=
+#+begin_src lisp
+  (css-at-rule-p selector)
+#+end_src
+
+Return =T= if selector is an at-rule.
+********* =css-combine-selectors=
+#+begin_src lisp
+  (css-combine-selectors parent child)
+#+end_src
+
+Combine nested selectors.
+********* =css-property-unitless-p=
+#+begin_src lisp
+  (css-property-unitless-p property)
+#+end_src
+
+Return =T= if a CSS property should be unitless.
+********* =css-emit-value=
+#+begin_src lisp
+  (css-emit-value value &optional property)
+#+end_src
+
+Emit a CSS value, adding =px= where appropriate.
+********* =css-split-body=
+#+begin_src lisp
+  (css-split-body body)
+#+end_src
+
+Split CSS DSL bodies into declarations and nested rules.
+********* =register-css-emitters=
+#+begin_src lisp
+  (register-css-emitters target)
+#+end_src
+
+Register CSS emitters.
+********* =css-expand-rule=
+#+begin_src lisp
+  (css-expand-rule rule &optional parent-selector)
+#+end_src
+
+Expand nested CSS DSL rules into normalized internal forms.
+******** Key Forms
+********* =css-decl=
+#+begin_src lisp
+  (css-decl property value)
+#+end_src
+
+Emit a CSS declaration.
+********* =css-rule=
+#+begin_src lisp
+  (css-rule selector declarations &rest nested)
+#+end_src
+
+Emit a CSS rule block.
+********* =css-nested-rule=
+#+begin_src lisp
+  (css-nested-rule parent selector declarations &rest nested)
+#+end_src
+
+Emit a nested CSS rule.
+********* =css-at-rule=
+#+begin_src lisp
+  (css-at-rule at-rule selector declarations &rest nested)
+#+end_src
+
+Emit an at-rule wrapping a selector.
+********* =css-at-rule-bare=
+#+begin_src lisp
+  (css-at-rule-bare at-rule declarations)
+#+end_src
+
+Emit a declaration-only at-rule.
+********* =css-stylesheet=
+#+begin_src lisp
+  (css-stylesheet &rest rules)
+#+end_src
+
+Emit a full stylesheet.
+******** Convenience Macro
+********* =defcss=
+#+begin_src lisp
+  (defcss name &rest rules)
+#+end_src
+
+Define a stylesheet using the nested CSS DSL.
 ******* redwood target
 The =redwood-target.lisp= component builds on the TypeScript target to generate RedwoodSDK-style Cloudflare/React applications.
 
@@ -3754,37 +5503,350 @@ Key capabilities include:
 - =defwrangler=
 - =defapp=
 - auto-emission of default config files during finalize
-******* compiler entry points
-******** compile-string
+******** State Variables
+- =*redwood-has-css-import*= :: Tracks detected CSS imports during compilation.
+- =*redwood-env-bindings*= :: Tracks inferred environment bindings.
+- =*redwood-wrangler-sections*= :: Tracks explicitly configured wrangler sections.
+- =*redwood-default-import-sources*= :: Sources that should use default imports.
+******** Helper Functions
+********* =redwood-emit-default-package-json=
+#+begin_src lisp
+  (redwood-emit-default-package-json)
+#+end_src
+
+Emit default =package.json= if missing.
+********* =redwood-emit-default-tsconfig=
+#+begin_src lisp
+  (redwood-emit-default-tsconfig)
+#+end_src
+
+Emit default =tsconfig.json= if missing.
+********* =redwood-emit-default-vite-config=
+#+begin_src lisp
+  (redwood-emit-default-vite-config)
+#+end_src
+
+Emit default =vite.config.mts= if missing.
+********* =redwood-emit-default-wrangler=
+#+begin_src lisp
+  (redwood-emit-default-wrangler)
+#+end_src
+
+Emit default =wrangler.toml= if missing.
+********* =redwood-emit-auto-bindings=
+#+begin_src lisp
+  (redwood-emit-auto-bindings)
+#+end_src
+
+Append inferred env bindings to =wrangler.toml=.
+********* =redwood-finalize=
+#+begin_src lisp
+  (redwood-finalize)
+#+end_src
+
+Finalize Redwood compilation.
+********* =emit-jsx-tag=
+#+begin_src lisp
+  (emit-jsx-tag tag)
+#+end_src
+
+Emit a JSX tag name.
+********* =emit-jsx-attr-name=
+#+begin_src lisp
+  (emit-jsx-attr-name key)
+#+end_src
+
+Emit a JSX attribute name.
+********* =parse-jsx-attrs-and-children=
+#+begin_src lisp
+  (parse-jsx-attrs-and-children args)
+#+end_src
+
+Split JSX DSL arguments into attrs and children.
+********* =emit-jsx-child=
+#+begin_src lisp
+  (emit-jsx-child child &optional parent-tag)
+#+end_src
+
+Emit a JSX child node.
+********* =jsx-element-p=
+#+begin_src lisp
+  (jsx-element-p symbol)
+#+end_src
+
+Return =T= if a symbol should be treated as a JSX element.
+********* =normalize-routes=
+#+begin_src lisp
+  (normalize-routes routes)
+#+end_src
+
+Normalize route specs.
+********* =redwood-default-import-source-p=
+#+begin_src lisp
+  (redwood-default-import-source-p source)
+#+end_src
+
+Return =T= if a module source should use default import style.
+********* =redwood-import-form=
+#+begin_src lisp
+  (redwood-import-form symbol source &key default)
+#+end_src
+
+Build an import form.
+********* =redwood-component-import-path=
+#+begin_src lisp
+  (redwood-component-import-path component &optional explicit-path)
+#+end_src
+
+Compute default import path for a Redwood component.
+******** Key Forms
+********* =pragma=
+#+begin_src lisp
+  (pragma text)
+#+end_src
+
+Emit a bare string pragma.
+********* =prepend-pragma=
+#+begin_src lisp
+  (prepend-pragma text)
+#+end_src
+
+Prepend a pragma to the current file.
+********* =jsx=
+#+begin_src lisp
+  (jsx tag attrs &rest children)
+#+end_src
+
+Emit a JSX element.
+******** Convenience Macros
+********* =defcomponent=
+#+begin_src lisp
+  (defcomponent name props &rest body)
+#+end_src
+
+Define and export a typed React component.
+********* =defaction=
+#+begin_src lisp
+  (defaction name args &rest body)
+#+end_src
+
+Define a server action.
+********* =defclient=
+#+begin_src lisp
+  (defclient name props &rest body)
+#+end_src
+
+Define a client component.
+********* =let-state=
+#+begin_src lisp
+  (let-state &rest bindings-and-body)
+#+end_src
+
+Convenience wrapper around =useState= destructuring.
+********* =defconfig=
+#+begin_src lisp
+  (defconfig &key name dependencies dev-dependencies (package-manager "pnpm"))
+#+end_src
+
+Generate Redwood-style =package.json=.
+********* =deftsconfig=
+#+begin_src lisp
+  (deftsconfig &rest pairs)
+#+end_src
+
+Generate =tsconfig.json=.
+********* =defviteconfig=
+#+begin_src lisp
+  (defviteconfig &key plugins)
+#+end_src
+
+Generate =vite.config.mts=.
+********* =defwrangler=
+#+begin_src lisp
+  (defwrangler &rest pairs)
+#+end_src
+
+Generate =wrangler.toml=.
+********* =defapp=
+#+begin_src lisp
+  (defapp &key wrapper routes)
+#+end_src
+
+Generate Redwood app bootstrap files.
+******** Checker
+********* =jsx-anchor-valid-href=
+#+begin_src lisp
+  (jsx-anchor-valid-href form)
+#+end_src
+
+Warn when JSX anchors have missing or invalid =href= values.
+******* compiler
+The core compiler stuff is found in =compiler.lisp=
+******** Variables
+- =*compiler-targets*= :: Registry of target definitions.
+- =*current-target*= :: Active target during compilation.
+- =*current-vfs*= :: Active VFS receiving output.
+- =*indent-level*= :: Current indentation level.
+- =*compilation-errors*= :: Accumulated compilation issues.
+******** Core Functions
+********* =find-emitter=
+#+begin_src lisp
+  (find-emitter target-def symbol)
+#+end_src
+
+Find the emitter for a form on a target, walking parent targets.
+********* =find-macro=
+#+begin_src lisp
+  (find-macro target-def symbol)
+#+end_src
+
+Find the macro expander for a form on a target, walking parent targets.
+********* =detect-target-from-forms=
+#+begin_src lisp
+  (detect-target-from-forms forms)
+#+end_src
+
+Detect target keyword from =(target :keyword)= forms.
+********* =read-all-forms=
+#+begin_src lisp
+  (read-all-forms source-string)
+#+end_src
+
+Read all Lisp forms from a source string.
+********* =invert-case-symbol-name=
+#+begin_src lisp
+  (invert-case-symbol-name sym)
+#+end_src
+
+Restore intended symbol case when reading with =:invert= readtable-case.
+********* =compiler-emit=
+#+begin_src lisp
+  (compiler-emit string)
+#+end_src
+
+Write raw text to the current VFS file.
+********* =compiler-emitln=
+#+begin_src lisp
+  (compiler-emitln string)
+#+end_src
+
+Write raw text and a newline to the current VFS file.
+********* =compiler-prepend=
+#+begin_src lisp
+  (compiler-prepend string)
+#+end_src
+
+Prepend raw text to the current VFS file.
+********* =emit-indent=
+#+begin_src lisp
+  (emit-indent)
+#+end_src
+
+Emit indentation spaces for the current indent level.
+********* =kebab-to-camel=
+#+begin_src lisp
+  (kebab-to-camel name-string)
+#+end_src
+
+Convert kebab-case to camelCase.
+********* =strip-earmuffs=
+#+begin_src lisp
+  (strip-earmuffs name-string)
+#+end_src
+
+Remove leading and trailing =*= from a name string.
+********* =compile-form=
+#+begin_src lisp
+  (compile-form form)
+#+end_src
+
+Compile a single Lisp form.
+********* =compile-toplevel=
+#+begin_src lisp
+  (compile-toplevel forms &key target (vfs (make-vfs)) (check t))
+#+end_src
+
+Compile top-level forms into a VFS.
+********* =check-toplevel=
+#+begin_src lisp
+  (check-toplevel forms &key target)
+#+end_src
+
+Run checker rules for a list of forms.
+********* =compile-string=
 #+begin_src lisp
   (compile-string source &key target (check t))
 #+end_src
 
-Compile a string of Lisp forms into a virtual file system.
-******** compile-file-to-string
+Compile a source string into a VFS.
+********* =check-string=
+#+begin_src lisp
+  (check-string source &key target)
+#+end_src
+
+Run checker rules against a source string.
+********* =compile-file-to-string=
 #+begin_src lisp
   (compile-file-to-string source &key target)
 #+end_src
 
 Compile source and return the first output file as a string.
-******** compile-toplevel
+********* =compile-output-tags=
 #+begin_src lisp
-  (compile-toplevel forms &key target (vfs (make-vfs)) (check t))
+  (compile-output-tags vfs &optional (stream *standard-output*))
 #+end_src
 
-Compile a list of forms into the provided virtual file system.
-******** check-string
+Output VFS contents in =<file>= tag format.
+********* =compile-output-org=
 #+begin_src lisp
-  (check-string source &key target)
+  (compile-output-org vfs &key output-dir dry)
 #+end_src
 
-Run target-specific checks without compiling.
-******** /compile
+Output VFS contents as Org source blocks.
+********* =compile-output-lisp=
+#+begin_src lisp
+  (compile-output-lisp vfs &key output-dir dry)
+#+end_src
+
+Output VFS contents as Lisp reconstruction code.
+********* =compile-output-disk=
+#+begin_src lisp
+  (compile-output-disk vfs output-dir)
+#+end_src
+
+Flush VFS contents to disk.
+********* =compile-read-source-forms=
+#+begin_src lisp
+  (compile-read-source-forms files)
+#+end_src
+
+Read and concatenate forms from multiple source files.
+******** Macros
+********* =deftarget=
+#+begin_src lisp
+  (deftarget name &key parent file-extension setup finalize)
+#+end_src
+
+Define a compilation target.
+********* =defemit=
+#+begin_src lisp
+  (defemit target form-name lambda-list &body body)
+#+end_src
+
+Define an emitter for a target/form pair.
+********* =defjsmacro=
+#+begin_src lisp
+  (defjsmacro target form-name lambda-list &body body)
+#+end_src
+
+Define a target-local macro expander.
+******** Commands
+********* compile
 #+begin_src
   /compile file1.lisp [file2.lisp ...] [-o output-dir] [-f format] [--dry]
 #+end_src
 
-Compile source files to target output. Targets are auto-detected from =(target :keyword)= forms.
+Compile source files to target output.
 ****** core and other
 Hactar is built around an extensible architecture using hooks and macros. If you are a LISPer you will feel right at home.
 
@@ -4248,174 +6310,359 @@ Match and execute a route for the given input string.
 Generative commands that use LLMs to generate code or configuration.
 
 The =gen.lisp= layer is Hactar's higher-level scaffolding system. It sits above raw SEARCH/REPLACE editing and lets you define generators, patterns, and recipes that can mix deterministic operations with LLM planning.
-******* generate-project-config-toml
+******* Variables
+- =*generators*= :: Registry of all generators.
+- =*active-generators*= :: Registry of active generators.
+- =*patterns*= :: Registry of all patterns.
+- =*active-patterns*= :: Registry of active patterns.
+- =*registries*= :: Registry metadata for tracked artifacts.
+- =*recipes*= :: Registry of recipes.
+- =*gen-history*= :: History of generation runs.
+- =*gen-history-limit*= :: Maximum retained generation history entries.
+******* Data Structures
+******** =gen-operation=
+Represents an atomic generation action.
+******** =gen-result=
+Represents the outcome of executing a generation plan.
+******** =generator=
+Represents a generator definition.
+******** =pattern=
+Represents a reusable pattern definition.
+******** =registry=
+Represents a tracked registry type.
+******** =recipe=
+Represents a multi-step recipe.
+******** =framework-analyzer=
+Represents a framework-specific analyzer with reusable queries.
+******* Generator / Pattern Lifecycle
+******** =generate-generator-id=
 #+begin_src lisp
-  (generate-project-config-toml)
+  (generate-generator-id name)
 #+end_src
 
-Generate a TOML configuration string for the current project using the LLM and repository context.
-
-*Return Value:* A string containing the generated =.hactar.toml= content.
-******* defgenerator
+Generate a unique generator instance ID.
+******** =install-generator-hook=
 #+begin_src lisp
-  (defgenerator name description &body body)
+  (install-generator-hook gen hook handler-fn)
 #+end_src
 
-Define a generator that can compile a high-level intent into concrete operations.
-
-Important keys include:
-- =:when=: Predicate controlling whether the generator is active.
-- =:hooks=: Hooks that may activate the generator.
-- =:priority=: Higher-priority generators win when names overlap.
-- =:args=: Argument specification.
-- =:infer-from-context=: Values to infer from project state.
-- =:operations=: Operation templates such as =:create=, =:modify=, =:install=, or =:run=.
-- =:templates=: Associated template references.
-- =:compose=: Other generators to compose.
-******* defpattern
+Install a hook for generator activation.
+******** =activate-generator=
 #+begin_src lisp
-  (defpattern name description &body body)
+  (activate-generator gen)
 #+end_src
 
-Define a reusable implementation pattern that can be applied to files or project structures.
+Activate a generator.
+******** =deactivate-generator=
+#+begin_src lisp
+  (deactivate-generator gen)
+#+end_src
 
-Patterns support keys such as:
-- =:when=
-- =:hooks=
-- =:priority=
-- =:requires=
-- =:package=
-- =:config-schema=
-- =:operations=
-******* execute-gen-plan
+Deactivate a generator.
+******** =generate-pattern-id=
+#+begin_src lisp
+  (generate-pattern-id name)
+#+end_src
+
+Generate a unique pattern instance ID.
+******** =install-pattern-hook=
+#+begin_src lisp
+  (install-pattern-hook pat hook handler-fn)
+#+end_src
+
+Install a hook for pattern activation.
+******** =activate-pattern=
+#+begin_src lisp
+  (activate-pattern pat)
+#+end_src
+
+Activate a pattern.
+******** =deactivate-pattern=
+#+begin_src lisp
+  (deactivate-pattern pat)
+#+end_src
+
+Deactivate a pattern.
+******** =find-generator=
+#+begin_src lisp
+  (find-generator name)
+#+end_src
+
+Find the highest-priority active generator by name.
+******** =find-pattern=
+#+begin_src lisp
+  (find-pattern name)
+#+end_src
+
+Find the highest-priority active pattern by name.
+******** =list-active-generators=
+#+begin_src lisp
+  (list-active-generators)
+#+end_src
+
+Return a summary of active generators.
+******** =list-active-patterns=
+#+begin_src lisp
+  (list-active-patterns)
+#+end_src
+
+Return a summary of active patterns.
+******** =list-all-generators=
+#+begin_src lisp
+  (list-all-generators)
+#+end_src
+
+Return all generators.
+******** =list-all-patterns=
+#+begin_src lisp
+  (list-all-patterns)
+#+end_src
+
+Return all patterns.
+******** =refresh-generators=
+#+begin_src lisp
+  (refresh-generators)
+#+end_src
+
+Refresh generator activation by re-evaluating predicates.
+******** =refresh-patterns=
+#+begin_src lisp
+  (refresh-patterns)
+#+end_src
+
+Refresh pattern activation by re-evaluating predicates.
+******* Template / Context Helpers
+******** =get-template-path=
+#+begin_src lisp
+  (get-template-path template-name)
+#+end_src
+
+Resolve a template path.
+******** =load-template=
+#+begin_src lisp
+  (load-template template-name)
+#+end_src
+
+Load template content.
+******** =expand-template-string=
+#+begin_src lisp
+  (expand-template-string template vars)
+#+end_src
+
+Render a mustache template string.
+******** =expand-path-template=
+#+begin_src lisp
+  (expand-path-template path-template vars)
+#+end_src
+
+Expand =${var}= placeholders in path templates.
+******** =infer-framework=
+#+begin_src lisp
+  (infer-framework)
+#+end_src
+
+Infer the active framework.
+******** =infer-style-system=
+#+begin_src lisp
+  (infer-style-system)
+#+end_src
+
+Infer the active style system.
+******** =infer-test-framework=
+#+begin_src lisp
+  (infer-test-framework)
+#+end_src
+
+Infer the active test framework.
+******** =infer-package-manager=
+#+begin_src lisp
+  (infer-package-manager)
+#+end_src
+
+Infer the active package manager.
+******** =infer-context-value=
+#+begin_src lisp
+  (infer-context-value key)
+#+end_src
+
+Infer a single context value.
+******** =build-generator-context=
+#+begin_src lisp
+  (build-generator-context generator args)
+#+end_src
+
+Build context for generator execution.
+******** =compile-generator-operations=
+#+begin_src lisp
+  (compile-generator-operations generator args)
+#+end_src
+
+Compile generator templates into concrete operations.
+******** =execute-generator=
+#+begin_src lisp
+  (execute-generator generator args &key dry-run confirm)
+#+end_src
+
+Compile and execute a generator.
+******* Operation Execution
+******** =execute-gen-operation=
+#+begin_src lisp
+  (execute-gen-operation op &key dry-run)
+#+end_src
+
+Dispatch execution of a single generation op.
+******** =execute-create-op=
+#+begin_src lisp
+  (execute-create-op op &key dry-run)
+#+end_src
+
+Execute file creation.
+******** =execute-modify-op=
+#+begin_src lisp
+  (execute-modify-op op &key dry-run)
+#+end_src
+
+Execute SEARCH/REPLACE modification.
+******** =execute-delete-op=
+#+begin_src lisp
+  (execute-delete-op op &key dry-run)
+#+end_src
+
+Execute file deletion.
+******** =execute-rename-op=
+#+begin_src lisp
+  (execute-rename-op op &key dry-run)
+#+end_src
+
+Execute rename/move.
+******** =execute-install-op=
+#+begin_src lisp
+  (execute-install-op op &key dry-run)
+#+end_src
+
+Execute dependency installation.
+******** =execute-uninstall-op=
+#+begin_src lisp
+  (execute-uninstall-op op &key dry-run)
+#+end_src
+
+Execute dependency removal.
+******** =execute-run-op=
+#+begin_src lisp
+  (execute-run-op op &key dry-run)
+#+end_src
+
+Execute a shell command op.
+******* Planning / Undo
+******** =generate-plan-with-llm=
+#+begin_src lisp
+  (generate-plan-with-llm command context)
+#+end_src
+
+Ask the LLM to generate a plan.
+******** =parse-plan-response=
+#+begin_src lisp
+  (parse-plan-response response)
+#+end_src
+
+Parse an LLM response into generation operations.
+******** =execute-gen-plan=
 #+begin_src lisp
   (execute-gen-plan operations &key dry-run confirm)
 #+end_src
 
-Execute a compiled list of generation operations.
-
-- =operations=: List of =gen-operation= structs.
-- =dry-run=: If =T=, only preview the changes.
-- =confirm=: If =T=, prompt before execution.
-
-*Return Value:* A =gen-result= struct describing what succeeded, failed, or changed.
-******* gen-undo
+Execute a generation plan.
+******** =gen-undo=
 #+begin_src lisp
   (gen-undo)
 #+end_src
 
-Undo the most recent generation run by replaying rollback operations captured during execution.
-******* /gen
-#+begin_src
-  /gen <generator|description> [args...]
+Undo the most recent generation run.
+******* High-Level Helpers
+******** =run-generator=
+#+begin_src lisp
+  (run-generator name args)
 #+end_src
 
-Run a named generator or use natural-language generation to produce a plan.
-******* /gen/add
-#+begin_src
-  /gen/add <pattern> --to <glob>
+Run a named generator.
+******** =apply-pattern=
+#+begin_src lisp
+  (apply-pattern name target &key config)
 #+end_src
 
-Apply a named pattern to matching files.
-******* /gen/rm
-#+begin_src
-  /gen/rm <type> <name>
+Apply a named pattern.
+******** =generate-project-config-toml=
+#+begin_src lisp
+  (generate-project-config-toml)
 #+end_src
 
-Ask the LLM to generate a removal plan for some generated artifact.
-******* /gen/undo
-#+begin_src
-  /gen/undo
-#+end_src
-
-Undo the last generation operation batch.
-******* /gen/history
-#+begin_src
-  /gen/history
-#+end_src
-
-Show recent generation history entries.
-******* /gen/list
-#+begin_src
-  /gen/list [--all]
-#+end_src
-
-List active generators and patterns, or all of them when =--all= is used.
-******* generate-rule-code
+Generate a =.hactar.toml= file using the LLM.
+******** =generate-rule-code=
 #+begin_src lisp
   (generate-rule-code instruction)
 #+end_src
 
-Generate a defrule form based on the instruction.
+Generate a =defrule= form from instructions.
+******* Recipe APIs
+******** =defrecipe=
+#+begin_src lisp
+  (defrecipe name description &body body)
+#+end_src
 
-- =instruction=: A string describing the rule.
+Define a recipe.
+******** =get-recipe=
+#+begin_src lisp
+  (get-recipe name)
+#+end_src
 
-*Return Value:* A string containing the generated Lisp code for the rule.
+Get a recipe by name.
+******** =list-recipes=
+#+begin_src lisp
+  (list-recipes)
+#+end_src
+
+List recipe names.
+******** =recipe/check-requirements=
+#+begin_src lisp
+  (recipe/check-requirements recipe)
+#+end_src
+
+Check recipe requirements and conflicts.
+******** =recipe/build-context=
+#+begin_src lisp
+  (recipe/build-context recipe)
+#+end_src
+
+Build recipe execution context.
+******** =recipe/compile-step=
+#+begin_src lisp
+  (recipe/compile-step step context)
+#+end_src
+
+Compile a recipe step into operations.
+******** =recipe/plan=
+#+begin_src lisp
+  (recipe/plan name)
+#+end_src
+
+Preview a recipe plan.
+******** =recipe/execute=
+#+begin_src lisp
+  (recipe/execute name &key dry-run)
+#+end_src
+
+Execute a recipe.
+******* Utility
+******** =getf-string=
+#+begin_src lisp
+  (getf-string plist key)
+#+end_src
+
+Extract a string argument value from a flat command list.
 ****** npm
 NPM package management and documentation utilities.
 
 This layer wraps the npm registry and package metadata so Hactar can fetch docs, package metadata, and search results without relying entirely on an LLM.
-****** proxy
-The =proxy.lisp= component implements an OpenRouter-compatible chat-completions proxy that injects Hactar context into upstream requests.
-******* proxy-build-context-section
-#+begin_src lisp
-  (proxy-build-context-section)
-#+end_src
-
-Build the injected proxy context string from:
-- active rules
-- current stack
-- files in context
-- docs in context
-- entity rules
-- feature rules
-
-*Return Value:* A string suitable for appending to a system prompt.
-******* proxy-inject-context
-#+begin_src lisp
-  (proxy-inject-context request-plist)
-#+end_src
-
-Default request hook that merges Hactar context into the request's system prompt.
-******* proxy-forward-request
-#+begin_src lisp
-  (proxy-forward-request request-plist)
-#+end_src
-
-Forward a processed request to the upstream provider.
-
-*Return Value:* Raw Drakma response values plus a response type marker:
-- =:stream=
-- =:body=
-******* handle-proxy-request
-#+begin_src lisp
-  (handle-proxy-request params env)
-#+end_src
-
-Main Ningle route handler for the proxy. It:
-- parses the incoming OpenAI/OpenRouter-style payload
-- extracts system messages
-- runs proxy hooks
-- forwards the request upstream
-- returns either JSON or SSE output
-******* start-proxy
-#+begin_src lisp
-  (start-proxy &key (port *proxy-port*))
-#+end_src
-
-Register proxy routes and ensure the HTTP server is running.
-******* /proxy.start
-#+begin_src
-  /proxy.start
-#+end_src
-
-Start the LLM proxy.
-******* /proxy.status
-#+begin_src
-  /proxy.status
-#+end_src
-
-Show current proxy status, upstream URL, handler counts, and context summary.
 ******* get-npm-docs
 #+begin_src lisp
   (get-npm-docs package-name &optional version-spec)
@@ -4438,6 +6685,97 @@ Search NPM packages and return results.
 - =limit=: Maximum number of results.
 
 *Return Value:* A list of package objects.
+****** proxy
+The =proxy.lisp= component implements an OpenRouter-compatible chat-completions proxy that injects Hactar context into upstream requests.
+******* Proxy Hooks
+- =*proxy-request-hook*= :: Composed request mutation hook.
+- =*proxy-response-hook*= :: Response inspection/mutation hook.
+******* Core Functions
+******** =proxy-extract-system-prompt=
+#+begin_src lisp
+  (proxy-extract-system-prompt messages)
+#+end_src
+
+Extract and merge system messages from a messages array.
+
+*Return Value:* Two values:
+1. System prompt string or =NIL=
+2. Non-system message list
+******** =proxy-build-context-section=
+#+begin_src lisp
+  (proxy-build-context-section)
+#+end_src
+
+Build the injected proxy context section.
+******** =proxy-inject-context=
+#+begin_src lisp
+  (proxy-inject-context request-plist)
+#+end_src
+
+Inject Hactar context into a request plist.
+******** =proxy-reassemble-messages=
+#+begin_src lisp
+  (proxy-reassemble-messages system-prompt messages)
+#+end_src
+
+Rebuild a messages vector with a synthetic system message if needed.
+******** =proxy-forward-request=
+#+begin_src lisp
+  (proxy-forward-request request-plist)
+#+end_src
+
+Forward a processed request upstream.
+
+*Return Value:* Raw upstream values and a type marker.
+******** =proxy-extract-request-headers=
+#+begin_src lisp
+  (proxy-extract-request-headers env)
+#+end_src
+
+Extract relevant headers from Lack env.
+******** =handle-proxy-request=
+#+begin_src lisp
+  (handle-proxy-request params env)
+#+end_src
+
+Main proxy route handler.
+******** =register-proxy-routes=
+#+begin_src lisp
+  (register-proxy-routes)
+#+end_src
+
+Register proxy routes on the Ningle app.
+******** =start-proxy=
+#+begin_src lisp
+  (start-proxy &key (port *proxy-port*))
+#+end_src
+
+Start the proxy and ensure the HTTP server is running.
+******** =proxy-messages-contain-p=
+#+begin_src lisp
+  (proxy-messages-contain-p messages &rest search-strings)
+#+end_src
+
+Return =T= if any message contains one of the provided substrings.
+******** =proxy-model-matches-p=
+#+begin_src lisp
+  (proxy-model-matches-p model &rest patterns)
+#+end_src
+
+Return =T= if a model string matches a provided substring pattern.
+******* Commands
+******** =/proxy.start=
+#+begin_src
+  /proxy.start
+#+end_src
+
+Start the proxy.
+******** =/proxy.status=
+#+begin_src
+  /proxy.status
+#+end_src
+
+Show proxy status and configuration.
 ****** processors
 Functions for parsing and applying LLM output blocks.
 
@@ -5356,6 +7694,33 @@ Delete an entity using the best available implementation.
 - =:protected=: Tag for routes requiring authentication.
 - =:public=: Tag for publicly accessible routes.
 - =:authenticated=: Inherits from =:protected=.
+****** markdown
+Markdown parsing stuff lives in markdown.lisp
+******* Core Functions
+******** =get-all-md-src-blocks=
+#+begin_src lisp
+  (get-all-md-src-blocks markdown-string)
+#+end_src
+
+Return all Markdown fenced code blocks with languages and contents.
+******** =render-markdown-to-html=
+#+begin_src lisp
+  (render-markdown-to-html markdown-string)
+#+end_src
+
+Render Markdown to HTML.
+******** =insert-md-sibling=
+#+begin_src lisp
+  (insert-md-sibling node sibling)
+#+end_src
+
+Insert a Markdown sibling node.
+******** =insert-md-child=
+#+begin_src lisp
+  (insert-md-child node child)
+#+end_src
+
+Append a Markdown child node.
 ****** Context Preset System
 The =preset.lisp= file provides a system for defining reusable context configurations (presets) and capturing session states (snapshots). Presets bundle files, docs, rules, and skills, while snapshots allow saving and restoring the exact context state (including history).
 ******* Structs
