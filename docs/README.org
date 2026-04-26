@@ -3282,6 +3282,215 @@ Here is a list of some conventions I follow with Hactar code
 - Prefer hooks over extension
 - Use macros instead of APIs
   - This is so we can swap out the underlying way things work. e.g if you always use the defanalyzer macro then the internal way analyzers work can change without requiring changes to the syntax. DSLs are the LISP way use them.
+*** Authoring New Compiler Targets
+Hactar's compiler layer is designed to make new targets cheap to build and easy to evolve. A target is a small DSL that teaches Hactar how to turn Lisp forms into files for some output language or format.
+
+In practice, a new target usually needs four things:
+
+1. A =deftarget= declaration
+2. A set of emitters via =defemit=
+3. Optional macros via =defjsmacro=
+4. Optional checks via =defcheck=
+
+The existing targets are the best examples to copy from:
+
+- =javascript-target.lisp= for general language emission
+- =typescript-target.lisp= for target inheritance
+- =worker-target.lisp= for a framework/platform specialization
+- =json-target.lisp= and =toml-target.lisp= for data formats
+- =css-target.lisp= for a small DSL with expansion helpers
+- =redwood-target.lisp= for a full target with setup/finalize behavior
+
+**** 1. Define the target
+Start with =deftarget=. This registers a target and optionally gives it:
+
+- a parent target
+- a default file extension
+- setup logic run before compilation
+- finalize logic run after compilation
+
+Example:
+
+#+begin_src lisp
+  (deftarget :mytarget
+    :parent :javascript
+    :file-extension "txt")
+#+end_src
+
+If your target is a specialization of another language, always prefer inheritance over copying emitters. For example, =:typescript= inherits from =:javascript=, and =:worker= inherits from =:typescript=.
+
+**** 2. Add emitters with =defemit=
+Emitters define how forms compile. The first argument is the target keyword, the second is the source form name.
+
+Example:
+
+#+begin_src lisp
+  (defemit :mytarget say (value)
+    (compiler-emit "say(")
+    (compile-form value)
+    (compiler-emit ")"))
+#+end_src
+
+A few conventions matter here:
+
+- Use =compile-form= for nested expressions
+- Use =compiler-emit= / =compiler-emitln= for text output
+- Use =emit-indent= and =with-indent= for block structure
+- Keep emitters small and composable
+- If a form is statement-like, make sure it fits the target's semicolon / newline conventions
+
+For block languages, a common pattern is:
+
+#+begin_src lisp
+  (defemit :mytarget blocky (condition &body body)
+    (compiler-emit "if (")
+    (compile-form condition)
+    (compiler-emit ") ")
+    (emit-block body))
+#+end_src
+
+**** 3. Add macros with =defjsmacro=
+Use macros when you want to expand a friendly DSL form into more primitive forms before emission.
+
+Example:
+
+#+begin_src lisp
+  (defjsmacro :mytarget when-let (binding &body body)
+    `(let (,binding)
+       (when ,(first (first binding))
+         ,@body)))
+#+end_src
+
+This is usually better than making one emitter handle too many special cases. In Hactar, macros are preferred whenever they keep the emitted surface simpler.
+
+Even though the macro helper is named =defjsmacro=, it is used across multiple targets, not just JavaScript.
+
+**** 4. Use the VFS correctly
+Targets do not write directly to disk. They write into the virtual file system.
+
+The main functions you will use are:
+
+- =in-file= forms to switch the active output file
+- =compiler-emit= and friends to append content
+- =compiler-prepend= if a target needs to inject content at the top
+- VFS metadata helpers if you need to track extra per-file state
+
+Example of switching files:
+
+#+begin_src lisp
+  (defemit :mytarget in-file (path)
+    (vfs-select-file *current-vfs* path))
+#+end_src
+
+If your target generates multiple files, make file switching explicit and deterministic.
+
+**** 5. Reuse helper functions
+Most good targets have small helper functions for shared formatting logic. Keep these outside emitters when they are reused.
+
+Examples from the codebase:
+
+- =emit-name= in =javascript-target.lisp=
+- =extract-type-annotation= in =typescript-target.lisp=
+- =json-emit-primitive= in =json-target.lisp=
+- =toml-emit-value= in =toml-target.lisp=
+- =css-selector-from-form= in =css-target.lisp=
+
+A good rule is: if you repeat string formatting or structural logic twice, move it to a helper.
+
+**** 6. Add checks with =defcheck=
+Targets should defend themselves. If a target only supports a subset of forms, add checks so bad input fails early and clearly.
+
+Example:
+
+#+begin_src lisp
+  (defcheck :mytarget no-unknown-top-level
+    (check-unsupported-form :mytarget form '(target in-file say blocky)))
+#+end_src
+
+You can also write semantic checks for target-specific problems, like the existing Redwood JSX checker.
+
+Checks should:
+
+- return =check-result= objects
+- be specific and actionable
+- prefer catching invalid source forms before emission
+
+**** 7. Use setup/finalize for target-wide behavior
+If a target needs temporary state, default file generation, or post-processing, use =:setup= and =:finalize= in =deftarget=.
+
+This is how =redwood-target.lisp= auto-emits missing config files and inferred bindings.
+
+Use this sparingly. Most targets should stay mostly emitter-driven. Reach for setup/finalize only when you need target-wide coordination.
+
+**** 8. Prefer new forms over overloading old ones
+If the target introduces a concept that does not map cleanly to an existing form, define a new form rather than adding fragile conditionals everywhere.
+
+Good examples in the codebase:
+
+- =defworker=
+- =json-object=
+- =toml-table=
+- =defconfig=
+- =defapp=
+
+This keeps targets readable and makes checkers easier to write.
+
+**** 9. Test targets thoroughly
+Compiler targets are easy to regress. Add tests for:
+
+- target detection
+- emitter output
+- inheritance behavior
+- macro expansion
+- finalize/setup side effects
+- checker failures
+
+At minimum, test string output for representative forms and edge cases. The compiler is a perfect place for golden-output style tests.
+
+**** 10. A minimal example target
+Here is a small self-contained example:
+
+#+begin_src lisp
+  (deftarget :demo
+    :file-extension "demo")
+
+  (defemit :demo in-file (path)
+    (vfs-select-file *current-vfs* path))
+
+  (defemit :demo say (value)
+    (compiler-emit "say ")
+    (compile-form value))
+
+  (defemit :demo defconst (name value)
+    (compiler-emit "const ")
+    (emit-name name)
+    (compiler-emit " = ")
+    (compile-form value))
+
+  (defcheck :demo only-demo-forms
+    (check-unsupported-form :demo form '(target in-file say defconst)))
+#+end_src
+
+And usage:
+
+#+begin_src lisp
+  (target :demo)
+
+  (in-file "hello.demo")
+  (defconst greeting "hello")
+  (say greeting)
+#+end_src
+
+**** Practical advice
+- Start from the closest existing target and copy its shape
+- Keep emitters tiny
+- Put reusable logic in helpers
+- Use macros to simplify the source DSL
+- Add checks early
+- Let VFS own file output
+- Avoid hidden magic unless it clearly belongs in finalize/setup
+
+If you are building a target for a language family, first ask whether it should inherit from =:javascript=, =:typescript=, =:json=, =:toml=, or =:css=. Most new targets should extend an existing one, not start from nothing.
 *** Making a New Release
 The release process is:
 
