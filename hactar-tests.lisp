@@ -132,6 +132,7 @@ Returns true iff all suites pass."
 			 worker-target-tests
 			 redwood-target-tests
 			 lsp-tests
+			 convert-tests
                          ;; monolith-tests
                          ;; litmode-tests
 			 ))

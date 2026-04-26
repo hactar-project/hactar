@@ -1396,6 +1396,7 @@ This is installed via HANDLER-BIND in the REPL and must accept exactly one argum
       (format t "Usage: /session.new <path>~%"))
   :acp (lambda (cmd-args)
          (if cmd-args
+	     
              (if (hactar-session-new (first cmd-args))
                  `(("text" . ,(format nil "Session initialized for ~A" *repo-root*)))
                  `(("text" . "Failed to initialize session.")))

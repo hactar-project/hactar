@@ -104,6 +104,7 @@
 	       (:file "css-target")
 	       (:file "redwood-target")
 	       (:file "lsp")
+	       (:file "convert")
 	       ;; modes
 	       (:file "npm")
 	       (:file "sh-mode")
