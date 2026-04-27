@@ -73,6 +73,22 @@
   max_input_tokens: 100000
   max_output_tokens: 8192
   cache_control: true
+- name: ollama/deepseek-v4-pro:cloud
+  edit_format: diff
+  model_name: deepseek-v4-pro:cloud
+  use_repo_map: true
+  examples_as_sys_msg: true
+  max_input_tokens: 100000
+  max_output_tokens: 8192
+  cache_control: true
+- name: ollama/deepseek-v4-flash:cloud
+  edit_format: diff
+  model_name: deepseek-v4-flash:cloud
+  use_repo_map: true
+  examples_as_sys_msg: true
+  max_input_tokens: 100000
+  max_output_tokens: 8192
+  cache_control: true
 - name: ollama/qwen2.5vl:7b
   edit_format: diff
   model_name: qwen2.5vl:7b
@@ -104,6 +120,38 @@
   use_repo_map: true
   examples_as_sys_msg: true
   max_input_tokens: 64000
+  max_output_tokens: 8192
+  cache_control: true
+- name: openai/gpt-5.2
+  edit_format: diff
+  model_name: gpt-5.2
+  use_repo_map: true
+  examples_as_sys_msg: true
+  max_input_tokens: 120000
+  max_output_tokens: 8192
+  cache_control: true
+- name: openai/gpt-5.3
+  edit_format: diff
+  model_name: gpt-5.3
+  use_repo_map: true
+  examples_as_sys_msg: true
+  max_input_tokens: 120000
+  max_output_tokens: 8192
+  cache_control: true
+- name: openai/gpt-5.4
+  edit_format: diff
+  model_name: gpt-5.4
+  use_repo_map: true
+  examples_as_sys_msg: true
+  max_input_tokens: 120000
+  max_output_tokens: 8192
+  cache_control: true
+- name: openai/gpt-5.5
+  edit_format: diff
+  model_name: gpt-5.5
+  use_repo_map: true
+  examples_as_sys_msg: true
+  max_input_tokens: 200000
   max_output_tokens: 8192
   cache_control: true
 - name: gemini/gemini-2.0-flash
@@ -486,6 +534,21 @@
   max_input_tokens: 120000
   cache_control: true
   supports: ["vision"]
+- name: copilot/gpt-5.5
+  edit_format: diff
+  model_name: gpt-5.5
+  use_repo_map: true
+  examples_as_sys_msg: true
+  extra_params:
+    max_tokens: 100000
+    extra_headers:
+      Editor-Version: Hactar/0.1
+      Copilot-Integration-Id: copilot-chat
+      Copilot-Vision-Request: "true"
+  max_output_tokens: 8192
+  max_input_tokens: 120000
+  cache_control: true
+  supports: ["vision"]
 - name: copilot/gpt-5.4-mini
   edit_format: diff
   model_name: gpt-5.4-mini
@@ -649,6 +712,30 @@
   max_output_tokens: 8192
   max_input_tokens: 120000
   cache_control: true
+- name: openrouter/gpt-5.2
+  edit_format: diff
+  model_name: openai/gpt-5.2
+  use_repo_map: true
+  examples_as_sys_msg: true
+  max_output_tokens: 8192
+  max_input_tokens: 120000
+  cache_control: true
+- name: openrouter/gpt-5.4
+  edit_format: diff
+  model_name: openai/gpt-5.4
+  use_repo_map: true
+  examples_as_sys_msg: true
+  max_output_tokens: 8192
+  max_input_tokens: 120000
+  cache_control: true
+- name: openrouter/gpt-5.5
+  edit_format: diff
+  model_name: openai/gpt-5.5
+  use_repo_map: true
+  examples_as_sys_msg: true
+  max_output_tokens: 8192
+  max_input_tokens: 120000
+  cache_control: true
 - name: openrouter/gpt-5-codex
   edit_format: diff
   model_name: openai/gpt-5-codex
@@ -684,6 +771,14 @@
 - name: gemini/gemini-3-pro-preview
   edit_format: diff
   model_name: gemini-3-pro-preview
+  use_repo_map: true
+  examples_as_sys_msg: true
+  max_output_tokens: 8192
+  max_input_tokens: 120000
+  cache_control: true
+- name: gemini/gemini-3.1-pro-preview
+  edit_format: diff
+  model_name: gemini-3.1-pro-preview
   use_repo_map: true
   examples_as_sys_msg: true
   max_output_tokens: 8192
