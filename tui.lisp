@@ -64,8 +64,7 @@
 (defun tui-box (win col row width height)
   "Draw a box outline on WIN."
   (let ((right (+ col width -1))
-        (bottom (+ row height -1)))
-    ;; corners
+        (bottom (+ row height -1))) ;; corners
     (handler-case (charms:write-char-at-point win #\┌ col row) (error () nil))
     (handler-case (charms:write-char-at-point win #\┐ right row) (error () nil))
     (handler-case (charms:write-char-at-point win #\└ col bottom) (error () nil))
