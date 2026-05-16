@@ -68,4 +68,13 @@
          :rel "noreferrer"
          "Read the docs"))))
 
+;; Header component with menu
+(defcomponent *Header ()
+  (header
+	(nav
+	  (ul
+		(li (a :href "/" "Home"))
+		(li (a :href "/about" "About"))
+		(li (a :href "/contact" "Contact"))))))
+
 (defapp :wrapper *Document :routes ("/" *Home))
