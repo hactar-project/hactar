@@ -62,5 +62,7 @@
 	       (:file "tests/worker-target.test")
 	       (:file "tests/redwood-target.test")
 	       (:file "tests/lsp.test")
+	       (:file "tests/wiki.test")
+	       (:file "tests/cli.test")
                (:file "hactar-tests"))
   :perform (asdf:test-op (op c) (uiop:symbol-call :hactar-tests '#:run-tests)))

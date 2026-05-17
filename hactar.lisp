@@ -1414,41 +1414,32 @@ This is installed via HANDLER-BIND in the REPL and must accept exactly one argum
               (load file))))))))
 
 ;;* CLI
-(defun help--print (cmd)
-  "Print comprehensive help information for Hactar, including options and subcommands."
-  (format t "~A - ~A~%~%"
-          (clingon:command-name cmd)
-          (clingon:command-description cmd))
-
-  (format t "Version: ~A~%" (clingon:command-version cmd))
-  (format t "Authors: ~{~A~^, ~}~%" (clingon:command-authors cmd))
-  (format t "License: ~A~%~%" (clingon:command-license cmd))
+(defun help--print (&optional cmd)
+  "Print comprehensive help for Hactar using the unified flag/route registries.
+CMD argument is ignored (kept for backward compatibility)."
+  (declare (ignore cmd))
+  (format t "hactar - Hactar AI Pair Programmer~%~%")
+  (format t "Version: ~A~%" *hactar-version*)
+  (format t "Authors: K-2052~%")
+  (format t "License: MIT~%~%")
 
   (format t "USAGE:~%")
-  (format t "  ~A [OPTIONS] [SUBCOMMAND]~%~%" (clingon:command-name cmd))
+  (format t "  hactar [OPTIONS] [SUBCOMMAND|URI] [ARGS...]~%~%")
 
   (format t "OPTIONS:~%")
-  (let ((options (clingon:command-options cmd)))
-    (dolist (opt options)
-      (let* ((long-name (clingon:option-long-name opt))
-             (short-name (clingon:option-short-name opt))
-             (description (clingon:option-description opt))
-             (initial-value (clingon:option-initial-value opt))
-             (option-type (type-of opt)))
-        (format t "  ")
-        (when short-name
-          (format t "-~A, " short-name))
-        (format t "--~A" long-name)
-        (unless (or (search "FLAG" (symbol-name option-type))
-                    (search "BOOLEAN" (symbol-name option-type)))
-          (format t " <value>"))
-        (format t "~%")
-        (format t "      ~A~%" description)
-        (when (and initial-value
-                   (not (or (search "FLAG" (symbol-name option-type))
-                            (search "BOOLEAN" (symbol-name option-type)))))
-          (format t "      (default: ~A)~%" initial-value))
-        (format t "~%"))))
+  (let ((flags (list-registered-flags)))
+    (dolist (flag (sort flags #'string<
+                        :key (lambda (f) (or (first (flag-long-names f))
+                                             (first (flag-short-names f))
+                                             ""))))
+      (format t "  ")
+      (when (flag-short-names flag)
+        (format t "~A, " (first (flag-short-names flag))))
+      (when (flag-long-names flag)
+        (format t "~A" (first (flag-long-names flag))))
+      (when (flag-takes-value flag)
+        (format t " <value>"))
+      (format t "~%      ~A~%~%" (flag-description flag))))
 
   (format t "SUBCOMMANDS:~%")
   (let ((sorted-subcommands (sort (alexandria:hash-table-keys *sub-commands*) #'string<)))
@@ -1469,7 +1460,6 @@ This is installed via HANDLER-BIND in the REPL and must accept exactly one argum
               (when (and opt-short opt-long) (format t ", "))
               (when opt-long (format t "--~A" opt-long))
               (format t " : ~A~%" opt-desc))))
-        ;; Check if this is a web command and print its routes
         (let ((web-cmd (gethash subcmd-name *web-commands*)))
           (when web-cmd
             (dolist (route (web-command-routes web-cmd))
@@ -1478,264 +1468,172 @@ This is installed via HANDLER-BIND in the REPL and must accept exactly one argum
                       (web-route-description route)))))
         (format t "~%"))))
 
-  (format t "EXAMPLES:~%")
-  (format t "  # Start interactive REPL with default model~%")
-  (format t "  ~A~%~%" (clingon:command-name cmd))
-  (format t "  # Use a specific model~%")
-  (format t "  ~A --model anthropic/claude-3-7-sonnet-20250219~%~%" (clingon:command-name cmd))
-  (format t "  # Quick query without entering REPL~%")
-  (format t "  ~A -q \"Explain this code\"~%~%" (clingon:command-name cmd))
-  (format t "  # Generate and copy shell command~%")
-  (format t "  ~A -e \"list all files modified today\"~%~%" (clingon:command-name cmd))
-  (format t "  # Initialize Hactar configuration~%")
-  (format t "  ~A hactar.init~%~%" (clingon:command-name cmd))
-  (format t "  # Start AgentShell (ACP client TUI)~%")
-  (format t "  ~A --agentshell~%~%" (clingon:command-name cmd))
-  (format t "  # AgentShell with custom agent command~%")
-  (format t "  ~A --agentshell --agent-command \"my-agent --acp\"~%~%" (clingon:command-name cmd)))
+  (format t "URIs (Infinite CLI):~%")
+  (format t "  Any unmatched argument is routed via the unified router.~%")
+  (format t "  Wiki queries are routed automatically:~%")
+  (format t "    hactar redwood.docs/auth.types~%")
+  (format t "    hactar wiki:redwood.docs/auth.example~%~%")
 
-(defun toplevel/options ()
-  "Returns the options for the main Hactar command."
-  (list
-   (clingon:make-option
-    :string
+  (format t "EXAMPLES:~%")
+  (format t "  hactar~%")
+  (format t "  hactar --model anthropic/claude-sonnet-4.6~%")
+  (format t "  hactar -q \"Explain this code\"~%")
+  (format t "  hactar -e \"list all files modified today\"~%")
+  (format t "  hactar hactar.init~%")
+  (format t "  hactar --agentshell~%"))
+
+(defvar *cli-opts* (make-hash-table :test 'eq)
+  "Parsed CLI options, populated by defflag handlers during PARSE-CLI-INPUT.")
+
+(defun cli-opt (key &optional default)
+  "Read a parsed CLI option."
+  (multiple-value-bind (v p) (gethash key *cli-opts*) (if p v default)))
+
+(defun (setf cli-opt) (value key)
+  (setf (gethash key *cli-opts*) value))
+
+(defun register-hactar-flags ()
+  "Register all Hactar global flags. Called once at startup."
+  (clrhash *flags*)
+  (defflag :model ("--model" "-m") (v)
     :description "LLM model to use (e.g., ollama/qwen3:14b)"
-    :short-name #\m
-    :long-name "model"
-    :initial-value nil
-    :key :model)
-   (clingon:make-option
-    :string
-    :description "Provider to use with model aliases (e.g. anthropic, copilot, openrouter)"
-    :long-name "provider"
-    :initial-value nil
-    :key :provider)
-   (clingon:make-option
-    :string
-    :description "Project name. Defaults to current directory name."
-    :long-name "name"
-    :initial-value nil
-    :key :name)
-   (clingon:make-option
-    :string
-    :description "Project path."
-    :long-name "path"
-    :initial-value nil
-    :key :path)
-   (clingon:make-option
-    :string
-    :description "Author name. Defaults to HACTAR_AUTHOR environment variable."
-    :long-name "author"
-    :initial-value nil
-    :key :author)
-   (clingon:make-option
-    :string
+    (setf (cli-opt :model) v))
+  (defflag :provider ("--provider") (v)
+    :description "Provider to use with model aliases (anthropic, openrouter, ...)"
+    (setf (cli-opt :provider) v))
+  (defflag :name ("--name") (v)
+    :description "Project name (defaults to current directory name)"
+    (setf (cli-opt :name) v))
+  (defflag :path ("--path") (v)
+    :description "Project path"
+    (setf (cli-opt :path) v))
+  (defflag :author ("--author") (v)
+    :description "Author name"
+    (setf (cli-opt :author) v))
+  (defflag :config-path ("--config-path" "-c") (v)
     :description "Path to the models configuration file (models.yaml)"
-    :short-name #\c
-    :long-name "config-path"
-    :initial-value nil
-    :key :config-path)
-   (clingon:make-option
-    :string
+    (setf (cli-opt :config-path) v))
+  (defflag :embedding-model ("--embedding-model") (v)
     :description "Model to use for generating embeddings"
-    :long-name "embedding-model"
-    :initial-value "nomic-embed-text"
-    :key :embedding-model)
-   (clingon:make-option
-    :integer
+    (setf (cli-opt :embedding-model) v))
+  (defflag :slynk-port ("--slynk-port" "-p") (v)
     :description "Port for the Slynk server"
-    :short-name #\p
-    :long-name "slynk-port"
-    :initial-value 4005
-    :key :slynk-port)
-   (clingon:make-option
-    :string				; Expecting space-separated list
-    :description "List of analyzers to disable (space-separated)."
-    :long-name "disable-analyzers"
-    :initial-value ""
-    :key :disable-analyzers)
-   (clingon:make-option
-    :string				; Expecting space-separated list
-    :description "List of analyzers to enable (space-separated)."
-    :long-name "enable-analyzers"
-    :initial-value ""
-    :key :enable-analyzers)
-   (clingon:make-option
-    :integer
+    (setf (cli-opt :slynk-port) (parse-integer v :junk-allowed t)))
+  (defflag :disable-analyzers ("--disable-analyzers") (v)
+    :description "Space-separated list of analyzers to disable"
+    (setf (cli-opt :disable-analyzers) v))
+  (defflag :enable-analyzers ("--enable-analyzers") (v)
+    :description "Space-separated list of analyzers to enable"
+    (setf (cli-opt :enable-analyzers) v))
+  (defflag :http-port ("--http-port") (v)
     :description "Port for the HTTP API server"
-    :long-name "http-port"
-    :initial-value 4269
-    :key :http-port)
-   (clingon:make-option
-    :flag
+    (setf (cli-opt :http-port) (parse-integer v :junk-allowed t)))
+  (defflag :sonnet ("--sonnet") ()
     :description "Use Claude Sonnet 4.6 model"
-    :long-name "sonnet"
-    :key :sonnet)
-   (clingon:make-option
-    :flag
+    (setf (cli-opt :sonnet) t))
+  (defflag :gemini ("--gemini") ()
     :description "Use Gemini 3 Pro Preview model"
-    :long-name "gemini"
-    :key :gemini)
-   (clingon:make-option
-    :flag
+    (setf (cli-opt :gemini) t))
+  (defflag :gpt ("--gpt") ()
     :description "Use GPT 5.4 model"
-    :long-name "gpt"
-    :key :gpt)
-   (clingon:make-option
-    :flag
+    (setf (cli-opt :gpt) t))
+  (defflag :opus ("--opus") ()
     :description "Use Claude Opus 4.6 model"
-    :long-name "opus"
-    :key :opus)
-   (clingon:make-option
-    :flag
-    :description "Use free Gemini Pro Experimental via OpenRouter (openrouter/google/gemini-2.5-pro-exp-03-25:free)"
-    :long-name "gemini-free"
-    :key :gemini-free)
-   (clingon:make-option
-    :flag
-    :description "Use Deepseek Chat model via OpenRouter (openrouter/deepseek/deepseek-chat-v3-0324)"
-    :long-name "deepseek"
-    :key :deepseek)
-   (clingon:make-option
-    :flag
-    :description "Use free Deepseek Base model via OpenRouter (openrouter/deepseek/deepseek-v3-base:free)"
-    :long-name "deepseek-free"
-    :key :deepseek-free)
-   (clingon:make-option
-    :string
-    :description "Send a query to the LLM, print the result, and exit."
-    :short-name #\q
-    :long-name "query"
-    :key :immediate-query)
-   (clingon:make-option
-    :string
-    :description "Generate a shell command from the query, print it, and copy it to clipboard."
-    :short-name #\e
-    :long-name "execute"
-    :key :execute)
-   (clingon:make-option
-    :string
-    :description "Generate a shell command from the query, execute it, and print its output."
-    :long-name "execute-immediately"
-    :key :execute-immediately)
-   (clingon:make-option
-    :flag
-    :description "Enable assistant mode for visual interaction."
-    :long-name "assistant"
-    :key :assistant)
-   (clingon:make-option
-    :string
-    :description "File path to write assistant's text extractions (used with --assistant)."
-    :long-name "output"
-    :key :assistant-output-file)
-   (clingon:make-option
-    :flag
-    :description "Enable TTS audio output for assistant's extractions (used with --assistant)."
-    :long-name "audio"
-    :key :assistant-audio-enabled)
-   (clingon:make-option
-    :flag
-    :description "Allow agents to run without a safe environment (e.g., container)."
-    :long-name "live-dangerously"
-    :key :live-dangerously)
-   (clingon:make-option
-    :flag
-    :description "Enable automatic lint agent."
-    :long-name "auto-lint"
-    :key :auto-lint)
-   (clingon:make-option
-    :flag
-    :description "Enable automatic test agent."
-    :long-name "auto-test"
-    :key :auto-test)
-   (clingon:make-option
-    :flag
-    :description "Enable automatic typecheck agent."
-    :long-name "auto-typecheck"
-    :key :auto-typecheck)
-   (clingon:make-option
-    :flag
-    :description "Enable AI comment handling on file changes (AI!/AI?)."
-    :long-name "watch"
-    :key :watch)
-   (clingon:make-option
-    :flag
-    :description "Enable Lisp-only mode. LLM returns executable Lisp code for eval/reject."
-    :long-name "lisp-mode"
-    :key :lisp-mode)
-   (clingon:make-option
-    :flag
-    :description "Enable all automation (lint, test, typecheck)."
-    :long-name "auto-all"
-    :key :auto-all)
-   (clingon:make-option
-    :flag
-    :description "Indicate hactar is running inside an editor (Emacs, Vim, etc.). Disables TUI, redirects structured output to .hactar.{pid}.log."
-    :long-name "in-editor"
-    :key :in-editor)
-   (clingon:make-option
-    :flag
-    :description "Start in Agent Client Protocol (ACP) mode over stdio."
-    :long-name "acp"
-    :key :acp)
-   (clingon:make-option
-    :flag
-    :description "Start as a Model Context Protocol (MCP) server over stdio."
-    :long-name "mcp"
-    :key :mcp)
-   (clingon:make-option
-    :flag
-    :description "Enable literate single-file mode (litmode) at startup."
-    :long-name "lit"
-    :key :lit)
-   (clingon:make-option
-    :flag
-    :description "Enable Lisp-RPC mode. LLM returns Lisp s-expressions for sandboxed evaluation."
-    :long-name "lisp"
-    :key :lisp-rpc)
-   (clingon:make-option
-    :flag
-    :description "Start AgentShell, an ACP client TUI for interacting with an agent."
-    :long-name "agentshell"
-    :key :agentshell)
-   (clingon:make-option
-    :string
-    :description "Command to launch the ACP agent subprocess (for --agentshell)."
-    :long-name "agent-command"
-    :initial-value nil
-    :key :agent-command)
-   (clingon:make-option
-    :flag
-    :description "Start the 3-column TUI interface (Crush-style) instead of the readline REPL."
-    :long-name "tui"
-    :key :tui)
-   (clingon:make-option
-    :string
-    :description "TUI color theme name or path (e.g., gruvbox-dark, ~/my-theme.lisp)"
-    :long-name "theme"
-    :initial-value nil
-    :key :theme)
-   (clingon:make-option
-    :flag
-    :description "Start the HTTP API server on startup."
-    :long-name "http"
-    :key :http)
-   (clingon:make-option
-    :flag
-    :description "Start the Slynk server on startup."
-    :long-name "slynk"
-    :key :slynk)
-   (clingon:make-option
-    :string
-    :description "Start the OpenRouter-compatible LLM proxy on startup."
-    :long-name "proxy"
-    :key :proxy)
-   (clingon:make-option
-    :string
-    :description "Upstream LLM API URL for the proxy to forward requests to."
-    :long-name "proxy-upstream"
-    :initial-value nil
-    :key :proxy-upstream)))
+    (setf (cli-opt :opus) t))
+  (defflag :gemini-free ("--gemini-free") ()
+    :description "Use free Gemini Pro Experimental via OpenRouter"
+    (setf (cli-opt :gemini-free) t))
+  (defflag :deepseek ("--deepseek") ()
+    :description "Use Deepseek Chat via OpenRouter"
+    (setf (cli-opt :deepseek) t))
+  (defflag :deepseek-free ("--deepseek-free") ()
+    :description "Use free Deepseek Base via OpenRouter"
+    (setf (cli-opt :deepseek-free) t))
+  (defflag :query ("--query" "-q") (v)
+    :description "Send a query to the LLM, print the result, and exit"
+    (setf (cli-opt :immediate-query) v))
+  (defflag :execute ("--execute" "-e") (v)
+    :description "Generate a shell command from the query and copy it"
+    (setf (cli-opt :execute) v))
+  (defflag :execute-immediately ("--execute-immediately") (v)
+    :description "Generate a shell command and execute it immediately"
+    (setf (cli-opt :execute-immediately) v))
+  (defflag :assistant ("--assistant") ()
+    :description "Enable assistant mode"
+    (setf (cli-opt :assistant) t))
+  (defflag :output ("--output") (v)
+    :description "Output file (for --assistant)"
+    (setf (cli-opt :assistant-output-file) v))
+  (defflag :audio ("--audio") ()
+    :description "Enable TTS audio output (assistant mode)"
+    (setf (cli-opt :assistant-audio-enabled) t))
+  (defflag :live-dangerously ("--live-dangerously") ()
+    :description "Allow agents to run without a safe environment"
+    (setf (cli-opt :live-dangerously) t))
+  (defflag :auto-lint ("--auto-lint") ()
+    :description "Enable automatic lint agent"
+    (setf (cli-opt :auto-lint) t))
+  (defflag :auto-test ("--auto-test") ()
+    :description "Enable automatic test agent"
+    (setf (cli-opt :auto-test) t))
+  (defflag :auto-typecheck ("--auto-typecheck") ()
+    :description "Enable automatic typecheck agent"
+    (setf (cli-opt :auto-typecheck) t))
+  (defflag :auto-all ("--auto-all") ()
+    :description "Enable all automation"
+    (setf (cli-opt :auto-all) t))
+  (defflag :watch ("--watch") ()
+    :description "Enable AI comment handling on file changes (AI!/AI?)"
+    (setf (cli-opt :watch) t))
+  (defflag :lisp-mode-flag ("--lisp-mode") ()
+    :description "Enable Lisp-only mode (LLM returns executable Lisp)"
+    (setf (cli-opt :lisp-mode) t))
+  (defflag :in-editor ("--in-editor") ()
+    :description "Running inside an editor (Emacs, Vim, etc.)"
+    (setf (cli-opt :in-editor) t))
+  (defflag :acp ("--acp") ()
+    :description "Start in Agent Client Protocol (ACP) mode over stdio"
+    (setf (cli-opt :acp) t))
+  (defflag :mcp ("--mcp") ()
+    :description "Start as a Model Context Protocol (MCP) server"
+    (setf (cli-opt :mcp) t))
+  (defflag :lit ("--lit") ()
+    :description "Enable literate single-file mode at startup"
+    (setf (cli-opt :lit) t))
+  (defflag :lisp-rpc ("--lisp") ()
+    :description "Enable Lisp-RPC mode"
+    (setf (cli-opt :lisp-rpc) t))
+  (defflag :agentshell ("--agentshell") ()
+    :description "Start AgentShell, an ACP client TUI"
+    (setf (cli-opt :agentshell) t))
+  (defflag :agent-command ("--agent-command") (v)
+    :description "Command to launch the ACP agent subprocess"
+    (setf (cli-opt :agent-command) v))
+  (defflag :tui ("--tui") ()
+    :description "Start the 3-column TUI interface"
+    (setf (cli-opt :tui) t))
+  (defflag :theme ("--theme") (v)
+    :description "TUI color theme name or path"
+    (setf (cli-opt :theme) v))
+  (defflag :http ("--http") ()
+    :description "Start the HTTP API server on startup"
+    (setf (cli-opt :http) t))
+  (defflag :slynk ("--slynk") ()
+    :description "Start the Slynk server on startup"
+    (setf (cli-opt :slynk) t))
+  (defflag :proxy ("--proxy") ()
+    :description "Start the OpenRouter-compatible LLM proxy on startup"
+    (setf (cli-opt :proxy) t))
+  (defflag :proxy-upstream ("--proxy-upstream") (v)
+    :description "Upstream LLM API URL for the proxy"
+    (setf (cli-opt :proxy-upstream) v))
+  (defflag :help ("--help" "-h") ()
+    :description "Show help"
+    (setf (cli-opt :help) t))
+  (defflag :version ("--version") ()
+    :description "Print version and exit"
+    (setf (cli-opt :version) t))
+  t)
 
 (defun handle-execute-flag (query run-immediately-p)
   "Handles --execute and --execute-immediately flags."
@@ -1775,63 +1673,62 @@ This is installed via HANDLER-BIND in the REPL and must accept exactly one argum
   (unless (and query (not (string= query ""))) (format t "Error: Query for execution cannot be empty.~%"))
   (uiop:quit 1))
 
-(defun toplevel/handler (cmd)
-  "The handler function for the main Hactar command."
-  (let* ((free-args (clingon:command-arguments cmd))
-         (model-from-opt (clingon:getopt cmd :model))
-         (name-from-opt (clingon:getopt cmd :name))
-         (author-from-opt (clingon:getopt cmd :author))
-         (config-path (clingon:getopt cmd :config-path))
-         (embedding-model-from-opt (clingon:getopt cmd :embedding-model))
-         (slynk-port (clingon:getopt cmd :slynk-port))
-         (http-port (clingon:getopt cmd :http-port))
-         (disable-analyzers-str (clingon:getopt cmd :disable-analyzers))
-         (enable-analyzers-str (clingon:getopt cmd :enable-analyzers))
-         (provider-from-opt (clingon:getopt cmd :provider))
-         (use-sonnet (clingon:getopt cmd :sonnet))
-         (use-gemini (clingon:getopt cmd :gemini))
-         (use-gpt (clingon:getopt cmd :gpt))
-         (use-opus (clingon:getopt cmd :opus))
-         (use-gemini-free (clingon:getopt cmd :gemini-free))
-         (use-deepseek (clingon:getopt cmd :deepseek))
-         (use-deepseek-free (clingon:getopt cmd :deepseek-free))
-         (immediate-query (clingon:getopt cmd :immediate-query))
-         (execute-query (clingon:getopt cmd :execute))
-         (execute-immediately-query (clingon:getopt cmd :execute-immediately))
-         (assistant-mode (clingon:getopt cmd :assistant))
-         (assistant-output (clingon:getopt cmd :assistant-output-file))
-         (assistant-audio (clingon:getopt cmd :assistant-audio-enabled))
-         (lit-flag (clingon:getopt cmd :lit))
-         (live-dangerously (clingon:getopt cmd :live-dangerously))
-         (auto-lint (clingon:getopt cmd :auto-lint))
-         (auto-test (clingon:getopt cmd :auto-test))
-         (auto-typecheck (clingon:getopt cmd :auto-typecheck))
-         (auto-all (clingon:getopt cmd :auto-all))
-         (watch-flag (clingon:getopt cmd :watch))
-         (lisp-mode-flag (clingon:getopt cmd :lisp-mode))
-         (acp-flag (clingon:getopt cmd :acp))
-         (mcp-flag (clingon:getopt cmd :mcp))
-         (lisp-rpc-flag (clingon:getopt cmd :lisp-rpc))
-         (agentshell-flag (clingon:getopt cmd :agentshell))
-         (agent-command-str (clingon:getopt cmd :agent-command))
-         (tui-flag (clingon:getopt cmd :tui))
-         (theme-from-opt (clingon:getopt cmd :theme))
-         (http-flag (clingon:getopt cmd :http))
-         (slynk-flag (clingon:getopt cmd :slynk))
-         (proxy-flag (clingon:getopt cmd :proxy))
-         (proxy-upstream-opt (clingon:getopt cmd :proxy-upstream))
-         (in-editor-flag (or (clingon:getopt cmd :in-editor)
+(defun toplevel/handler (free-args)
+  "The core startup logic for Hactar, executing based on parsed flags."
+  (let* ((model-from-opt (cli-opt :model))
+         (name-from-opt (cli-opt :name))
+         (author-from-opt (cli-opt :author))
+         (config-path (cli-opt :config-path))
+         (embedding-model-from-opt (cli-opt :embedding-model))
+         (slynk-port (cli-opt :slynk-port))
+         (http-port (cli-opt :http-port))
+         (disable-analyzers-str (cli-opt :disable-analyzers))
+         (enable-analyzers-str (cli-opt :enable-analyzers))
+         (provider-from-opt (cli-opt :provider))
+         (use-sonnet (cli-opt :sonnet))
+         (use-gemini (cli-opt :gemini))
+         (use-gpt (cli-opt :gpt))
+         (use-opus (cli-opt :opus))
+         (use-gemini-free (cli-opt :gemini-free))
+         (use-deepseek (cli-opt :deepseek))
+         (use-deepseek-free (cli-opt :deepseek-free))
+         (immediate-query (cli-opt :immediate-query))
+         (execute-query (cli-opt :execute))
+         (execute-immediately-query (cli-opt :execute-immediately))
+         (assistant-mode (cli-opt :assistant))
+         (assistant-output (cli-opt :assistant-output-file))
+         (assistant-audio (cli-opt :assistant-audio-enabled))
+         (lit-flag (cli-opt :lit))
+         (live-dangerously (cli-opt :live-dangerously))
+         (auto-lint (cli-opt :auto-lint))
+         (auto-test (cli-opt :auto-test))
+         (auto-typecheck (cli-opt :auto-typecheck))
+         (auto-all (cli-opt :auto-all))
+         (watch-flag (cli-opt :watch))
+         (lisp-mode-flag (cli-opt :lisp-mode))
+         (acp-flag (cli-opt :acp))
+         (mcp-flag (cli-opt :mcp))
+         (lisp-rpc-flag (cli-opt :lisp-rpc))
+         (agentshell-flag (cli-opt :agentshell))
+         (agent-command-str (cli-opt :agent-command))
+         (tui-flag (cli-opt :tui))
+         (theme-from-opt (cli-opt :theme))
+         (http-flag (cli-opt :http))
+         (slynk-flag (cli-opt :slynk))
+         (proxy-flag (cli-opt :proxy))
+         (proxy-upstream-opt (cli-opt :proxy-upstream))
+         (in-editor-flag (or (cli-opt :in-editor)
                              (let ((env-val (uiop:getenv "HACTAR_IN_EDITOR")))
                                (and env-val (not (string= env-val ""))
-				    (not (string-equal env-val "false"))))))
-         (path (or (clingon:getopt cmd :path)
+                                    (not (string-equal env-val "false"))))))
+         (path (or (cli-opt :path)
                    (let ((args-str (format nil "~{~A~^ ~}" free-args)))
                      (multiple-value-bind (match regs)
                          (cl-ppcre:scan-to-strings "--path\\s+([^\\s]+)" args-str)
                        (declare (ignore match))
                        (when (and regs (> (length regs) 0))
                          (aref regs 0))))))
-	 (model model-from-opt))
+         (model model-from-opt))
 
     (when slynk-port (setf *slynk-port* slynk-port))
     (when http-port (setf *http-port* http-port))
@@ -1853,7 +1750,7 @@ This is installed via HANDLER-BIND in the REPL and must accept exactly one argum
     (when auto-typecheck (setf *auto-typecheck* t))
 
     (when (or immediate-query execute-query execute-immediately-query free-args acp-flag mcp-flag agentshell-flag lisp-rpc-flag)
-      (setf *silent* t))	  ; Enable silent mode for non-interactive modes
+      (setf *silent* t))          ; Enable silent mode for non-interactive modes
 
     (when use-sonnet (setf model (format nil "~A/claude-sonnet-4.6" (or provider-from-opt "anthropic"))))
     (when use-gemini (setf model (format nil "~A/gemini-3-pro-preview" (or provider-from-opt "gemini"))))
@@ -1895,16 +1792,16 @@ This is installed via HANDLER-BIND in the REPL and must accept exactly one argum
         (let ((analyzer-sym (ignore-errors (intern (string-upcase name-str) :hactar))))
           (if (and analyzer-sym (gethash analyzer-sym *analyzer-registry*))
               (progn
-		(set-analyzer-enabled analyzer-sym nil)
-		(unless *silent* (format t "  Disabled analyzer via CLI: ~A~%" name-str)))
+                (set-analyzer-enabled analyzer-sym nil)
+                (unless *silent* (format t "  Disabled analyzer via CLI: ~A~%" name-str)))
               (warn "Unknown analyzer specified in --disable-analyzers: ~A" name-str)))))
     (dolist (name-str (uiop:split-string enable-analyzers-str :separator " "))
       (when (string/= name-str "")
         (let ((analyzer-sym (ignore-errors (intern (string-upcase name-str) :hactar))))
           (if (and analyzer-sym (gethash analyzer-sym *analyzer-registry*))
               (progn
-		(set-analyzer-enabled analyzer-sym t)
-		(unless *silent* (format t "  Enabled analyzer via CLI: ~A~%" name-str)))
+                (set-analyzer-enabled analyzer-sym t)
+                (unless *silent* (format t "  Enabled analyzer via CLI: ~A~%" name-str)))
               (warn "Unknown analyzer specified in --enable-analyzers: ~A" name-str)))))
 
     (when http-flag
@@ -1920,7 +1817,7 @@ This is installed via HANDLER-BIND in the REPL and must accept exactly one argum
       (set-analyzer-enabled 'ai-comment-edit t)
       (set-analyzer-enabled 'ai-comment-question t)
       (unless *silent* (format t "  AI comment handling enabled (AI!/AI?).~%")))
-    
+
     (when lisp-mode-flag
       (setf *lisp-mode-enabled* t)
       (unless *silent* (format t "  Lisp-only mode enabled.~%")))
@@ -1928,7 +1825,7 @@ This is installed via HANDLER-BIND in the REPL and must accept exactly one argum
     (when lisp-rpc-flag
       (setf *lisp-rpc-mode* t)
       (unless *silent* (format t "  Lisp-RPC mode enabled. LLM will return Lisp forms.~%")))
-    
+
     (load-custom-modes)
 
     (let ((detected-root (ignore-errors (find-git-repo-root (if path
@@ -2164,66 +2061,45 @@ This is installed via HANDLER-BIND in the REPL and must accept exactly one argum
 (define-sub-command help (args)
 		    "Display comprehensive help information about Hactar."
 		    (declare (ignore args))
-		    (help--print (toplevel/command))
+		    (help--print nil)
 		    (uiop:quit 0))
 
-(defun toplevel/command ()
-  "Creates the main Hactar command object with subcommands."
-  (clingon:make-command
-   :name "hactar"
-   :description "Hactar AI Pair Programmer"
-   :version *hactar-version*
-   :authors '("K-2052")
-   :license "MIT"
-   :options (toplevel/options)
-   :handler #'toplevel/handler))
-
 ;;* Main
-(defun option-takes-argument-p (opt)
-  "Check if a clingon option takes an argument."
-  (let ((option-type (type-of opt)))
-    (not (or (search "FLAG" (symbol-name option-type))
-             (search "BOOLEAN" (symbol-name option-type))))))
-
-(defun get-arg-consuming-flags ()
-  "Get a list of flags that consume the next argument."
-  (let ((opts (toplevel/options))
-        (flags '()))
-    (dolist (opt opts)
-      (when (option-takes-argument-p opt)
-        (when (clingon:option-short-name opt)
-          (push (format nil "-~A" (clingon:option-short-name opt)) flags))
-        (when (clingon:option-long-name opt)
-          (push (format nil "--~A" (clingon:option-long-name opt)) flags))))
-    flags))
-
-(defun preprocess-arguments (args)
-  "Injects '--' before the first subcommand found in args to prevent clingon from parsing subcommand flags."
-  (let ((new-args '())
-        (consuming-arg nil)
-        (arg-flags (get-arg-consuming-flags))
-        (found-subcommand nil))
-    (dolist (arg args)
-      (cond
-        (found-subcommand
-         (push arg new-args))
-        (consuming-arg
-         (push arg new-args)
-         (setf consuming-arg nil))
-        ((member arg arg-flags :test #'string=)
-         (push arg new-args)
-         (setf consuming-arg t))
-        ((and (not (str:starts-with? "-" arg))
-              (gethash arg *sub-commands*))
-         (setf found-subcommand t)
-         (push "--" new-args)
-         (push arg new-args))
-        (t
-         (push arg new-args))))
-    (nreverse new-args)))
 
 (defun main (&optional provided-args)
-  "Main entry point for the Hactar application executable."
-  (let ((app (toplevel/command))
-        (args (preprocess-arguments (or provided-args (uiop:command-line-arguments)))))
-    (clingon:run app args)))
+  "Main entry point for the Hactar application executable.
+
+Uses the unified defflag/defroute router system (the 'Infinite CLI').
+Free arguments are dispatched as:
+  1. Registered sub-commands (e.g. 'hactar.init')
+  2. Routes via EXECUTE-ROUTE (e.g. wiki URIs)
+  3. The interactive REPL (default)"
+  (register-hactar-flags)
+  (clrhash *cli-opts*)
+  (let* ((raw-args (or provided-args (uiop:command-line-arguments)))
+         (free-args (parse-cli-input raw-args)))
+    (cond
+      ((cli-opt :help)
+       (help--print nil)
+       (uiop:quit 0))
+      ((cli-opt :version)
+       (format t "hactar version ~A~%" *hactar-version*)
+       (uiop:quit 0)))
+    ;; If a known sub-command is present, dispatch directly.
+    (let* ((first-arg (first free-args))
+           (sub-info (and first-arg (gethash first-arg *sub-commands*))))
+      (cond
+        (sub-info
+         (funcall (first sub-info) (rest free-args))
+         (uiop:quit 0))
+        ;; URI-style argument (contains '/' or matches a route): dispatch via router
+        ((and first-arg
+              (or (search "/" first-arg)
+                  (str:starts-with? "wiki:" first-arg)
+                  (search ".docs" first-arg)))
+         (let ((result (execute-route first-arg)))
+           (when result (format t "~A~%" result)))
+         (uiop:quit 0))
+        ;; Fall back to executing the core logic using parsed free args
+        (t
+         (toplevel/handler free-args))))))

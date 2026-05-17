@@ -35,6 +35,7 @@
                #:woo
                #:clack
                #:lack
+               #:lack-request
                #:shasht
                #:imago
                #:cl-base64
@@ -133,6 +134,7 @@
 	       (:file "litmode")
 	       (:file "hyperfractal")
 	       (:file "ruhe")
+	       (:file "wiki")
 	       (:file "hactar"))         ; Compile main hactar file last
   :build-operation "program-op"
   :build-pathname "hactar"

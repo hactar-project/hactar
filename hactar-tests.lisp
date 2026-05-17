@@ -133,6 +133,8 @@ Returns true iff all suites pass."
 			 redwood-target-tests
 			 lsp-tests
 			 convert-tests
+			 wiki-tests
+			 cli-tests
                          ;; monolith-tests
                          ;; litmode-tests
 			 ))

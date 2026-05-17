@@ -26,14 +26,12 @@
 (defvar *tui-completion-index* -1 "Current index in completion list (-1 = none selected).")
 (defvar *tui-completion-prefix* "" "The prefix text that was completed.")
 
-;; Modal (command palette) completion state
+;;** Modal (command palette) completion state
 (defvar *tui-modal-completions* '() "Completion candidates in the command modal.")
 (defvar *tui-modal-completion-index* -1 "Selected index in modal completion list.")
 (defvar *tui-modal-completion-prefix* "" "The query prefix when modal completion started.")
 
-;; Color pair IDs are now managed dynamically by tui-theme.lisp.
-;; Use (tui-color-pair :role) to get the ncurses pair ID for a semantic role.
-
+;;* utils 
 (defun tui-safe-write (win str col row max-width)
   "Write STR to WIN at (COL, ROW), truncating to MAX-WIDTH. Safe against out-of-bounds.
    Strips newlines to prevent ncurses from writing to unintended rows."
@@ -42,7 +40,7 @@
                                  (substitute #\Space #\Return str)))
            (safe-str (if (> (length one-line) max-width)
                          (subseq one-line 0 max-width)
-                         one-line)))
+                       one-line)))
       (handler-case
           (charms:write-string-at-point win safe-str col row)
         (error () nil)))))
@@ -75,8 +73,7 @@
     (tui-vline win col (1+ row) (- height 2) #\│)
     (tui-vline win right (1+ row) (- height 2) #\│)))
 
-;;; --- Completion helpers ---
-
+;;* completion helpers 
 (defun tui-reset-completions ()
   "Clear any active completion state."
   (setf *tui-completions* '())
@@ -149,8 +146,7 @@
                       (setf *tui-completions* completions)
                       (setf *tui-completion-index* 0))))))))))
 
-;;; --- Modal completion helpers ---
-
+;;* modal completion helpers
 (defun tui-modal-reset-completions ()
   "Clear modal completion state."
   (setf *tui-modal-completions* '())
@@ -774,13 +770,20 @@
                  0))
        nil)
 
-      ;; Enter - execute selected command
+      ;; Enter - execute selected command or typed command text
       ((or (eql c #\Return) (eql c #\Newline))
-       (setf *tui-command-modal-open* nil)
-       (tui-modal-reset-completions)
-       (when (and filtered (< *tui-command-selected* (length filtered)))
-         (let ((cmd (nth *tui-command-selected* filtered)))
-           (cons :execute (getf cmd :name)))))
+       (let ((query (string-trim '(#\Space #\Tab) *tui-command-query*)))
+         (setf *tui-command-modal-open* nil)
+         (tui-modal-reset-completions)
+         (cond
+           ((not (string= query ""))
+            (cons :execute (if (str:starts-with? "/" query)
+                               query
+                               (format nil "/~A" query))))
+           ((and filtered (< *tui-command-selected* (length filtered)))
+            (let ((cmd (nth *tui-command-selected* filtered)))
+              (cons :execute (getf cmd :name))))
+           (t nil))))
 
       ;; Backspace
       ((or (eql c #\Backspace) (eql c #\Rubout) (eql c (code-char 127))
@@ -859,6 +862,7 @@
      (setf *tui-command-modal-open* t)
      (setf *tui-command-query* "")
      (setf *tui-command-selected* 0)
+     (setf *tui-command-tab* :system)
      (tui-modal-reset-completions)
      nil)
 
@@ -897,14 +901,32 @@
 ;;; --- Main TUI loop ---
 
 (defun tui-process-command (cmd-name)
-  "Execute a command by name within the TUI context."
+  "Execute a command by name within the TUI context.
+   Suspends curses around the command so commands that spawn external
+   programs (fzf, $EDITOR, etc.) can use the terminal safely."
   (multiple-value-bind (cmd args) (parse-command cmd-name)
     (if cmd
-        (let ((output (with-output-to-string (*standard-output*)
-                        (execute-command cmd args))))
-          (when (and output (> (length output) 0))
-            (dolist (line (str:lines output))
-              (tui-add-chat-line line :type :text))))
+        (handler-case
+            (let ((output-string nil))
+              ;; Suspend curses so subprocesses can drive the terminal.
+              (charms/ll:def-prog-mode)
+              (charms/ll:endwin)
+              (unwind-protect
+                   (setf output-string
+                         (with-output-to-string (*standard-output*)
+                           (execute-command cmd args)))
+                ;; Resume curses and force a full repaint.
+                (charms/ll:reset-prog-mode)
+                (charms:clear-window charms:*standard-window* :force-repaint t)
+                (charms:refresh-window charms:*standard-window*))
+              (when (and output-string (> (length output-string) 0))
+                (dolist (line (str:lines output-string))
+                  (tui-add-chat-line line :type :text))))
+          (serious-condition (e)
+            ;; Make sure curses is back even if something blew up.
+            (ignore-errors (charms/ll:reset-prog-mode))
+            (tui-add-chat-line (format nil "Command failed: ~A" e) :type :error)
+            (tui-set-status (format nil "Command failed: ~A" e) :error)))
         (tui-add-chat-line (format nil "Unknown command: ~A" cmd-name) :type :error))))
 
 (defun tui-stream-llm-response (prompt win)
@@ -989,11 +1011,7 @@
     ;; Check if it's a command
     (multiple-value-bind (cmd args) (parse-command input)
       (if cmd
-          (let ((output (with-output-to-string (*standard-output*)
-                          (execute-command cmd args))))
-            (when (and output (> (length output) 0))
-              (dolist (line (str:lines output))
-                (tui-add-chat-line line :type :text))))
+          (tui-process-command input)
           (progn
             ;; Regular message to LLM
             (tui-add-user-message input)
@@ -1025,10 +1043,14 @@
   (setf *tui-input-buffer* "")
   (setf *tui-scroll-offset* 0)
   (setf *tui-command-modal-open* nil)
+  (setf *tui-command-query* "")
+  (setf *tui-command-selected* 0)
+  (setf *tui-command-tab* :system)
   (setf *tui-sidebar-tool-calls* nil)
   (unless *tui-sidebar-widgets*
     (setf *tui-sidebar-widgets* (make-default-sidebar-widgets)))
   (tui-reset-completions)
+  (tui-modal-reset-completions)
   (tui-refresh-sidebar-data)
   (tui-set-status (format nil "Model: ~A | C-p: Commands | C-c: Quit"
                           (if *current-model* (model-config-name *current-model*) "None"))
@@ -1037,37 +1059,37 @@
   (tui-add-chat-line "Type /help for commands, or Ctrl-P to open the command palette." :type :text)
   (tui-add-chat-line "" :type :text)
 
-  (charms:with-curses ()
-    (charms:disable-echoing)
-    (charms:enable-raw-input :interpret-control-characters nil)
-    (charms:enable-extra-keys charms:*standard-window*)
-    (charms/ll:curs-set 0)
-    (tui-apply-theme (get-or-create-theme))
+  (unwind-protect
+       (charms:with-curses ()
+         (charms:disable-echoing)
+         (charms:enable-raw-input :interpret-control-characters nil)
+         (charms:enable-extra-keys charms:*standard-window*)
+         (charms/ll:curs-set 0)
+         (tui-apply-theme (get-or-create-theme))
 
-    (let ((win charms:*standard-window*))
-      (loop named tui-loop do
-            (tui-refresh-sidebar-data)
-            (tui-render win)
+         (let ((win charms:*standard-window*))
+           (loop named tui-loop do
+                 (tui-refresh-sidebar-data)
+                 (tui-render win)
 
-            (let ((c (charms:get-char win)))
-              (when c
-                (if *tui-command-modal-open*
-                    ;; Modal input handling
-                    (let ((result (tui-handle-modal-input c)))
-                      (cond
-                        ((null result) nil) ;; just re-render
-                        ((eq result :close) nil)
-                        ((and (consp result) (eq (car result) :execute))
-                         (tui-process-command (cdr result))
-                         (tui-refresh-sidebar-data))))
-                    ;; Main input handling
-                    (let ((result (tui-handle-main-input c)))
-                      (case result
-                        (:quit (return-from tui-loop))
-                        (:send (tui-send-message win))
-                        (t nil)))))))))
-
-  (setf *tui-running* nil))
+                 (let ((c (charms:get-char win)))
+                   (when c
+                     (if *tui-command-modal-open*
+                         ;; Modal input handling
+                         (let ((result (tui-handle-modal-input c)))
+                           (cond
+                             ((null result) nil) ;; just re-render
+                             ((eq result :close) nil)
+                             ((and (consp result) (eq (car result) :execute))
+                              (tui-process-command (cdr result))
+                              (tui-refresh-sidebar-data))))
+                         ;; Main input handling
+                         (let ((result (tui-handle-main-input c)))
+                           (case result
+                             (:quit (return-from tui-loop))
+                             (:send (tui-send-message win))
+                             (t nil))))))))
+    (setf *tui-running* nil))))
 
 ;;* tui utils 
 (defun ansi (code)
@@ -1421,7 +1443,7 @@
                                                                                     (uiop:native-namestring input-pathname)
                                                                                     (uiop:native-namestring output-pathname))))
                                                           (debug-log "Running fzf command:" fzf-command)
-                                                          (rl:deprep-terminal)
+                                                          (when *in-repl* (rl:deprep-terminal))
                                                           (unwind-protect
                                                               (handler-case
                                                                   (let ((exit-code (uiop:run-program fzf-command
@@ -1450,7 +1472,7 @@
                                                                 (error (e)
                                                                   (debug-log "Error running fzf:" e)
                                                                  nil))
-                                                            (rl:prep-terminal t)))))))
+                                                            (when *in-repl* (rl:prep-terminal t))))))))
 (defun select-with-fzf-simple (items)
   "Simple numbered list selector for editor mode (no fzf). ITEMS is a list of strings."
   (format t "~%Select an item:~%")
@@ -1521,61 +1543,64 @@
           (let ((idx (position selected items :test #'eq)))
             (when idx (nth idx doc-list)))))))
   (when doc-list
-    (uiop:with-temporary-file (:pathname input-pathname :stream input-stream :keep nil)
-                              (uiop:with-temporary-file (:pathname preview-pathname :stream preview-stream :keep nil)
-                                                        (uiop:with-temporary-file (:pathname output-pathname :keep nil)
-                                                                                  ;; Write Index<tab>Title to input file and full preview to preview file
-                                                                                  (loop for doc in doc-list
-                                                                                        for i from 0
-                                                                                        for title = (cdr (assoc :title doc))
-                                                                                        for preview-string = (format-doc-for-fzf-preview doc)
-                                                                                        do (format input-stream "~A~C~A~%" i #\Tab title)
-                                                                                        (format preview-stream "~A~%" preview-string))
-                                                                                  (finish-output input-stream)
-                                                                                  (close input-stream)
-                                                                                  (finish-output preview-stream)
-                                                                                  (close preview-stream)
+    (uiop:with-temporary-file
+     (:pathname input-pathname :stream input-stream :keep nil)
+     (uiop:with-temporary-file
+      (:pathname preview-pathname :stream preview-stream :keep nil)
+      (uiop:with-temporary-file
+       (:pathname output-pathname :keep nil)
+       ;; Write Index<tab>Title to input file and full preview to preview file
+       (loop for doc in doc-list
+             for i from 0
+             for title = (cdr (assoc :title doc))
+             for preview-string = (format-doc-for-fzf-preview doc)
+             do (format input-stream "~A~C~A~%" i #\Tab title)
+             (format preview-stream "~A~%" preview-string))
+       (finish-output input-stream)
+       (close input-stream)
+       (finish-output preview-stream)
+       (close preview-stream)
 
-                                                                                  ;; Build fzf command
-                                                                                  (let* ((fzf-command (format nil "fzf --exit-0 --bind 'enter:accept-non-empty' --delimiter='\\t' --with-nth=2 --preview=\"head -n {n} '~A' | tail -n 1\" --preview-window=right:60%:wrap < ~S > ~S"
-                                                                                                              (uiop:native-namestring preview-pathname)
-                                                                                                              (uiop:native-namestring input-pathname)
-                                                                                                              (uiop:native-namestring output-pathname))))
-                                                                                    (debug-log "Running fzf command for docs:" fzf-command)
-										    (when *in-repl*
-                                                                                      (rl:deprep-terminal))
-                                                                                    (unwind-protect
-                                                                                         (handler-case
-                                                                                             (let ((exit-code (uiop:run-program fzf-command
-																:force-shell t
-																:input :interactive
-																:output :interactive
-																:error-output :interactive
-																:ignore-error-status t)))
-                                                                                               (cond
-												 ((or (not exit-code) (= 0 exit-code))
-                                                                                                  (when (probe-file output-pathname)
-                                                                                                    (let* ((selected-line (string-trim '(#\Newline #\Return) (uiop:read-file-string output-pathname)))
-                                                                                                           (tab-pos (position #\Tab selected-line)))
-                                                                                                      (when tab-pos
-													(let ((selected-index-str (subseq selected-line 0 tab-pos)))
-                                                                                                          (handler-case
-                                                                                                              (let ((selected-index (parse-integer selected-index-str)))
-                                                                                                                (nth selected-index doc-list))
-                                                                                                            (error (e)
-													      (debug-log "Error parsing selected index:" selected-index-str e)
-													      nil)))))))
-												 ((= exit-code 1)
-                                                                                                  (debug-log "fzf (docs) exited with code 1 (no match or aborted)")
-                                                                                                  nil)
-												 ((= exit-code 130)
-                                                                                                  (debug-log "fzf (docs) cancelled by user (exit code 130)")
-                                                                                                  nil)
-												 (t
-                                                                                                  (debug-log "fzf (docs) exited with code:" exit-code)
-                                                                                                  nil)))
-                                                                                           (error (e)
-											     (debug-log "Error running fzf for docs:" e)
-											     nil))
-										      (when *in-repl*
-											(rl:prep-terminal t)))))))))
+       ;; Build fzf command
+       (let* ((fzf-command (format nil "fzf --exit-0 --bind 'enter:accept-non-empty' --delimiter='\\t' --with-nth=2 --preview=\"head -n {n} '~A' | tail -n 1\" --preview-window=right:60%:wrap < ~S > ~S"
+                                   (uiop:native-namestring preview-pathname)
+                                   (uiop:native-namestring input-pathname)
+                                   (uiop:native-namestring output-pathname))))
+         (debug-log "Running fzf command for docs:" fzf-command)
+	 (when *in-repl*
+           (rl:deprep-terminal))
+         (unwind-protect
+             (handler-case
+                 (let ((exit-code (uiop:run-program fzf-command
+						    :force-shell t
+						    :input :interactive
+						    :output :interactive
+						    :error-output :interactive
+						    :ignore-error-status t)))
+                   (cond
+		    ((or (not exit-code) (= 0 exit-code))
+                     (when (probe-file output-pathname)
+                       (let* ((selected-line (string-trim '(#\Newline #\Return) (uiop:read-file-string output-pathname)))
+                              (tab-pos (position #\Tab selected-line)))
+                         (when tab-pos
+			   (let ((selected-index-str (subseq selected-line 0 tab-pos)))
+                             (handler-case
+                                 (let ((selected-index (parse-integer selected-index-str)))
+                                   (nth selected-index doc-list))
+                               (error (e)
+				      (debug-log "Error parsing selected index:" selected-index-str e)
+				      nil)))))))
+		    ((= exit-code 1)
+                     (debug-log "fzf (docs) exited with code 1 (no match or aborted)")
+                     nil)
+		    ((= exit-code 130)
+                     (debug-log "fzf (docs) cancelled by user (exit code 130)")
+                     nil)
+		    (t
+                     (debug-log "fzf (docs) exited with code:" exit-code)
+                     nil)))
+               (error (e)
+		      (debug-log "Error running fzf for docs:" e)
+		      nil))
+	   (when *in-repl*
+	     (rl:prep-terminal t)))))))))

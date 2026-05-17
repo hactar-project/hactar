@@ -1,4 +1,6 @@
-;; Generic router using regex pattern matching
+;; Generic router using regex pattern matching.
+;; This is the central dispatch substrate for the entire "Infinite CLI" —
+;; slash commands, sub-commands, and wiki queries are all routes.
 (in-package :hactar)
 
 (defvar *routes* (make-hash-table :test 'equal)
@@ -7,6 +9,14 @@
 (defvar *route-reinit-hooks* '()
   "List of functions to re-register default/built-in routes when *routes* is empty.")
 
+(defvar *flags* (make-hash-table :test 'equal)
+  "Hash table mapping flag names (strings, both long and short) to flag structs.")
+
+(defvar *route-fallback-fn* nil
+  "Function (string -> any) invoked by EXECUTE-ROUTE when no route matches.
+Used by the wiki module to synthesize answers with an LLM. If NIL, prints a
+'no matching route' message.")
+
 (defstruct route
   "Represents a generic route with regex pattern matching."
   name           ; Route name (symbol)
@@ -14,6 +24,15 @@
   param-names    ; List of parameter names to extract from regex groups
   priority       ; Integer priority (higher = checked first)
   handler)       ; Function that handles the route
+
+(defstruct flag
+  "Represents a CLI flag registered via DEFFLAG."
+  name             ; Symbol identifier
+  long-names       ; List of strings, e.g. ("--model")
+  short-names      ; List of strings, e.g. ("-m")
+  takes-value      ; T if flag consumes the next arg
+  description      ; Description for help output
+  handler)         ; Function: (lambda (value)) — value is T for boolean flags
 
 (defun register-route (name pattern param-names priority handler)
   "Register a route in the global routes table."
@@ -44,15 +63,19 @@ Always runs reinit hooks (idempotent) so routes cleared in other tests are resto
           finally (return (values nil nil)))))
 
 (defun execute-route (input)
-  "Match and execute a route for the given input string."
+  "Match and execute a route for the given input string.
+If no route matches and *ROUTE-FALLBACK-FN* is set, the fallback is invoked
+(used by the wiki module to synthesize answers with an LLM)."
   (multiple-value-bind (route params)
       (match-route input)
-    (if route
-        (apply (route-handler route)
-               (mapcar #'cdr params))
-        (progn
-          (format t "No matching route for: ~A~%" input)
-          nil))))
+    (cond
+      (route
+       (apply (route-handler route) (mapcar #'cdr params)))
+      (*route-fallback-fn*
+       (funcall *route-fallback-fn* input))
+      (t
+       (format t "No matching route for: ~A~%" input)
+       nil))))
 
 (defmacro defroute (pattern args &rest rest-args)
   "Define a route with regex pattern matching.
@@ -101,3 +124,119 @@ Always runs reinit hooks (idempotent) so routes cleared in other tests are resto
 (defun unregister-route (name)
   "Remove a route from the global routes table."
   (remhash name *routes*))
+
+;;; ---------------- Flag system ----------------
+
+(defun register-flag (name long-names short-names takes-value description handler)
+  "Register a flag. Both LONG-NAMES and SHORT-NAMES are lists of strings."
+  (let ((flag (make-flag :name name
+                         :long-names long-names
+                         :short-names short-names
+                         :takes-value takes-value
+                         :description description
+                         :handler handler)))
+    (dolist (n (append long-names short-names))
+      (setf (gethash n *flags*) flag))
+    flag))
+
+(defun unregister-flag (name)
+  "Remove a flag by its keyword/symbol NAME."
+  (maphash (lambda (k v)
+             (when (eq (flag-name v) name)
+               (remhash k *flags*)))
+           *flags*))
+
+(defmacro defflag (name aliases lambda-list &body body)
+  "Define a CLI flag.
+
+  NAME       -- a keyword or symbol identifier.
+  ALIASES    -- a list of strings, e.g. (\"--model\" \"-m\").
+  LAMBDA-LIST -- () for boolean flags, or (value) for value flags.
+
+  Recognized keyword options in BODY:
+    :description STRING -- help text
+    :takes-value BOOL   -- override auto-detection (default: t if lambda-list non-empty)
+
+  Example:
+    (defflag :model (\"--model\" \"-m\") (val)
+      :description \"LLM model to use\"
+      (setf hactar::*pending-model* val))
+
+    (defflag :debug (\"--debug\") ()
+      :description \"Enable debug output\"
+      (setf hactar::*debug* t))"
+  (let ((description "")
+        (takes-value-supplied nil)
+        (takes-value (not (null lambda-list)))
+        (real-body body))
+    (declare (ignorable takes-value-supplied))
+    (loop while (and real-body (keywordp (car real-body)))
+          do (case (car real-body)
+               (:description (setf description (cadr real-body)))
+               (:takes-value (setf takes-value (cadr real-body)
+                                   takes-value-supplied t)))
+             (setf real-body (cddr real-body)))
+    (let ((long-names (remove-if-not (lambda (s) (and (stringp s) (>= (length s) 2)
+                                                       (string= s "--" :end1 2)))
+                                     aliases))
+          (short-names (remove-if-not (lambda (s) (and (stringp s) (>= (length s) 1)
+                                                        (char= (char s 0) #\-)
+                                                        (or (= (length s) 2)
+                                                            (and (> (length s) 1)
+                                                                 (char/= (char s 1) #\-)))))
+                                      aliases)))
+      `(register-flag ',name
+                      ',long-names
+                      ',short-names
+                      ,takes-value
+                      ,description
+                      (lambda ,lambda-list
+                        (declare (ignorable ,@lambda-list))
+                        ,@real-body)))))
+
+(defun parse-cli-input (args)
+  "Parse ARGS (list of strings), apply flag handlers, return the remaining
+positional arguments. Flags consume their value argument when :takes-value is T.
+Unknown flags are passed through unchanged."
+  (let ((positional '())
+        (remaining args))
+    (loop while remaining
+          do (let* ((arg (first remaining))
+                    (eq-pos (and (> (length arg) 0)
+                                 (char= (char arg 0) #\-)
+                                 (position #\= arg)))
+                    (key (if eq-pos (subseq arg 0 eq-pos) arg))
+                    (inline-val (when eq-pos (subseq arg (1+ eq-pos))))
+                    (flag (gethash key *flags*)))
+               (cond
+                 (flag
+                  (cond
+                    ((flag-takes-value flag)
+                     (let ((val (or inline-val (second remaining))))
+                       (when val
+                         (handler-case (funcall (flag-handler flag) val)
+                           (error (e) (format *error-output*
+                                              "~&Error applying flag ~A: ~A~%" key e))))
+                       (setf remaining (if inline-val (cdr remaining)
+                                           (cddr remaining)))))
+                    (t
+                     (handler-case (funcall (flag-handler flag))
+                       (error (e) (format *error-output*
+                                          "~&Error applying flag ~A: ~A~%" key e)))
+                     (setf remaining (cdr remaining)))))
+                 (t
+                  (push arg positional)
+                  (setf remaining (cdr remaining))))))
+    (nreverse positional)))
+
+(defun list-registered-flags ()
+  "Return a deduplicated list of all registered flag structs."
+  (let ((seen '())
+        (result '()))
+    (maphash (lambda (k v)
+               (declare (ignore k))
+               (unless (member v seen :test #'eq)
+                 (push v seen)
+                 (push v result)))
+             *flags*)
+    (nreverse result)))

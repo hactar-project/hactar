@@ -1,3 +1,4 @@
+
 (in-package :hactar-tests)
 (def-suite import-tests
 	   :description "Tests for the generic import system.")
