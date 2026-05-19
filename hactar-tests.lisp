@@ -1,7 +1,5 @@
 (in-package :hactar-tests)
-
-;;; --- Test Runner ---
-
+;;* helpers
 (defun %ensure-fresh-test-db! (db-path)
   "Ensure DB-PATH is fresh before running tests. For file DBs, delete the file."
   (unless (string= db-path ":memory:")
@@ -61,8 +59,6 @@ Returns T iff all results are true."
              (if all-passed :green :red)))
     all-passed))
 
-;;; Function to run all tests
-;;* 
 (defun run-tests ()
   "Run all FiveAM test suites for Hactar.
 Sets up the test database, runs migrations, clears tables, then runs all suites.

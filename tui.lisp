@@ -213,8 +213,7 @@
               (setf *tui-modal-completions* completions)
               (setf *tui-modal-completion-index* 0)))))))
 
-;;; --- Chat line management ---
-
+;;* chat lines 
 (defun tui-add-chat-line (text &key (type :text) (role "system"))
   "Add a line to the chat panel. TYPE can be :text, :thought, :bash, :assistant, :user, :error."
   (push (list :text text :type type :role role) *tui-chat-lines*))

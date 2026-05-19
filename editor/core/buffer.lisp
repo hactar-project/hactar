@@ -55,7 +55,6 @@
 
 (in-package :hactar-editor/buffer)
 
-;;; Undo System
 (defstruct undo-entry
   "An entry in the undo history."
   type          ; :insert, :delete, :compound

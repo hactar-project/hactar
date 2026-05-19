@@ -1,51 +1,57 @@
 (in-package :hactar-tests)
 (in-suite hactar-tests)
 
+;;* helpers 
 (defun get-doc-by-id (id)
   (car (hactar::docs-find :id id)))
 
-(test model-changed-hook-fires
-  "Test that *model-changed-hook* fires when set-current-model is called."
-  (let ((hactar::*available-models*
-          (list (hactar::make-model-config :name "test/model-a"
-                                           :provider "test"
-                                           :model-name "model-a"
-                                           :max-input-tokens 4096
-                                           :max-output-tokens 1024)
-                (hactar::make-model-config :name "test/model-b"
-                                           :provider "test"
-                                           :model-name "model-b"
-                                           :max-input-tokens 4096
-                                           :max-output-tokens 1024)))
-        (hactar::*current-model* nil)
-        (hactar::*silent* t)
-        (hook-called nil)
-        (received-new nil)
-        (received-old nil))
-    ;; Save and replace hook
-    (let ((original-hook hactar::*model-changed-hook*))
-      (setf hactar::*model-changed-hook* (make-instance 'hactar::hook-model-changed))
-      (nhooks:add-hook hactar::*model-changed-hook*
-                       (make-instance 'nhooks:handler
-                                      :fn (lambda (new-model old-model)
-                                            (setf hook-called t
-                                                  received-new new-model
-                                                  received-old old-model))
-                                      :name 'test-hook))
-      (unwind-protect
-           (progn
-             (hactar::set-current-model "test/model-a")
-             (is-true hook-called "Hook should have been called")
-             (is (string= "test/model-a" (hactar::model-config-name received-new)))
-             (is (null received-old) "Old model should be nil for first switch")
+(defun make-dummy-embedding (&optional (value 0.1) (dimensions 768))
+  "Creates a list of floats of the specified dimension."
+  (make-list dimensions :initial-element (float value)))
 
-             ;; Switch again
-             (setf hook-called nil)
-             (hactar::set-current-model "test/model-b")
-             (is-true hook-called "Hook should fire on second switch")
-             (is (string= "test/model-b" (hactar::model-config-name received-new)))
-             (is (string= "test/model-a" (hactar::model-config-name received-old))))
-        (setf hactar::*model-changed-hook* original-hook)))))
+;;* tests 
+(test model-changed-hook-fires
+      "Test that *model-changed-hook* fires when set-current-model is called."
+      (let ((hactar::*available-models*
+             (list (hactar::make-model-config :name "test/model-a"
+                                              :provider "test"
+                                              :model-name "model-a"
+                                              :max-input-tokens 4096
+                                              :max-output-tokens 1024)
+                   (hactar::make-model-config :name "test/model-b"
+                                              :provider "test"
+                                              :model-name "model-b"
+                                              :max-input-tokens 4096
+                                              :max-output-tokens 1024)))
+            (hactar::*current-model* nil)
+            (hactar::*silent* t)
+            (hook-called nil)
+            (received-new nil)
+            (received-old nil))
+	;; Save and replace hook
+	(let ((original-hook hactar::*model-changed-hook*))
+	  (setf hactar::*model-changed-hook* (make-instance 'hactar::hook-model-changed))
+	  (nhooks:add-hook hactar::*model-changed-hook*
+			   (make-instance 'nhooks:handler
+					  :fn (lambda (new-model old-model)
+						(setf hook-called t
+                                                      received-new new-model
+                                                      received-old old-model))
+					  :name 'test-hook))
+	  (unwind-protect
+              (progn
+		(hactar::set-current-model "test/model-a")
+		(is-true hook-called "Hook should have been called")
+		(is (string= "test/model-a" (hactar::model-config-name received-new)))
+		(is (null received-old) "Old model should be nil for first switch")
+
+		;; Switch again
+		(setf hook-called nil)
+		(hactar::set-current-model "test/model-b")
+		(is-true hook-called "Hook should fire on second switch")
+		(is (string= "test/model-b" (hactar::model-config-name received-new)))
+		(is (string= "test/model-a" (hactar::model-config-name received-old))))
+            (setf hactar::*model-changed-hook* original-hook)))))
 
 (test model-changed-hook-not-fired-on-invalid-model
   "Test that *model-changed-hook* does NOT fire when model is not found."
@@ -67,7 +73,6 @@
              (is (null hook-called) "Hook should NOT fire for invalid model"))
         (setf hactar::*model-changed-hook* original-hook)))))
 
-;;; GPT-5-mini Rule Tests
 (test gpt-5-mini-model-p-detection
   "Test that gpt-5-mini-model-p correctly identifies gpt-5-mini variants."
   (let ((mini-model (hactar::make-model-config :name "copilot/gpt-5-mini"
@@ -162,7 +167,6 @@
     (hactar::drop-file-from-context "/path/to/file2.txt")
     (is (null hactar::*files*))))
 
-;; Test get-language-hint-from-extension
 (test language-hint-test
   "Test mapping file extensions to language hints."
   (is (string= (hactar::get-language-hint-from-extension "lisp") "lisp"))
@@ -182,7 +186,6 @@
   (is (string= (hactar::get-language-hint-from-extension "unknown") "unknown"))
   (is (null (hactar::get-language-hint-from-extension nil))))
 
-;; Test get-github-raw-url (basic cases, doesn't probe URLs)
 (test github-raw-url-test
   "Test converting GitHub URLs to raw content URLs."
   (is (string= (hactar::get-github-raw-url "https://github.com/user/repo/blob/main/path/to/file.txt")
@@ -197,7 +200,6 @@
   ;; Repo root URL needs probing, so we test the pattern recognition part only
   (is (null (hactar::get-github-raw-url "https://example.com"))))
 
-;; Test parse-url-from-text
 (test parse-url-test
   "Test extracting the first URL from text."
   (is (string= (hactar::parse-url-from-text "Check this out: https://example.com/page?q=1")
@@ -210,7 +212,6 @@
   (is (string= (hactar::parse-url-from-text "URL with fragment http://site.com#section")
                "http://site.com#section")))
 
-;;; Test parse-metadata-args
 (test parse-metadata-args-test
   "Test parsing metadata arguments from a list of strings."
   ;; Valid input with tags and covers
@@ -315,12 +316,8 @@ File two:
   "))
     (is (equal (hactar::parse-file-blocks text) '(((:filename . "spaced/file.js") (:content . "")))))))
 
-;; Helper to create a dummy embedding vector of the correct size
-(defun make-dummy-embedding (&optional (value 0.1) (dimensions 768))
-  "Creates a list of floats of the specified dimension."
-  (make-list dimensions :initial-element (float value)))
 
-;;; Test docs-create
+
 (test docs-create-test
   "Test creating documents in the database (uses connection bound in run-tests)."
   ;; NOTE: Table is cleared once before all tests in run-tests
@@ -417,7 +414,6 @@ File two:
         (is (string= (cdr (assoc :solution err)) "Fix input"))
         (is (equal (cdr (assoc :tags err)) '("ui" "input")))))))
 
-;;; Test errors-find
 (test errors-find-test
   "Test finding errors in the database."
   (with-dynamic-stubs ((llm:ollama-embed (lambda (text &rest args)
@@ -441,7 +437,6 @@ File two:
     (let ((res (hactar::errors-find :text "search query")))
       (is (listp res)))))
 
-;;; Test add command helper functions
 (test parse-add-args-test
   "Test parsing of add command arguments."
   (multiple-value-bind (files descriptions)

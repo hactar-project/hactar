@@ -1,6 +1,5 @@
 (in-package :hactar-tests)
 
-;;; Test Database Configuration
 (defvar *test-db-path* (or (uiop:getenv "HACTAR_TEST_DB_PATH") ":memory:") "Test database path.")
 (def-suite hactar-tests
   :description "Tests for hactar")

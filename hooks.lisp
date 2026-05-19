@@ -379,7 +379,6 @@ type, so that all hooks of such class have the same `handler-type'."
            `((:documentation ,documentation))))))
 
 ;; TODO: Allow listing all the hooks?
-
 (define-hook-type void (function ())
   "Empty hook type with no arguments.")
 (define-hook-type string->string (function (string) string)

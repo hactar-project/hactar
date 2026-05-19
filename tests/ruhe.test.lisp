@@ -1,13 +1,11 @@
 (in-package :hactar-tests)
 
-;;; --- Ruhe Tests ---
 (def-suite ruhe-tests
   :description "Tests for Ruhe web feed generator."
   )
 
 (in-suite ruhe-tests)
 
-;; Test format struct creation
 (test ruhe-format-object-test
   "Test creating a format-object struct."
   (let ((fmt (ruhe::make-format-object
@@ -25,7 +23,6 @@
     (is-true (ruhe::format-object-modify fmt))
     (is-true (ruhe::format-object-render fmt))))
 
-;; Test defformat macro
 (test ruhe-defformat-macro-test
   "Test that defformat correctly creates and registers a format."
   (clrhash ruhe::*formats*)
@@ -47,7 +44,6 @@
   (is (eq (gethash "tf" ruhe::*formats-by-ext*) 'test-fmt))
   (is (eq (gethash "tfx" ruhe::*formats-by-ext*) 'test-fmt)))
 
-;; Test find-format-by-extension
 (test ruhe-find-format-by-extension-test
   "Test finding a format by file extension."
   ;; Register formats first
@@ -70,7 +66,6 @@
   (is-true (ruhe::find-format-by-extension "md"))
   (is-true (ruhe::find-format-by-extension "json")))
 
-;; Test defformat with extends
 (test ruhe-defformat-extends-test
   "Test that defformat can extend a parent format."
   (clrhash ruhe::*formats*)
@@ -99,7 +94,6 @@
     (let ((rendered (funcall render-fn (list :source "test"))))
       (is (search "EXTENDED" rendered)))))
 
-;; Test schema struct creation
 (test ruhe-schema-object-test
   "Test creating a schema-object struct."
   (let ((schema (ruhe::make-schema-object
@@ -111,7 +105,6 @@
     (is-true (ruhe::schema-object-schema schema))
     (is (eq (ruhe::schema-object-parent schema) 'json))))
 
-;; Test defschema macro
 (test ruhe-defschema-macro-test
   "Test that defschema correctly creates and registers a schema."
   (clrhash ruhe::*schemas*)
@@ -127,7 +120,6 @@
     (is (eq (ruhe::schema-object-name schema) 'test-schema))
     (is (eq (ruhe::schema-object-parent schema) 'json))))
 
-;; Test schema-exists-p
 (test ruhe-schema-exists-p-test
   "Test checking if a schema exists."
   (clrhash ruhe::*schemas*)
@@ -137,7 +129,6 @@
   (is-true (ruhe::schema-exists-p 'exists-schema))
   (is (null (ruhe::schema-exists-p 'nonexistent-schema))))
 
-;; Test source struct creation
 (test ruhe-source-object-test
   "Test creating a source-object struct."
   (let ((source (ruhe::make-source-object
@@ -150,7 +141,6 @@
     (is-true (ruhe::source-object-headers source))
     (is-true (ruhe::source-object-get-fn source))))
 
-;; Test defsource macro
 (test ruhe-defsource-macro-test
   "Test that defsource correctly creates and registers a source."
   (clrhash ruhe::*sources*)
@@ -165,7 +155,6 @@
     (is (eq (ruhe::source-object-name source) 'test-api))
     (is (string= (ruhe::source-object-base-url source) "https://test.api.com"))))
 
-;; Test fetch-source
 (test ruhe-fetch-source-test
   "Test fetching data from a registered source."
   (clrhash ruhe::*sources*)
@@ -179,7 +168,6 @@
   ;; Non-existent source returns nil
   (is (null (ruhe::fetch-source 'nonexistent "arg"))))
 
-;; Test built-in formats exist
 (test ruhe-builtin-formats-test
   "Test that built-in formats are registered."
   ;; Re-register built-in formats for testing
@@ -220,7 +208,6 @@
   (is-true (ruhe::find-format 'json))
   (is-true (ruhe::find-format 'html)))
 
-;; Test org format parser
 (test ruhe-org-format-parser-test
   "Test the org format parser."
   ;; Ensure format is registered
@@ -242,7 +229,6 @@
     (is-true (getf result :tree))
     (is (string= (getf result :source) "* Headline\nContent"))))
 
-;; Test json format parser
 (test ruhe-json-format-parser-test
   "Test the json format parser."
   ;; Ensure format is registered
@@ -264,7 +250,6 @@
     (is-true (getf result :tree))
     (is (equal (cdr (assoc :key (getf result :tree))) "value"))))
 
-;; Test json format renderer
 (test ruhe-json-format-renderer-test
   "Test the json format renderer."
   ;; Ensure format is registered
@@ -287,7 +272,6 @@
     (is (search "key" result))
     (is (search "value" result))))
 
-;; Test built-in sources exist
 (test ruhe-builtin-sources-test
   "Test that built-in sources are registered."
   ;; Re-register built-in sources for testing
@@ -310,7 +294,6 @@
   (is-true (ruhe::find-source 'hn))
   (is-true (ruhe::find-source 'reddit)))
 
-;; Test cache operations
 (test ruhe-cache-operations-test
   "Test cache put, get, and clear."
   (ruhe::ruhe-cache-clear)
@@ -326,7 +309,6 @@
   (ruhe::ruhe-cache-clear)
   (is (null (ruhe::ruhe-cache-get "test-key"))))
 
-;; Test cache LRU behavior
 (test ruhe-cache-lru-test
   "Test that cache maintains LRU order."
   (ruhe::ruhe-cache-clear)
@@ -341,7 +323,6 @@
   ;; key1 should be at front of order
   (is (string= (first ruhe::*ruhe-cache-order*) "key1")))
 
-;; Test cache size calculation
 (test ruhe-cache-size-bytes-test
   "Test calculating cache size in bytes."
   (ruhe::ruhe-cache-clear)
@@ -355,7 +336,6 @@
   (let ((size-after (ruhe::ruhe-cache-size-bytes)))
     (is (> size-after 5))))
 
-;; Test cache key generation
 (test ruhe-cache-key-test
   "Test cache key generation from input path."
   (uiop:with-temporary-file (:pathname p :keep t)
@@ -365,7 +345,6 @@
       (is (stringp key))
       (is (search "::" key)))))
 
-;; Test URL extraction
 (test ruhe-extract-urls-test
   "Test extracting URLs from text."
   (let ((text "Check https://example.com and http://test.org/page for more."))
@@ -377,7 +356,6 @@
   ;; No URLs
   (is (null (ruhe::extract-urls "no urls here"))))
 
-;; Test source detection
 (test ruhe-detect-sources-test
   "Test detecting sources from text."
   ;; Test with full URLs (protocol prefix required for URL extraction)
@@ -394,7 +372,6 @@
   (let ((sources (ruhe::detect-sources "r/programming is great")))
     (is (find :reddit sources :key (lambda (s) (getf s :type))))))
 
-;; Test format-items-as-org
 (test ruhe-format-items-as-org-test
   "Test formatting items as org-mode content."
   (let ((items '(((:title . "Test Item")
@@ -406,7 +383,6 @@
       (is (search "[[https://example.com][Link]]" result))
       (is (search "A test description" result)))))
 
-;; Test format-items-as-markdown
 (test ruhe-format-items-as-markdown-test
   "Test formatting items as markdown content."
   (let ((items '(((:title . "Test Item")
@@ -418,7 +394,6 @@
       (is (search "[Link](https://example.com)" result))
       (is (search "A test description" result)))))
 
-;; Test generate-output
 (test ruhe-generate-output-test
   "Test generating output from sources content."
   (let ((sources-content
@@ -436,7 +411,6 @@
       (is (search "# Source 1" md-result))
       (is (search "# Source 2" md-result)))))
 
-;; Test configuration loading from env
 (test ruhe-load-env-config-test
   "Test loading configuration from environment variables."
   (let ((ruhe::*ruhe-default-model* nil)
@@ -450,7 +424,6 @@
       (is (string= ruhe::*ruhe-default-model* "test-model"))
       (is (= ruhe::*ruhe-cache-size* 500)))))
 
-;; Test hook existence
 (test ruhe-hooks-exist-test
   "Test that Ruhe hooks are defined."
   (is (typep ruhe::*ruhe-preprocess-input-hook* 'nhooks:hook))
@@ -461,7 +434,6 @@
   (is (typep ruhe::*ruhe-formats-changed-hook* 'nhooks:hook))
   (is (typep ruhe::*ruhe-schemas-changed-hook* 'nhooks:hook)))
 
-;; Test ruhe-process with mocked components
 (test ruhe-process-mocked-test
   "Test ruhe-process with mocked dependencies."
   (uiop:with-temporary-file (:pathname p :keep t)
@@ -480,7 +452,6 @@
       (let ((result (ruhe::ruhe-process p :format :org :use-cache nil)))
         (is (stringp result))))))
 
-;; Test ruhe-compile
 (test ruhe-compile-test
   "Test compiling a feed specification to Lisp."
   (uiop:with-temporary-file (:pathname p :keep t)
@@ -495,7 +466,6 @@
         (is (search "defun generate-" result))
         (is (search "Generated by Ruhe" result))))))
 
-;; Test ruhe-compile with output file
 (test ruhe-compile-to-file-test
   "Test compiling to an output file."
   (uiop:with-temporary-file (:pathname input :keep t)
@@ -512,7 +482,6 @@
           (is (pathnamep result))
           (is-true (probe-file output)))))))
 
-;; Test fetch-source-content dispatch
 (test ruhe-fetch-source-content-test
   "Test fetching content from different source types."
   ;; Mock the individual fetch functions
@@ -542,7 +511,6 @@
     (let ((content (ruhe::fetch-source-content '(:type :web :url "http://page.com"))))
       (is (string= content "Web content")))))
 
-;; Test Hactar integration commands exist
 (test ruhe-hactar-commands-exist-test
   "Test that Ruhe slash commands are registered in Hactar."
   (is-true (gethash "/ruhe-summary" hactar::*commands*))
@@ -555,7 +523,6 @@
   (is-true (gethash "/brief" hactar::*commands*))
   (is-true (gethash "/tldr" hactar::*commands*)))
 
-;; Test /ruhe-cron command output
 (test ruhe-cron-command-test
   "Test /ruhe-cron command generates cron syntax."
   (let* ((output (make-string-output-stream))
@@ -566,7 +533,6 @@
       (is (search "0 */6 * * *" out))
       (is (search "myfeed.org" out)))))
 
-;; Test /ruhe-sources command
 (test ruhe-sources-command-test
   "Test /ruhe-sources command detects sources."
   (let ((hactar::*files* '())
@@ -583,7 +549,6 @@
                   (search "Detected sources" out)
                   (search "No sources" out))))))))
 
-;; Test /ruhe-urls command
 (test ruhe-urls-command-test
   "Test /ruhe-urls command extracts URLs."
   (with-dynamic-stubs ((hactar::generate-context (lambda ()
@@ -598,7 +563,6 @@
                 (search "Extracted URLs" out)
                 (search "No URLs" out)))))))
 
-;; Test parse-intent with mocked LLM
 (test ruhe-parse-intent-test
   "Test parsing user intent with mocked LLM."
   (let ((hactar::*current-model* (hactar::make-model-config
@@ -614,7 +578,6 @@
       (let ((intent (ruhe::parse-intent "Follow tech news from example.com")))
         (is (listp intent))))))
 
-;; Test caching in ruhe-process
 (test ruhe-process-caching-test
   "Test that ruhe-process uses and populates cache."
   (uiop:with-temporary-file (:pathname p :keep t)
@@ -631,7 +594,6 @@
     (let ((result (ruhe::ruhe-process p :format :org :use-cache t)))
       (is (string= result "# Cached Result")))))
 
-;; Test format validation
 (test ruhe-format-parse-render-roundtrip-test
   "Test that parsing and rendering are inverse operations for simple cases."
   ;; Ensure format is registered

@@ -1,13 +1,11 @@
 (in-package :hactar-tests)
 
-;;; --- Lisp Mode Tests ---
 (def-suite lisp-mode-tests
   :description "Tests for lisp-mode.lisp - Lisp-only response mode."
   )
 
 (in-suite lisp-mode-tests)
 
-;; Test API surface generation
 (test generate-hactar-api-surface-test
   "Test that API surface generation produces expected content."
   (let ((surface (hactar::generate-hactar-api-surface)))
@@ -41,7 +39,6 @@
       (is (eq surface1 surface2))  ; Same object (cached)
       (is-true hactar::*lisp-mode-api-surface*))))
 
-;; Test Lisp extraction
 (test extract-lisp-from-response-plain-test
   "Test extracting Lisp when response is plain code."
   (let ((response "  (+ 1 2)  "))
@@ -66,7 +63,6 @@ That's it."))
 ```"))
     (is (string= (hactar::extract-lisp-from-response response) "(list 1 2 3)"))))
 
-;; Test Lisp syntax validation
 (test validate-lisp-syntax-valid-test
   "Test validation of valid Lisp syntax."
   (multiple-value-bind (valid-p forms)
@@ -103,7 +99,6 @@ That's it."))
     (is-true valid-p)
     (is (null forms))))
 
-;; Test safe evaluation
 (test eval-lisp-safely-simple-test
   "Test safe evaluation of simple expression."
   (multiple-value-bind (result error)
@@ -140,7 +135,6 @@ That's it."))
     (is (null result))
     (is (stringp error))))
 
-;; Test system prompt generation
 (test lisp-mode-system-prompt-test
   "Test that system prompt includes necessary context."
   (let ((hactar::*repo-root* #P"/test/repo/")
@@ -162,7 +156,6 @@ That's it."))
       (is (search "read-file-content" prompt))
       (is (search "execute-gen-plan" prompt)))))
 
-;; Test display functions
 (test display-lisp-code-test
   "Test that display-lisp-code outputs formatted code."
   (let ((output (with-output-to-string (*standard-output*)
@@ -172,7 +165,6 @@ That's it."))
     ;; Should have visual separators
     (is (search "━" output))))
 
-;; Test lisp-mode toggle state
 (test lisp-mode-toggle-test
   "Test toggling lisp mode on and off."
   (let ((hactar::*lisp-mode-enabled* nil))
@@ -197,7 +189,6 @@ That's it."))
                         (funcall cmd-fn '()))))
           (is (search "DISABLED" output)))))))
 
-;; Test lisp-mode-intercept
 (test lisp-mode-intercept-disabled-test
   "Test that intercept returns NIL when mode is disabled."
   (let ((hactar::*lisp-mode-enabled* nil))
@@ -217,7 +208,6 @@ That's it."))
       (let ((result (hactar::lisp-mode-intercept "test")))
         (is-true result)))))  ; Returns T because it handled the prompt
 
-;; Test handle-lisp-mode-response with eval
 (test handle-lisp-mode-response-eval-test
   "Test handling response when user chooses to eval."
   (let ((hactar::*chat-history* '()))
@@ -266,7 +256,6 @@ That's it."))
       (is (null result))
       (is (search "syntax error" (string-downcase (get-output-stream-string output)))))))
 
-;; Test copy functionality in prompt loop
 (test handle-lisp-mode-response-copy-test
   "Test copy action in the eval/reject loop."
   (let ((copied-text nil)
@@ -285,7 +274,6 @@ That's it."))
       (hactar::handle-lisp-mode-response "test")
       (is (string= copied-text "(list 1 2 3)")))))
 
-;; Test view functionality in prompt loop
 (test handle-lisp-mode-response-view-test
   "Test view action redisplays the code."
   (let ((display-count 0)
@@ -306,7 +294,6 @@ That's it."))
       ;; Should be called twice: initial + view
       (is (= display-count 2)))))
 
-;; Test /lisp command
 (test lisp-command-with-args-test
   "Test /lisp command executes single prompt in lisp mode."
   (let ((cmd-info (gethash "/lisp" hactar::*commands*)))
@@ -329,7 +316,6 @@ That's it."))
         (funcall cmd-fn '())
         (is (search "Usage:" (get-output-stream-string output)))))))
 
-;; Test /lisp-api command
 (test lisp-api-command-test
   "Test /lisp-api command displays API surface."
   (let ((cmd-info (gethash "/lisp-api" hactar::*commands*)))
@@ -342,7 +328,6 @@ That's it."))
           (is (search "Hactar Lisp API Surface" out))
           (is (search "Core Functions" out)))))))
 
-;; Test edge cases
 (test extract-lisp-nested-code-blocks-test
   "Test extraction handles nested or multiple code blocks."
   (let ((response "First block:
