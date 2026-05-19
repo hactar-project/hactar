@@ -1,7 +1,3 @@
-;;;; tui-theme.lisp — Theme system for the Hactar TUI
-;;;; Provides hex-color support, dynamic color pair registry,
-;;;; sidebar widget system, and built-in themes.
-
 (in-package :hactar)
 
 ;; Forward declarations — defined in tui.lisp
@@ -13,10 +9,6 @@
 (defvar *tui-sidebar-mcps*)
 (defvar *tui-sidebar-tool-calls*)
 (defvar *tui-thinking-seconds*)
-
-;;; ============================================================
-;;; Theme struct
-;;; ============================================================
 
 (defstruct tui-theme
   (name "default" :type string)
@@ -74,10 +66,7 @@
   (completion-fg   "#ebdbb2")
   (completion-bg   "#3c3836"))
 
-;;; ============================================================
-;;; Global theme state
-;;; ============================================================
-
+;;* state
 (defvar *tui-theme* nil "The currently active tui-theme struct.")
 (defvar *tui-theme-name* nil "Name of the theme to load at startup.")
 
@@ -93,10 +82,7 @@
 (defvar *tui-color-cache* (make-hash-table :test 'equal)
   "Cache mapping hex color strings to resolved ncurses color IDs.")
 
-;;; ============================================================
-;;; Hex-to-color conversion
-;;; ============================================================
-
+;;* conversion 
 (cffi:defcvar ("COLORS" %ncurses-colors) :int)
 
 (defun ncurses-colors ()
@@ -191,10 +177,6 @@
                  (setf best-index i))))
     best-index))
 
-;;; ============================================================
-;;; Color resolution
-;;; ============================================================
-
 (defun tui-resolve-color (hex-or-nil)
   "Resolve a hex color string to an ncurses color ID.
    NIL means -1 (terminal default).
@@ -225,10 +207,7 @@
       (setf (gethash hex-or-nil *tui-color-cache*) color-id)
       color-id)))
 
-;;; ============================================================
-;;; Color pair registry
-;;; ============================================================
-
+;;* color pairs 
 (defun tui-register-pair (role fg-hex bg-hex)
   "Register a color pair for ROLE (a keyword). Returns the pair ID."
   (let ((fg-id (tui-resolve-color fg-hex))
@@ -243,10 +222,6 @@
   "Look up the ncurses color-pair ID for a semantic ROLE keyword.
    Returns 0 (default) if the role is not registered."
   (gethash role *tui-color-pairs* 0))
-
-;;; ============================================================
-;;; Apply theme
-;;; ============================================================
 
 (defun tui-apply-theme (theme)
   "Apply a tui-theme struct: resolve all hex colors and register ncurses pairs.
@@ -293,10 +268,7 @@
   (tui-register-pair :completion     (tui-theme-completion-fg theme)  (tui-theme-completion-bg theme))
   theme)
 
-;;; ============================================================
-;;; Built-in themes
-;;; ============================================================
-
+;;* built in themese 
 (defun make-default-theme ()
   "Create the default theme using basic terminal colors (no hex, maps to defaults)."
   (make-tui-theme
@@ -566,20 +538,14 @@
               (make-default-theme))
           (make-default-theme))))
 
-;;; ============================================================
-;;; Sidebar Widget System
-;;; ============================================================
-
+;;* widgets 
 (defstruct tui-sidebar-widget
-  (name "unnamed" :type string)
-  (render-fn nil :type (or null function))
-  (visible-fn nil :type (or null function)))
+	   (name "unnamed" :type string)
+	   (render-fn nil :type (or null function))
+	   (visible-fn nil :type (or null function)))
 
 (defvar *tui-sidebar-widgets* '()
   "Ordered list of tui-sidebar-widget structs. Rendered top to bottom.")
-
-;;; --- Widget render functions ---
-;;; Each returns the number of rows consumed.
 
 (defun sidebar-render-project-header (win col row width max-height)
   "Render the project name and path. Returns rows used."
@@ -720,8 +686,7 @@
           (incf y)))
     (- y row)))
 
-;;; --- Widget factory functions ---
-
+;;* widgets factory functions 
 (defun make-sidebar-widget-project-header ()
   "Create the project header sidebar widget."
   (make-tui-sidebar-widget
@@ -766,10 +731,6 @@
         (make-sidebar-widget-tool-calls)
         (make-sidebar-widget-lsps)
         (make-sidebar-widget-mcps)))
-
-;;; ============================================================
-;;; Tool call status → role mapping (replaces color-pair ID returns)
-;;; ============================================================
 
 (defun tui-tool-call-status-color-role (status)
   "Return the theme role keyword for a tool call status string."
