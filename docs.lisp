@@ -442,23 +442,26 @@
 The *docs* global is considered to always be relevant to current stack. When there are no docs in *docs* we query the DB.
 Use docs-db to always select from the DB.
 Usage: /docs [--format=json]"
-  (let ((format-opt (getf args :format)))
-    (let ((results (if *docs*
-                       *docs*
-		       (if *stack*
-                           (docs-find :covers *stack* :limit 20)
-			   (docs-find :limit 20)))))
-      (if results
-          (if (string-equal format-opt "json")
-              (let ((json-str (format nil "#+begin_src json :type docs-output~%~A~%#+end_src~%" (to-json (coerce results 'vector)))))
-                (editor-output json-str :type "json" :success "true"))
-              (let ((selected-doc (select-doc-with-fzf results)))
-                (when selected-doc
-                  (if *silent*
-                      (format t "~A~%" (cdr (assoc :source selected-doc)))
-                      (add-doc-to-context selected-doc)))))
-          (unless *silent* (format t "No documentation found matching the current stack: ~{~A~^, ~}~%" *stack*)))))
-  :cli-options ((:long "format" :description "Output format (json)")))
+  (let ((results (if *docs*
+                     *docs*
+                     (if *stack*
+                         (docs-find :covers *stack* :limit 20)
+                         (docs-find :limit 20)))))
+    (if results
+        (let ((selected-doc (select-doc-with-fzf results)))
+          (when selected-doc
+            (if *silent*
+                (format t "~A~%" (cdr (assoc :source selected-doc)))
+                (add-doc-to-context selected-doc))))
+        (unless *silent* (format t "No documentation found matching the current stack: ~{~A~^, ~}~%" *stack*))))
+  :json (lambda (args)
+          (declare (ignore args))
+          (let ((results (if *docs*
+                             *docs*
+                             (if *stack*
+                                 (docs-find :covers *stack* :limit 20)
+                                 (docs-find :limit 20)))))
+            (to-json (coerce (or results '()) 'vector)))))
 
 (defun run-docs-db (parsed-args)
   "Common logic for docs-db and docs.db commands."
@@ -559,20 +562,20 @@ Options: -t/--tags <tag>, -l/--limit <n>"
 (define-command starters (args)
   "Search for starters by text query, allow selection, and add the selected starter to the documentation context.
 Usage: /starters <query> [--format=json]"
-  (let* ((format-opt (getf args :format))
-         (pos-args (append (uiop:ensure-list (getf args :subcommand))
+  (let* ((pos-args (append (uiop:ensure-list (getf args :subcommand))
                            (uiop:ensure-list (getf args :args))))
          (query (format nil "~{~A~^ ~}" pos-args)))
-    (if (string-equal format-opt "json")
-        (let ((results (if (string= query "")
-                           (starters-find :limit 50)
-                           (starters-find :text query :limit 20))))
-          (let ((json-str (format nil "#+begin_src json :type starters-output~%~A~%#+end_src~%" (to-json (coerce results 'vector)))))
-            (editor-output json-str :type "json" :success "true")))
-        (let ((selected-starter (select-starter query)))
-          (when selected-starter
-            (add-doc-to-context selected-starter)))))
-  :cli-options ((:long "format" :description "Output format (json)")))
+    (let ((selected-starter (select-starter query)))
+      (when selected-starter
+        (add-doc-to-context selected-starter))))
+  :json (lambda (args)
+          (let* ((pos-args (append (uiop:ensure-list (getf args :subcommand))
+                                   (uiop:ensure-list (getf args :args))))
+                 (query (format nil "~{~A~^ ~}" pos-args))
+                 (results (if (string= query "")
+                              (starters-find :limit 50)
+                              (starters-find :text query :limit 20))))
+            (to-json (coerce (or results '()) 'vector)))))
 
 (defun perform-github-code-search (user-query-string &key (stream-output-p t))
   "Performs a GitHub code search and extracts snippets using LLMs."
@@ -850,30 +853,47 @@ Usage: /search <natural language query for code>"
       (format t "Please provide a search query text for the documentation.~%")
       (guide-add "docs" "Documentation" "docs" query))))
 
-(define-command lookup (args)
-  "Lookup symbols in documentation covers.
-Usage: /lookup symbol1,symbol2 [--format=json]"
-  (let* ((format-opt (getf args :format))
-         (pos-args (append (uiop:ensure-list (getf args :subcommand))
-                           (uiop:ensure-list (getf args :args))))
-         (symbols-str (format nil "~{~A~^ ~}" pos-args))
+(defun %lookup-parse-symbols (args)
+  "Helper for /lookup: parse the raw arg list into a list of symbol strings."
+  (let* ((symbols-str (format nil "~{~A~^ ~}"
+                              (remove-if (lambda (a)
+                                           (and (stringp a)
+                                                (or (string= a "--format")
+                                                    (and (>= (length a) 9)
+                                                         (string= a "--format=" :end1 9))
+                                                    (assoc a *shorthand-format-flags* :test #'string=))))
+                                         args)))
          (symbols (mapcar (lambda (s) (string-trim '(#\Space) s))
                           (uiop:split-string symbols-str :separator ","))))
-    (setf symbols (remove "" symbols :test #'string=))
+    (remove "" symbols :test #'string=)))
+
+(define-command lookup (args)
+  "Lookup symbols in documentation covers.
+Usage: /lookup symbol1,symbol2 [--format=json|yaml|xml|markdown|org-mode]"
+  (let ((symbols (%lookup-parse-symbols args)))
     (if (null symbols)
         (format t "Usage: /lookup symbol1,symbol2~%")
         (let ((results (docs-find :covers symbols :match-any t)))
-          (if (string-equal format-opt "json")
-              (let ((json-str (format nil "#+begin_src json :type lookup-output~%~A~%#+end_src~%" (to-json (coerce results 'vector)))))
-                (editor-output json-str :type "json" :success "true"))
-              (if results
-                  (let ((selected (select-doc-with-fzf results)))
-                    (when selected
-                      (format t "Selected: ~A~%" (cdr (assoc :title selected)))
-                      (format t "Source: ~A~%" (cdr (assoc :source selected)))
-                      (format t "~A~%" (cdr (assoc :content selected)))))
-                  (format t "No documents found matching covers: ~{~A~^, ~}~%" symbols))))))
-  :cli-options ((:long "format" :description "Output format (json)")))
+          (if results
+              (let ((selected (select-doc-with-fzf results)))
+                (when selected
+                  (format t "Selected: ~A~%" (cdr (assoc :title selected)))
+                  (format t "Source: ~A~%" (cdr (assoc :source selected)))
+                  (format t "~A~%" (cdr (assoc :content selected)))))
+              (format t "No documents found matching covers: ~{~A~^, ~}~%" symbols)))))
+  :json (lambda (args)
+          (let* ((symbols (%lookup-parse-symbols args))
+                 (results (when symbols (docs-find :covers symbols :match-any t))))
+            (to-json (coerce (or results '()) 'vector))))
+  :markdown (lambda (args)
+              (let* ((symbols (%lookup-parse-symbols args))
+                     (results (when symbols (docs-find :covers symbols :match-any t))))
+                (with-output-to-string (s)
+                  (dolist (doc results)
+                    (format s "## ~A~%~%Source: ~A~%~%~A~%~%"
+                            (cdr (assoc :title doc))
+                            (cdr (assoc :source doc))
+                            (or (cdr (assoc :content doc)) "")))))))
 
 (define-command lookup-in-files (args)
   "Lookup symbols in files using rg.

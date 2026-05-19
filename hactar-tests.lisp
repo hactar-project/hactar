@@ -135,6 +135,8 @@ Returns true iff all suites pass."
 			 convert-tests
 			 wiki-tests
 			 cli-tests
+			 format-tests
+			 spec-tests
                          ;; monolith-tests
                          ;; litmode-tests
 			 ))

@@ -1,6 +1,5 @@
 ;; Generic router using regex pattern matching.
-;; This is the central dispatch substrate for the entire "Infinite CLI" —
-;; slash commands, sub-commands, and wiki queries are all routes.
+;; This is the central dispatch slash commands, subcommands, docs searching, wiki queriesetc. All are "routes".
 (in-package :hactar)
 
 (defvar *routes* (make-hash-table :test 'equal)
@@ -125,8 +124,7 @@ If no route matches and *ROUTE-FALLBACK-FN* is set, the fallback is invoked
   "Remove a route from the global routes table."
   (remhash name *routes*))
 
-;;; ---------------- Flag system ----------------
-
+;;* flags 
 (defun register-flag (name long-names short-names takes-value description handler)
   "Register a flag. Both LONG-NAMES and SHORT-NAMES are lists of strings."
   (let ((flag (make-flag :name name

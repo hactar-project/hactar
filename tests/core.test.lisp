@@ -1,12 +1,9 @@
 (in-package :hactar-tests)
 (in-suite hactar-tests)
 
-;;; Helper Functions for Hactar Core Tests
-;; Helper to fetch a doc directly for verification using the current connection settings
 (defun get-doc-by-id (id)
   (car (hactar::docs-find :id id)))
 
-;;; Model Changed Hook Tests
 (test model-changed-hook-fires
   "Test that *model-changed-hook* fires when set-current-model is called."
   (let ((hactar::*available-models*

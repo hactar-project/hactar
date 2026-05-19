@@ -246,7 +246,6 @@ oldest to youngest.
 Without handler, return ARGS as values.
 This is an acceptable `combination' for `hook'."))
 
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (defun add-hook-internal (hook handler &key append)
   "Add HANDLER to HOOK.
 Return HOOK.

@@ -52,6 +52,7 @@
 	       (:file "config")
 	       ;; utils and backing libs
 	       (:file "utils")
+	       (:file "formats")
 	       (:file "org-mode-parser")
 	       (:file "org-mode")
 	       (:file "markdown")

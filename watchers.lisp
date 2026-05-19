@@ -1,7 +1,7 @@
 ;; watchers attach to filesystem events and do things in response
 ;; usually they are just detecting a type of file e.g a react componenent and then passing it off via hooks to modes
 (in-package :hactar)
-;;; FS Watcher implementation adapted from cl-fs-watcher
+;; FS Watcher implementation adapted from cl-fs-watcher
 
 (defclass fs-watcher ()
   ((dir :reader dir
@@ -266,7 +266,6 @@
         (size (cffi:foreign-alloc :uint
                                   :initial-element 2048))
         (result nil))
-    ;;(setf (cffi:mem-ref size :uint) 2048)
     (uv:uv-fs-event-getpath (as::fs-monitor-c handle)
                             buffer
                             size)

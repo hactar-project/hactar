@@ -35,6 +35,7 @@
          (main-body (if keyword-args-pos (subseq body-without-docstring 0 keyword-args-pos) body-without-docstring))
          (plist (if keyword-args-pos (subseq body-without-docstring keyword-args-pos) nil))
          (cli-options (getf plist :cli-options nil))
+         (positional-args (getf plist :positional-args nil))
          (actual-args (gensym "ACTUAL-ARGS"))
          (fn-name (%command-fn-name "SLASH-CMD" command-name-key))
          (short-map (when cli-options
@@ -69,7 +70,8 @@
        (setf (gethash ,(format nil "/~A" command-name-key) *commands*)
              (list ',fn-name
                    ,(or docstring "No description available.")
-                   ',cli-options)))))
+                   ',cli-options
+                   ',positional-args)))))
 
 (defmacro define-sub-command (name args &body body)
   "Define a sub-command for CLI use. Sets *in-repl* to nil.
@@ -86,6 +88,7 @@
          (main-body (if keyword-args-pos (subseq body-without-docstring 0 keyword-args-pos) body-without-docstring))
          (plist (if keyword-args-pos (subseq body-without-docstring keyword-args-pos) nil))
          (cli-options (getf plist :cli-options nil))
+         (positional-args (getf plist :positional-args nil))
          (actual-args (gensym "ACTUAL-ARGS"))
          (fn-name (%command-fn-name "SUB-CMD" command-name-key))
          (short-map (when cli-options
@@ -122,7 +125,8 @@
        (setf (gethash ,(format nil "~A" command-name-key) *sub-commands*)
              (list ',fn-name
                    ,(or docstring "No description available.")
-                   ',cli-options)))))
+                   ',cli-options
+                   ',positional-args)))))
 
 (defmacro define-command (name args &body body)
   "Define a command, available as a slash command and/or a sub-command.
@@ -144,8 +148,21 @@
          (acp-opt (getf plist :acp nil))
          (completions-opt (getf plist :completions nil))
          (cli-options (getf plist :cli-options nil))
-         (slash-body (append (when docstring (list docstring)) main-body (when cli-options `(:cli-options ,cli-options))))
-         (sub-body (append (when docstring (list docstring)) main-body (when cli-options `(:cli-options ,cli-options))))
+         (positional-args (getf plist :positional-args nil))
+         (json-opt (getf plist :json nil))
+         (yaml-opt (getf plist :yaml nil))
+         (xml-opt (getf plist :xml nil))
+         (markdown-opt (getf plist :markdown nil))
+         (org-mode-opt (getf plist :org-mode nil))
+         (repl-opt (getf plist :repl nil))
+         (tui-opt (getf plist :tui nil))
+         (default-body (or (and repl-opt (list `(funcall ,repl-opt ,(first args)))) main-body))
+         (slash-body (append (when docstring (list docstring)) default-body
+                             (when cli-options `(:cli-options ,cli-options))
+                             (when positional-args `(:positional-args ,positional-args))))
+         (sub-body (append (when docstring (list docstring)) default-body
+                           (when cli-options `(:cli-options ,cli-options))
+                           (when positional-args `(:positional-args ,positional-args))))
          (command-name-key
            (if (stringp name)
                (string-downcase (string-trim '(#\/) name))
@@ -162,27 +179,41 @@
            `((setf (gethash ,full-cmd-name *command-completions*) ,completions-opt)))
        ,@(when acp-opt
            (cond
-             ((eq acp-opt t)
-              ;; :acp t — wrap stdout output in a JSON text response
-              `((defun ,acp-fn-name (cmd-args)
-                  (declare (ignorable cmd-args))
-                  (let ((output (with-output-to-string (*standard-output*)
-                                  (funcall ',slash-fn-name cmd-args))))
-                    `(("text" . ,output))))
-                (setf (gethash ,full-cmd-name *acp-commands*) ',acp-fn-name)))
-             (t
-              ;; :acp <function-form> — call the function which returns an alist
-              `((setf (gethash ,full-cmd-name *acp-commands*)
-                      ,acp-opt))))))))
+            ((eq acp-opt t)
+             ;; :acp t — wrap stdout output in a JSON text response
+             `((defun ,acp-fn-name (cmd-args)
+                 (declare (ignorable cmd-args))
+                 (let ((output (with-output-to-string (*standard-output*)
+						      (funcall ',slash-fn-name cmd-args))))
+                   `(("text" . ,output))))
+               (setf (gethash ,full-cmd-name *acp-commands*) ',acp-fn-name)))
+	    (t
+	     ;; :acp <function-form> — call the function which returns an alist
+	     `((setf (gethash ,full-cmd-name *acp-commands*)
+		     ,acp-opt)))))
+       ,@(when json-opt
+           `((register-format-handler ,full-cmd-name :json ,json-opt)))
+       ,@(when yaml-opt
+           `((register-format-handler ,full-cmd-name :yaml ,yaml-opt)))
+       ,@(when xml-opt
+           `((register-format-handler ,full-cmd-name :xml ,xml-opt)))
+       ,@(when markdown-opt
+           `((register-format-handler ,full-cmd-name :markdown ,markdown-opt)))
+       ,@(when org-mode-opt
+           `((register-format-handler ,full-cmd-name :org-mode ,org-mode-opt)))
+       ,@(when repl-opt
+           `((register-format-handler ,full-cmd-name :repl ,repl-opt)))
+       ,@(when tui-opt
+           `((register-format-handler ,full-cmd-name :tui ,tui-opt))))))
 
 (defmacro def-acp-command (name args &body body)
   "Define an ACP-only command handler. The handler receives ARGS (list of strings)
    and must return an alist that will be sent as the JSON-RPC result.
    Also registers a basic slash command that prints the JSON output in non-ACP mode."
   (let* ((command-name-key
-           (if (stringp name)
-               (string-downcase (string-trim '(#\/) name))
-               (string-downcase (symbol-name name))))
+          (if (stringp name)
+              (string-downcase (string-trim '(#\/) name))
+            (string-downcase (symbol-name name))))
          (full-cmd-name (format nil "/~A" command-name-key))
          (docstring (when (stringp (first body)) (first body)))
          (impl-body (if docstring (rest body) body))
@@ -235,23 +266,29 @@
         (values nil trimmed)))) ; Not a command, likely a prompt
 
 (defun execute-command (cmd args)
-  "Execute a command (slash or dot) with the given arguments."
+  "Execute a command (slash or dot) with the given arguments.
+   For slash commands, an optional --format=X flag is intercepted and
+   dispatched to a format handler registered via define-command."
   (cond
     ((str:starts-with? "/" cmd)
-     (let ((command-info (gethash cmd *commands*)))
-       (if command-info
-           (let ((cmd-fn (first command-info)))
-             (funcall cmd-fn args))
-           (format t "Unknown slash command: ~A~%" cmd))))
-    ((str:starts-with? "." cmd)
-     (let ((command-info (gethash cmd *dot-commands*)))
-       (if command-info
-           (let ((cmd-fn (first command-info)))
-             ;; Dot command functions are responsible for their interaction with LLM
-             ;; and printing output or triggering processors.
-             (funcall cmd-fn args))
-           (format t "Unknown dot command: ~A~%" cmd))))
-    (t (format t "Invalid command format (expected /cmd or .cmd): ~A~%" cmd))))
+     (let* ((command-info (gethash cmd *commands*))
+            (fmt-str (extract-format-string args))
+            (fmt (when fmt-str (parse-format-keyword fmt-str))))
+       (cond
+         ((null command-info)
+          (format t "Unknown slash command: ~A~%" cmd))
+         ((and fmt-str (null fmt))
+          (format *error-output*
+                  "Unknown format: ~A. Supported: ~{~A~^, ~}~%"
+                  fmt-str (supported-format-names)))
+         ((and fmt (null (get-format-handler cmd fmt)))
+          (format *error-output*
+                  "Format ~A is not supported by command ~A.~%"
+                  fmt-str cmd))
+         (fmt
+          (execute-format-command cmd fmt args))
+         (t
+          (funcall (first command-info) args)))))))
 
 (defun command-completer (text start end)
   "Complete command names and arguments."
@@ -329,3 +366,112 @@
                              (str:starts-with-p name-prefix (file-namestring file) :ignore-case t))
                            files)))
         (t nil)))))
+
+;;* CLI Specification
+(defun normalize-cli-option (opt)
+  "Convert a :cli-options plist entry into a spec alist."
+  (let* ((short (getf opt :short))
+         (long (getf opt :long))
+         (names (remove nil
+                        (list (when short (format nil "-~A" short))
+                              (when long (format nil "--~A" long)))))
+         (type (or (getf opt :type) :string))
+         (entry `(("name" . ,(coerce names 'vector))
+                  ("type" . ,(string-downcase (string type)))
+                  ("description" . ,(or (getf opt :description) "")))))
+    (when (getf opt :default)
+      (setf entry (append entry `(("defaultValue" . ,(getf opt :default))))))
+    (when (getf opt :required)
+      (setf entry (append entry `(("isRequired" . t)))))
+    entry))
+
+(defun normalize-positional-arg (arg)
+  "Convert a positional-arg plist entry into a spec alist."
+  (let ((entry `(("name" . ,(or (getf arg :name) "arg"))
+                 ("type" . ,(string-downcase (string (or (getf arg :type) :string))))
+                 ("description" . ,(or (getf arg :description) "")))))
+    (when (getf arg :required)
+      (setf entry (append entry `(("isRequired" . t)))))
+    (when (getf arg :variadic)
+      (setf entry (append entry `(("isVariadic" . t)))))
+    entry))
+
+(defun build-command-spec-entry (name info &key strip-slash)
+  "Build a spec alist for a single command. INFO is the registry value list
+   (fn-name description cli-options positional-args)."
+  (let* ((description (or (second info) ""))
+         (cli-options (third info))
+         (pos-args (fourth info))
+         (display-name (if strip-slash (string-left-trim "/" name) name))
+         (entry `(("name" . ,display-name)
+                  ("description" . ,description))))
+    (when pos-args
+      (setf entry (append entry
+                          `(("args" . ,(coerce (mapcar #'normalize-positional-arg pos-args)
+                                               'vector))))))
+    (when cli-options
+      (setf entry (append entry
+                          `(("options" . ,(coerce (mapcar #'normalize-cli-option cli-options)
+                                                  'vector))))))
+    entry))
+
+(defun build-commands-spec ()
+  "Build spec entries for all slash commands."
+  (let ((entries '()))
+    (maphash (lambda (k v)
+               (push (build-command-spec-entry k v :strip-slash t) entries))
+             *commands*)
+    (coerce (sort entries #'string<
+                  :key (lambda (e) (cdr (assoc "name" e :test #'string=))))
+            'vector)))
+
+(defun build-subcommands-spec ()
+  "Build spec entries for all CLI sub-commands."
+  (let ((entries '()))
+    (maphash (lambda (k v)
+               (push (build-command-spec-entry k v) entries))
+             *sub-commands*)
+    (coerce (sort entries #'string<
+                  :key (lambda (e) (cdr (assoc "name" e :test #'string=))))
+            'vector)))
+
+(defun build-flags-spec ()
+  "Build spec entries for all registered global CLI flags."
+  (let ((entries '()))
+    (when (boundp '*flags*)
+      (let ((seen (make-hash-table :test 'equal)))
+        (maphash (lambda (k flag)
+                   (declare (ignore k))
+                   (let* ((names (append (and (fboundp 'flag-long-names)
+                                              (flag-long-names flag))
+                                         (and (fboundp 'flag-short-names)
+                                              (flag-short-names flag))))
+                          (key (format nil "~{~A~^,~}" names)))
+                     (unless (gethash key seen)
+                       (setf (gethash key seen) t)
+                       (push `(("name" . ,(coerce names 'vector))
+                               ("type" . ,(if (and (fboundp 'flag-takes-value)
+                                                   (flag-takes-value flag))
+                                              "string" "boolean"))
+                               ("description" . ,(or (and (fboundp 'flag-description)
+                                                          (flag-description flag))
+                                                     "")))
+                             entries))))
+                 *flags*)))
+    (coerce (nreverse entries) 'vector)))
+
+(defun build-cli-spec ()
+  "Build the complete CLI spec alist."
+  `(("commands"    . ,(build-commands-spec))
+    ("subcommands" . ,(build-subcommands-spec))
+    ("flags"       . ,(build-flags-spec))))
+
+(defun emit-cli-spec (&key lisp-p (stream *standard-output*))
+  "Emit the CLI spec to STREAM.
+   If LISP-P, output as an s-expression. Otherwise, output JSON wrapped in
+   <json>...</json> tags."
+  (let ((spec (build-cli-spec)))
+    (if lisp-p
+        (format stream "~S~%" spec)
+        (format stream "<json>~%~A~%</json>~%" (to-json spec)))
+    (force-output stream)))

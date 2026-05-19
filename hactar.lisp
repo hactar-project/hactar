@@ -260,8 +260,13 @@ Optionally provide additional guidance about what went wrong."
                        `(("text" . "Chat history compression completed."))))
 
 (define-command help (args)
-                "Display available commands and their descriptions."
-                (declare (ignore args))
+                "Display available commands and their descriptions. Use --spec or --spec-lisp for machine-readable output."
+                (cond
+                  ((member "--spec-lisp" args :test #'string=)
+                   (emit-cli-spec :lisp-p t))
+                  ((member "--spec" args :test #'string=)
+                   (emit-cli-spec))
+                  (t
                 (format t "Available commands:~%")
                 ;; Sort commands alphabetically for better readability
                 (let ((sorted-commands (sort (alexandria:hash-table-keys *commands*) #'string<)))
@@ -294,9 +299,15 @@ Optionally provide additional guidance about what went wrong."
                           (dolist (route (web-command-routes web-cmd))
                             (format t "    ~A - ~A~%"
                                     (first (web-route-pattern route))
-                                    (web-route-description route))))))))
+                                    (web-route-description route))))))))))
                 :acp (lambda (cmd-args)
-                       (declare (ignore cmd-args))
+                       (cond
+                         ((member "--spec-lisp" cmd-args :test #'string=)
+                          `(("text" . ,(with-output-to-string (s) (emit-cli-spec :lisp-p t :stream s)))))
+                         ((member "--spec" cmd-args :test #'string=)
+                          `(("text" . ,(with-output-to-string (s) (emit-cli-spec :stream s)))
+                            ("data" . ,(build-cli-spec))))
+                         (t
                        (let ((commands '()))
                          (maphash (lambda (cmd-name handler)
                                     (declare (ignore handler))
@@ -307,7 +318,7 @@ Optionally provide additional guidance about what went wrong."
                                             commands)))
                                   *acp-commands*)
                          `(("text" . ,(format nil "~A commands available." (length commands)))
-                           ("data" . ,(coerce (sort commands #'string< :key (lambda (c) (cdr (assoc "name" c :test #'string=)))) 'vector))))))
+                           ("data" . ,(coerce (sort commands #'string< :key (lambda (c) (cdr (assoc "name" c :test #'string=)))) 'vector))))))))
 
 (define-command model (args)
                 "Switch to a new LLM. Uses fuzzy-select if no model name is provided."
@@ -2059,9 +2070,14 @@ CMD argument is ignored (kept for backward compatibility)."
     (uiop:quit (if ok 0 1))))
 
 (define-sub-command help (args)
-		    "Display comprehensive help information about Hactar."
-		    (declare (ignore args))
-		    (help--print nil)
+		    "Display comprehensive help information about Hactar. Use --spec or --spec-lisp for machine-readable output."
+		    (cond
+		      ((member "--spec-lisp" args :test #'string=)
+		       (emit-cli-spec :lisp-p t))
+		      ((member "--spec" args :test #'string=)
+		       (emit-cli-spec))
+		      (t
+		       (help--print nil)))
 		    (uiop:quit 0))
 
 ;;* Main
@@ -2079,9 +2095,6 @@ Free arguments are dispatched as:
   (let* ((raw-args (or provided-args (uiop:command-line-arguments)))
          (free-args (parse-cli-input raw-args)))
     (cond
-      ((cli-opt :help)
-       (help--print nil)
-       (uiop:quit 0))
       ((cli-opt :version)
        (format t "hactar version ~A~%" *hactar-version*)
        (uiop:quit 0)))
@@ -2090,7 +2103,28 @@ Free arguments are dispatched as:
            (sub-info (and first-arg (gethash first-arg *sub-commands*))))
       (cond
         (sub-info
-         (funcall (first sub-info) (rest free-args))
+         (let* ((cmd-args (rest free-args))
+                (fmt-str (extract-format-string cmd-args))
+                (fmt (when fmt-str (parse-format-keyword fmt-str)))
+                (slash-cmd (format nil "/~A" first-arg)))
+           (when (cli-opt :help)
+             (setf cmd-args (append cmd-args (list "--help"))))
+           (cond
+             ((and fmt-str (null fmt))
+              (format *error-output*
+                      "Unknown format: ~A. Supported: ~{~A~^, ~}~%"
+                      fmt-str (supported-format-names)))
+             ((and fmt (null (get-format-handler slash-cmd fmt)))
+              (format *error-output*
+                      "Format ~A is not supported by command ~A.~%"
+                      fmt-str first-arg))
+             (fmt
+              (execute-format-command slash-cmd fmt cmd-args))
+             (t
+              (funcall (first sub-info) cmd-args))))
+         (uiop:quit 0))
+        ((cli-opt :help)
+         (help--print nil)
          (uiop:quit 0))
         ;; URI-style argument (contains '/' or matches a route): dispatch via router
         ((and first-arg

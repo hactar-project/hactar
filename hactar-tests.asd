@@ -64,5 +64,7 @@
 	       (:file "tests/lsp.test")
 	       (:file "tests/wiki.test")
 	       (:file "tests/cli.test")
+	       (:file "tests/formats.test")
+	       (:file "tests/spec.test")
                (:file "hactar-tests"))
   :perform (asdf:test-op (op c) (uiop:symbol-call :hactar-tests '#:run-tests)))
