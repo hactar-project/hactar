@@ -1,7 +1,6 @@
-;;* Context Preset System
+;; presets are a bunch of state that gets loaded.
+;; you can use to for example keep a list of files for one feature and then load all the files to e.g work on authentication
 (in-package :hactar)
-
-;;** Data Structures
 
 (defstruct preset
   "A reusable context configuration."
@@ -28,24 +27,7 @@
   ;; Source file path (if loaded from file)
   (source-file nil :type (or null pathname string)))
 
-(defstruct context-snapshot
-  "A saved state of the context that can be restored."
-  (name nil :type (or null string))
-  (timestamp nil :type (or null integer))
-  (description nil :type (or null string))
-  ;; Captured state
-  (files '() :type list)
-  (images '() :type list)
-  (docs-context '() :type list)
-  (errors-context '() :type list)
-  (active-rules-text nil :type (or null list))  ; List of (name . text) pairs
-  (active-presets '() :type list)
-  ;; Optional - can be large
-  (chat-history-p nil :type boolean)
-  (chat-history '() :type list))
-
-;;** Preset Registry
-
+;;* Registry
 (defun register-preset (preset)
   "Register a preset in the global registry."
   (let ((name (preset-name-string preset)))
@@ -54,14 +36,14 @@
 
 (defun get-preset (name)
   "Get a preset by name."
-  (gethash (if (stringp name) name (string-downcase (symbol-name name))) 
+  (gethash (if (stringp name) name (string-downcase (symbol-name name)))
            *presets*))
 
 (defun preset-name-string (preset)
   "Get the string name of a preset."
   (let ((name (preset-name preset)))
-    (if (stringp name) 
-        name 
+    (if (stringp name)
+        name
         (string-downcase (symbol-name name)))))
 
 (defun list-presets ()
@@ -74,12 +56,20 @@
   "Clear all registered presets."
   (clrhash *presets*)
   (setf *active-presets* '()))
+;;* utils
+(defun expand-file-globs (patterns &optional (base-dir *repo-root*))
+  "Expand a list of file patterns (including globs) to actual file paths.
+   Reuses the single glob engine via EXPAND-FILE-PATTERN (context.lisp/utils.lisp)."
+  (remove-duplicates
+   (loop for pattern in patterns
+         append (expand-file-pattern pattern base-dir))
+   :test #'string=))
 
-;;** defpreset Macro
+;;* core
 
 (defmacro defpreset (name description &body body)
   "Define a reusable context preset.
-   
+
    Usage:
    (defpreset auth
      \"Authentication feature development\"
@@ -112,43 +102,6 @@
        :setup-fn ,setup
        :teardown-fn ,teardown))))
 
-;;** Glob Expansion
-
-(defun expand-file-globs (patterns &optional (base-dir *repo-root*))
-  "Expand a list of file patterns (including globs) to actual file paths."
-  (let ((files '()))
-    (dolist (pattern patterns)
-      (let ((expanded (expand-single-glob pattern base-dir)))
-        (setf files (append files expanded))))
-    (remove-duplicates files :test #'string=)))
-
-(defun expand-single-glob (pattern base-dir)
-  "Expand a single glob pattern to matching file paths."
-  (let ((full-pattern (merge-pathnames pattern base-dir)))
-    (if (or (search "*" pattern) (search "?" pattern))
-        ;; It's a glob pattern
-        (let ((matches '()))
-          (handler-case
-              (uiop:collect-sub*directories
-               base-dir
-               (constantly t)
-               (constantly t)
-               (lambda (dir)
-                 (dolist (file (uiop:directory-files dir))
-                   (when (glob-matches-p (uiop:native-namestring file)
-                                         (uiop:native-namestring full-pattern))
-                     (push (uiop:native-namestring file) matches)))))
-            (error (e)
-              (debug-log "Error expanding glob ~A: ~A" pattern e)))
-          matches)
-        ;; Literal path
-        (let ((path (uiop:native-namestring full-pattern)))
-          (if (probe-file path)
-              (list path)
-              '())))))
-
-;;** Preset Resolution (Inheritance)
-
 (defun resolve-preset-chain (preset)
   "Resolve the inheritance chain of a preset, returning list from base to derived."
   (let ((chain (list preset))
@@ -160,7 +113,7 @@
                      (push parent chain)
                      (setf current parent))
                    (progn
-                     (format t "~&Warning: Parent preset '~A' not found~%" 
+                     (format t "~&Warning: Parent preset '~A' not found~%"
                              (preset-extends current))
                      (return)))))
     chain))
@@ -208,41 +161,41 @@
     (unless preset
       (format t "~&Preset not found: ~A~%" name)
       (return-from preset/load nil))
-    
+
     (when (member (preset-name-string preset) *active-presets* :test #'string=)
       (unless quiet
         (format t "~&Preset already active: ~A~%" name))
       (return-from preset/load preset))
-    
+
     (let* ((chain (resolve-preset-chain preset))
            (files (merge-preset-files chain))
            (docs (merge-preset-docs chain))
            (skills (merge-preset-skills chain))
            (rules (merge-preset-rules chain))
            (requires (merge-preset-requires-stack chain)))
-      
+
       (dolist (req requires)
         (unless (member req *stack* :test #'string-equal)
           (format t "~&Warning: Preset '~A' requires '~A' but it's not in stack~%"
                   name req)))
-      
+
       (unless quiet
         (format t "~&Loading preset: ~A~%" name)
         (when (preset-extends preset)
           (format t "  (extends: ~A)~%" (preset-extends preset))))
-      
+
       (let ((expanded-files (expand-file-globs files)))
         (unless quiet
           (format t "  Adding ~A files to context...~%" (length expanded-files)))
         (dolist (file expanded-files)
           (add-file-to-context file)))
-      
+
       (when docs
         (unless quiet
           (format t "  Loading docs: ~{~A~^, ~}~%" docs))
         (dolist (doc-name docs)
           ;; Try to find and load the doc
-          (let ((doc (find doc-name *docs* 
+          (let ((doc (find doc-name *docs*
                            :key (lambda (d) (cdr (assoc :title d)))
                            :test #'string-equal)))
             (when doc
@@ -253,18 +206,18 @@
           (format t "  Loading skills: ~{~A~^, ~}~%" skills))
         (dolist (skill-name skills)
           (run-skills-load (list :subcommand (list skill-name)))))
-      
+
       (when rules
         (unless quiet
           (format t "  Rules specified: ~{~A~^, ~}~%" rules)))
-      
+
       (dolist (p chain)
         (when (preset-setup-fn p)
           (funcall (preset-setup-fn p))))
-      
+
       (setf (preset-active-p preset) t)
       (push (preset-name-string preset) *active-presets*)
-      
+
       preset)))
 
 (defun preset/unload (name &key quiet)
@@ -273,28 +226,28 @@
     (unless preset
       (format t "~&Preset not found: ~A~%" name)
       (return-from preset/unload nil))
-    
+
     (unless (preset-active-p preset)
       (unless quiet
         (format t "~&Preset not active: ~A~%" name))
       (return-from preset/unload nil))
-    
+
     (unless quiet
       (format t "~&Unloading preset: ~A~%" name))
-    
+
     (let ((chain (reverse (resolve-preset-chain preset))))
       (dolist (p chain)
         (when (preset-teardown-fn p)
           (funcall (preset-teardown-fn p)))))
-    
+
     (let ((files (expand-file-globs (preset-files preset))))
       (dolist (file files)
         (drop-file-from-context file)))
-    
+
     (setf (preset-active-p preset) nil)
-    (setf *active-presets* 
+    (setf *active-presets*
           (remove (preset-name-string preset) *active-presets* :test #'string=))
-    
+
     preset))
 
 (defun preset/unload-all ()
@@ -308,11 +261,11 @@
   (preset/unload name :quiet t)
   (preset/load name))
 
-;;** Preset File Discovery & Loading
+;;* Files
 
 (defun preset-search-directories ()
   "Return list of directories to search for preset files."
-  (remove-if-not 
+  (remove-if-not
    #'uiop:directory-exists-p
    (append *preset-search-paths*
            (when *repo-root*
@@ -338,7 +291,7 @@
         (unless *silent*
           (format t "~&Loaded preset file: ~A~%" (uiop:native-namestring path))))
     (error (e)
-      (format t "~&Error loading preset file ~A: ~A~%" 
+      (format t "~&Error loading preset file ~A: ~A~%"
               (uiop:native-namestring path) e))))
 
 (defun load-discovered-presets ()
@@ -346,173 +299,330 @@
   (dolist (file (discover-preset-files))
     (load-preset-file file)))
 
-;;** Snapshot System
+;;* commands
+(defun preset-to-alist (preset)
+  "Convert a preset struct to an association list for serialization."
+  (let ((alist `(("name" . ,(preset-name-string preset))
+                 ("active" . ,(if (preset-active-p preset) t :false))
+                 ("description" . ,(or (preset-description preset) "")))))
+    (when (preset-extends preset)
+      (push (cons "extends" (let ((ext (preset-extends preset)))
+                              (if (symbolp ext) (string-downcase (symbol-name ext)) ext)))
+            alist))
+    (when (preset-files preset)
+      (push (cons "files" (coerce (preset-files preset) 'vector)) alist))
+    (when (preset-docs preset)
+      (push (cons "docs" (coerce (preset-docs preset) 'vector)) alist))
+    (when (preset-skills preset)
+      (push (cons "skills" (coerce (preset-skills preset) 'vector)) alist))
+    (when (preset-rules preset)
+      (push (cons "rules" (coerce (mapcar (lambda (r) (if (symbolp r) (string-downcase (symbol-name r)) r))
+                                          (preset-rules preset))
+                                  'vector))
+            alist))
+    (when (preset-requires-stack preset)
+      (push (cons "requires" (coerce (preset-requires-stack preset) 'vector)) alist))
+    (nreverse alist)))
 
-(defun snapshot/save (name &key description include-history)
-  "Save the current context state as a snapshot."
-  (let* ((rules-list '())
-         (_ (maphash (lambda (k v) (push (cons k v) rules-list)) *active-rules*))
-         (snapshot (make-context-snapshot
-                    :name name
-                    :timestamp (get-universal-time)
-                    :description description
-                    :files (copy-list *files*)
-                    :images (copy-list *images*)
-                    :docs-context (copy-list *docs-context*)
-                    :errors-context (copy-list *errors-context*)
-                    :active-rules-text rules-list
-                    :active-presets (copy-list *active-presets*)
-                    :chat-history-p include-history
-                    :chat-history (when include-history (copy-list *chat-history*)))))
-    (declare (ignore _))
-    (setf (gethash name *snapshots*) snapshot)
-    (save-snapshot-to-disk snapshot)
-    (format t "~&Saved snapshot: ~A~%" name)
-    snapshot))
+(defun presets-to-json (presets)
+  "Convert a list of presets to a JSON string."
+  (to-json (coerce (mapcar #'preset-to-alist presets) 'vector)))
 
-(defun snapshot/restore (name)
-  "Restore context from a snapshot."
-  (let ((snapshot (or (gethash name *snapshots*)
-                      (load-snapshot-from-disk name))))
-    (unless snapshot
-      (format t "~&Snapshot not found: ~A~%" name)
-      (return-from snapshot/restore nil))
-    
-    (setf *files* '())
-    (setf *images* '())
-    (setf *docs-context* '())
-    (setf *errors-context* '())
-    (clrhash *active-rules*)
-    
-    (setf *files* (copy-list (context-snapshot-files snapshot)))
-    (setf *images* (copy-list (context-snapshot-images snapshot)))
-    (setf *docs-context* (copy-list (context-snapshot-docs-context snapshot)))
-    (setf *errors-context* (copy-list (context-snapshot-errors-context snapshot)))
-    
-    (dolist (rule-pair (context-snapshot-active-rules-text snapshot))
-      (setf (gethash (car rule-pair) *active-rules*) (cdr rule-pair)))
-    
-    (when (context-snapshot-chat-history-p snapshot)
-      (setf *chat-history* (copy-list (context-snapshot-chat-history snapshot))))
-    
-    (when *exposed-context-file*
-      (context-expose-upsert-files-section)
-      (context-expose-upsert-docs-section)
-      (context-expose-upsert-errors-section))
-    
-    (format t "~&Restored snapshot: ~A (from ~A)~%" 
-            name 
-            (format-timestamp (context-snapshot-timestamp snapshot)))
-    snapshot))
+(defun presets-to-yaml (presets)
+  "Convert a list of presets to a YAML string."
+  (with-output-to-string (s)
+    (dolist (p presets)
+      (format s "- name: ~A~%  active: ~A~%  description: ~A~%"
+              (preset-name-string p)
+              (if (preset-active-p p) "true" "false")
+              (or (preset-description p) ""))
+      (when (preset-extends p)
+        (format s "  extends: ~A~%" (let ((ext (preset-extends p)))
+                                      (if (symbolp ext) (string-downcase (symbol-name ext)) ext))))
+      (when (preset-files p)
+        (format s "  files:~%")
+        (dolist (f (preset-files p))
+          (format s "    - ~A~%" f)))
+      (when (preset-docs p)
+        (format s "  docs:~%")
+        (dolist (d (preset-docs p))
+          (format s "    - ~A~%" d)))
+      (when (preset-skills p)
+        (format s "  skills:~%")
+        (dolist (sk (preset-skills p))
+          (format s "    - ~A~%" sk)))
+      (when (preset-rules p)
+        (format s "  rules:~%")
+        (dolist (r (preset-rules p))
+          (format s "    - ~A~%" (if (symbolp r) (string-downcase (symbol-name r)) r))))
+      (when (preset-requires-stack p)
+        (format s "  requires:~%")
+        (dolist (req (preset-requires-stack p))
+          (format s "    - ~A~%" req))))))
 
-(defun snapshot/delete (name)
-  "Delete a snapshot."
-  (remhash name *snapshots*)
-  (let ((path (snapshot-file-path name)))
-    (when (probe-file path)
-      (delete-file path)))
-  (format t "~&Deleted snapshot: ~A~%" name))
+(defun preset-to-yaml-string (p)
+  "Convert a single preset to a YAML string."
+  (with-output-to-string (s)
+    (format s "name: ~A~%active: ~A~%description: ~A~%"
+            (preset-name-string p)
+            (if (preset-active-p p) "true" "false")
+            (or (preset-description p) ""))
+    (when (preset-extends p)
+      (format s "extends: ~A~%" (let ((ext (preset-extends p)))
+                                  (if (symbolp ext) (string-downcase (symbol-name ext)) ext))))
+    (when (preset-files p)
+      (format s "files:~%")
+      (dolist (f (preset-files p))
+        (format s "  - ~A~%" f)))
+    (when (preset-docs p)
+      (format s "docs:~%")
+      (dolist (d (preset-docs p))
+        (format s "  - ~A~%" d)))
+    (when (preset-skills p)
+      (format s "skills:~%")
+      (dolist (sk (preset-skills p))
+        (format s "  - ~A~%" sk)))
+    (when (preset-rules p)
+      (format s "rules:~%")
+      (dolist (r (preset-rules p))
+        (format s "  - ~A~%" (if (symbolp r) (string-downcase (symbol-name r)) r))))
+    (when (preset-requires-stack p)
+      (format s "requires:~%")
+      (dolist (req (preset-requires-stack p))
+        (format s "  - ~A~%" req)))))
 
-(defun snapshot/list ()
-  "List all snapshots."
-  (let ((snapshots '()))
-    (maphash (lambda (k v) 
-               (push (list :name k 
-                           :timestamp (context-snapshot-timestamp v)
-                           :description (context-snapshot-description v))
-                     snapshots))
-             *snapshots*)
-    (ensure-directories-exist *snapshots-dir*)
-    (dolist (file (uiop:directory-files *snapshots-dir*))
-      (when (string= (pathname-type file) "json")
-        (let ((name (pathname-name file)))
-          (unless (gethash name *snapshots*)
-            (push (list :name name :timestamp nil :description "(on disk)") 
-                  snapshots)))))
-    (sort snapshots #'string< :key (lambda (s) (getf s :name)))))
+(defun presets-to-xml (presets)
+  "Convert a list of presets to an XML string."
+  (with-output-to-string (s)
+    (format s "<presets>~%")
+    (dolist (p presets)
+      (format s "  <preset>~%")
+      (format s "    <name>~A</name>~%" (preset-name-string p))
+      (format s "    <active>~A</active>~%" (if (preset-active-p p) "true" "false"))
+      (format s "    <description>~A</description>~%" (or (preset-description p) ""))
+      (when (preset-extends p)
+        (format s "    <extends>~A</extends>~%" (let ((ext (preset-extends p)))
+                                                  (if (symbolp ext) (string-downcase (symbol-name ext)) ext))))
+      (when (preset-files p)
+        (format s "    <files>~%")
+        (dolist (f (preset-files p))
+          (format s "      <file>~A</file>~%" f))
+        (format s "    </files>~%"))
+      (when (preset-docs p)
+        (format s "    <docs>~%")
+        (dolist (d (preset-docs p))
+          (format s "      <doc>~A</doc>~%" d))
+        (format s "    </docs>~%"))
+      (when (preset-skills p)
+        (format s "    <skills>~%")
+        (dolist (sk (preset-skills p))
+          (format s "      <skill>~A</skill>~%" sk))
+        (format s "    </skills>~%"))
+      (when (preset-rules p)
+        (format s "    <rules>~%")
+        (dolist (r (preset-rules p))
+          (format s "      <rule>~A</rule>~%" (if (symbolp r) (string-downcase (symbol-name r)) r)))
+        (format s "    </rules>~%"))
+      (when (preset-requires-stack p)
+        (format s "    <requires>~%")
+        (dolist (req (preset-requires-stack p))
+          (format s "      <require>~A</require>~%" req))
+        (format s "    </requires>~%"))
+      (format s "  </preset>~%"))
+    (format s "</presets>~%")))
 
-(defun format-timestamp (universal-time)
-  "Format a universal time for display."
-  (if universal-time
-      (multiple-value-bind (sec min hour day month year)
-          (decode-universal-time universal-time)
-        (format nil "~4,'0D-~2,'0D-~2,'0D ~2,'0D:~2,'0D:~2,'0D"
-                year month day hour min sec))
-      "unknown"))
+(defun preset-to-xml-string (p)
+  "Convert a single preset to an XML string."
+  (with-output-to-string (s)
+    (format s "<preset>~%")
+    (format s "  <name>~A</name>~%" (preset-name-string p))
+    (format s "  <active>~A</active>~%" (if (preset-active-p p) "true" "false"))
+    (format s "  <description>~A</description>~%" (or (preset-description p) ""))
+    (when (preset-extends p)
+      (format s "  <extends>~A</extends>~%" (let ((ext (preset-extends p)))
+                                                (if (symbolp ext) (string-downcase (symbol-name ext)) ext))))
+    (when (preset-files p)
+      (format s "  <files>~%")
+      (dolist (f (preset-files p))
+        (format s "    <file>~A</file>~%" f))
+      (format s "  </files>~%"))
+    (when (preset-docs p)
+      (format s "  <docs>~%")
+      (dolist (d (preset-docs p))
+        (format s "    <doc>~A</doc>~%" d))
+      (format s "  </docs>~%"))
+    (when (preset-skills p)
+      (format s "  <skills>~%")
+      (dolist (sk (preset-skills p))
+        (format s "    <skill>~A</skill>~%" sk))
+      (format s "  </skills>~%"))
+    (when (preset-rules p)
+      (format s "  <rules>~%")
+      (dolist (r (preset-rules p))
+        (format s "    <rule>~A</rule>~%" (if (symbolp r) (string-downcase (symbol-name r)) r)))
+      (format s "  </rules>~%"))
+    (when (preset-requires-stack p)
+      (format s "  <requires>~%")
+      (dolist (req (preset-requires-stack p))
+        (format s "    <require>~A</require>~%" req))
+      (format s "  </requires>~%"))
+    (format s "</preset>~%")))
 
-;;** Snapshot Persistence
+(defun presets-to-markdown (presets)
+  "Convert a list of presets to a Markdown string."
+  (with-output-to-string (s)
+    (dolist (p presets)
+      (format s "## ~A~A~%~%"
+              (preset-name-string p)
+              (if (preset-active-p p) " [ACTIVE]" ""))
+      (format s "*Description:* ~A~%~%" (or (preset-description p) "(no description)"))
+      (when (preset-extends p)
+        (format s "*Extends:* ~A~%~%" (let ((ext (preset-extends p)))
+                                        (if (symbolp ext) (string-downcase (symbol-name ext)) ext))))
+      (when (preset-files p)
+        (format s "*Files:*~%")
+        (dolist (f (preset-files p))
+          (format s "  - ~A~%" f))
+        (terpri s))
+      (when (preset-docs p)
+        (format s "*Docs:*~%")
+        (dolist (d (preset-docs p))
+          (format s "  - ~A~%" d))
+        (terpri s))
+      (when (preset-skills p)
+        (format s "*Skills:*~%")
+        (dolist (sk (preset-skills p))
+          (format s "  - ~A~%" sk))
+        (terpri s))
+      (when (preset-rules p)
+        (format s "*Rules:*~%")
+        (dolist (r (preset-rules p))
+          (format s "  - ~A~%" (if (symbolp r) (string-downcase (symbol-name r)) r)))
+        (terpri s))
+      (when (preset-requires-stack p)
+        (format s "*Requires stack:*~%")
+        (dolist (req (preset-requires-stack p))
+          (format s "  - ~A~%" req))
+        (terpri s)))))
 
-(defun snapshot-file-path (name)
-  "Get the file path for a snapshot."
-  (merge-pathnames (format nil "~A.json" name) *snapshots-dir*))
+(defun presets-to-org-mode (presets)
+  "Convert a list of presets to an Org-mode string."
+  (with-output-to-string (s)
+    (dolist (p presets)
+      (format s "* ~A~A~%~%"
+              (preset-name-string p)
+              (if (preset-active-p p) " [ACTIVE]" ""))
+      (format s "Description: ~A~%~%" (or (preset-description p) "(no description)"))
+      (when (preset-extends p)
+        (format s "Extends: ~A~%~%" (let ((ext (preset-extends p)))
+                                      (if (symbolp ext) (string-downcase (symbol-name ext)) ext))))
+      (when (preset-files p)
+        (format s "Files:~%")
+        (dolist (f (preset-files p))
+          (format s "  - ~A~%" f))
+        (terpri s))
+      (when (preset-docs p)
+        (format s "Docs:~%")
+        (dolist (d (preset-docs p))
+          (format s "  - ~A~%" d))
+        (terpri s))
+      (when (preset-skills p)
+        (format s "Skills:~%")
+        (dolist (sk (preset-skills p))
+          (format s "  - ~A~%" sk))
+        (terpri s))
+      (when (preset-rules p)
+        (format s "Rules:~%")
+        (dolist (r (preset-rules p))
+          (format s "  - ~A~%" (if (symbolp r) (string-downcase (symbol-name r)) r)))
+        (terpri s))
+      (when (preset-requires-stack p)
+        (format s "Requires stack:~%")
+        (dolist (req (preset-requires-stack p))
+          (format s "  - ~A~%" req))
+        (terpri s)))))
 
-(defun save-snapshot-to-disk (snapshot)
-  "Save a snapshot to disk as JSON."
-  (ensure-directories-exist *snapshots-dir*)
-  (let ((path (snapshot-file-path (context-snapshot-name snapshot))))
-    (with-open-file (stream path
-                            :direction :output
-                            :if-exists :supersede
-                            :if-does-not-exist :create
-                            :external-format :utf-8)
-      (cl-json:encode-json
-       `((:name . ,(context-snapshot-name snapshot))
-         (:timestamp . ,(context-snapshot-timestamp snapshot))
-         (:description . ,(context-snapshot-description snapshot))
-         (:files . ,(coerce (context-snapshot-files snapshot) 'vector))
-         (:images . ,(coerce (context-snapshot-images snapshot) 'vector))
-         (:docs-context . ,(coerce (context-snapshot-docs-context snapshot) 'vector))
-         (:errors-context . ,(coerce (context-snapshot-errors-context snapshot) 'vector))
-         (:active-rules-text . ,(context-snapshot-active-rules-text snapshot))
-         (:active-presets . ,(coerce (context-snapshot-active-presets snapshot) 'vector))
-         (:chat-history-p . ,(context-snapshot-chat-history-p snapshot))
-         (:chat-history . ,(when (context-snapshot-chat-history-p snapshot)
-                             (coerce (context-snapshot-chat-history snapshot) 'vector))))
-       stream))))
-
-(defun load-snapshot-from-disk (name)
-  "Load a snapshot from disk."
-  (let ((path (snapshot-file-path name)))
-    (when (probe-file path)
-      (handler-case
-          (with-open-file (stream path :direction :input :external-format :utf-8)
-            (let ((data (cl-json:decode-json stream)))
-              (make-context-snapshot
-               :name (cdr (assoc :name data))
-               :timestamp (cdr (assoc :timestamp data))
-               :description (cdr (assoc :description data))
-               :files (coerce (cdr (assoc :files data)) 'list)
-               :images (coerce (cdr (assoc :images data)) 'list)
-               :docs-context (coerce (cdr (assoc :docs-context data)) 'list)
-               :errors-context (coerce (cdr (assoc :errors-context data)) 'list)
-               :active-rules-text (cdr (assoc :active-rules-text data))
-               :active-presets (coerce (cdr (assoc :active-presets data)) 'list)
-               :chat-history-p (cdr (assoc :chat-history-p data))
-               :chat-history (coerce (or (cdr (assoc :chat-history data)) #()) 'list))))
-        (error (e)
-          (format t "~&Error loading snapshot ~A: ~A~%" name e)
-          nil)))))
-
-;;** REPL Commands - Presets
+(defun get-show-preset (args)
+  "Extract the preset object from arguments, or nil."
+  (let* ((clean-args (remove-if (lambda (x) (str:starts-with-p "-" x)) args))
+         (name (first clean-args)))
+    (when name
+      (get-preset name))))
 
 (define-command preset (args)
-  "Load a preset or list available presets.
+  "Load, manage, or list context presets. A preset is a reusable context configuration containing files, rules, documentation, and skills.
 Usage: /preset              - List available presets
-       /preset <name>       - Load a preset"
-  (if args
-      (preset/load (first args))
-      (let ((presets (list-presets)))
-        (if presets
-            (progn
-              (format t "~&Available presets:~%")
-              (dolist (name presets)
-                (let* ((preset (get-preset name))
-                       (active (preset-active-p preset)))
-                  (format t "  ~A~A - ~A~%"
-                          (if active "* " "  ")
-                          name
-                          (or (preset-description preset) "(no description)")))))
-            (format t "~&No presets defined.~%")))))
+       /preset <name>       - Load a preset by name
+       /preset.load <name>  - Load a preset
+       /preset.unload <name>- Unload an active preset
+       /preset.active       - List active presets
+       /preset.show <name>  - Show details of a preset"
+  (cond
+    (args (preset/load (first args)))
+    ((and *tui-running* (list-presets))
+     (let ((selected (fuzzy-select (list-presets))))
+       (when selected (preset/load selected))))
+    (t
+     (let ((presets (list-presets)))
+       (if presets
+           (progn
+             (format t "~&Available presets:~%")
+             (dolist (name presets)
+               (let* ((preset (get-preset name))
+                      (active (preset-active-p preset)))
+                 (format t "  ~A~A - ~A~%"
+                         (if active "* " "  ")
+                         name
+                         (or (preset-description preset) "(no description)")))))
+           (format t "~&No presets defined.~%")))))
+  :json (lambda (args)
+          (declare (ignore args))
+          (to-json (coerce (loop for name in (list-presets)
+                                 collect (let ((p (get-preset name)))
+                                           `(("name" . ,name)
+                                             ("active" . ,(if (preset-active-p p) t :false))
+                                             ("description" . ,(or (preset-description p) "")))))
+                           'vector)))
+  :yaml (lambda (args)
+          (declare (ignore args))
+          (with-output-to-string (s)
+            (dolist (name (list-presets))
+              (let ((p (get-preset name)))
+                (format s "- name: ~A~%  active: ~A~%  description: ~A~%"
+                        name
+                        (if (preset-active-p p) "true" "false")
+                        (or (preset-description p) ""))))))
+  :xml (lambda (args)
+         (declare (ignore args))
+         (with-output-to-string (s)
+           (format s "<presets>~%")
+           (dolist (name (list-presets))
+             (let ((p (get-preset name)))
+               (format s "  <preset>~%    <name>~A</name>~%    <active>~A</active>~%    <description>~A</description>~%  </preset>~%"
+                       name
+                       (if (preset-active-p p) "true" "false")
+                       (or (preset-description p) ""))))
+           (format s "</presets>~%")))
+  :markdown (lambda (args)
+              (declare (ignore args))
+              (with-output-to-string (s)
+                (format s "| Name | Active | Description |~%|---|---|---|~%")
+                (dolist (name (list-presets))
+                  (let ((p (get-preset name)))
+                    (format s "| ~A | ~A | ~A |~%"
+                            name
+                            (if (preset-active-p p) "yes" "no")
+                            (or (preset-description p) ""))))))
+  :org-mode (lambda (args)
+              (declare (ignore args))
+              (with-output-to-string (s)
+                (format s "| Name | Active | Description |~%|---|---|---|~%")
+                (dolist (name (list-presets))
+                  (let ((p (get-preset name)))
+                    (format s "| ~A | ~A | ~A |~%"
+                            name
+                            (if (preset-active-p p) "yes" "no")
+                            (or (preset-description p) "")))))))
 
 (define-command preset.load (args)
   "Load a preset by name.
@@ -551,7 +661,22 @@ Usage: /preset.unload [name]  - Unload specific or all presets"
                 (format t "  Skills: ~{~A~^, ~}~%" (preset-skills preset)))
               (when (preset-requires-stack preset)
                 (format t "  Requires: ~{~A~^, ~}~%" (preset-requires-stack preset))))))
-        (format t "~&No presets defined.~%"))))
+        (format t "~&No presets defined.~%")))
+  :json (lambda (args)
+          (declare (ignore args))
+          (presets-to-json (mapcar #'get-preset (list-presets))))
+  :yaml (lambda (args)
+          (declare (ignore args))
+          (presets-to-yaml (mapcar #'get-preset (list-presets))))
+  :xml (lambda (args)
+         (declare (ignore args))
+         (presets-to-xml (mapcar #'get-preset (list-presets))))
+  :markdown (lambda (args)
+              (declare (ignore args))
+              (presets-to-markdown (mapcar #'get-preset (list-presets))))
+  :org-mode (lambda (args)
+              (declare (ignore args))
+              (presets-to-org-mode (mapcar #'get-preset (list-presets)))))
 
 (define-command preset.show (args)
   "Show details of a specific preset.
@@ -577,7 +702,32 @@ Usage: /preset.show <name>"
               (when (preset-requires-stack preset)
                 (format t "~%Requires stack: ~{~A~^, ~}~%" (preset-requires-stack preset))))
             (format t "~&Preset not found: ~A~%" (first args))))
-      (format t "~&Usage: /preset.show <name>~%")))
+      (format t "~&Usage: /preset.show <name>~%"))
+  :json (lambda (args)
+          (let ((p (get-show-preset args)))
+            (if p
+                (to-json (preset-to-alist p))
+                "{}")))
+  :yaml (lambda (args)
+          (let ((p (get-show-preset args)))
+            (if p
+                (preset-to-yaml-string p)
+                "")))
+  :xml (lambda (args)
+         (let ((p (get-show-preset args)))
+           (if p
+               (preset-to-xml-string p)
+               "")))
+  :markdown (lambda (args)
+              (let ((p (get-show-preset args)))
+                (if p
+                    (presets-to-markdown (list p))
+                    "")))
+  :org-mode (lambda (args)
+              (let ((p (get-show-preset args)))
+                (if p
+                    (presets-to-org-mode (list p))
+                    ""))))
 
 (define-command preset.active (args)
   "Show currently active presets."
@@ -593,7 +743,22 @@ Usage: /preset.show <name>"
                            (if (preset-extends preset)
                                (format nil " (extends ~A)" (preset-extends preset))
                                "")))))
-      (format t "~&No active presets.~%")))
+      (format t "~&No active presets.~%"))
+  :json (lambda (args)
+          (declare (ignore args))
+          (presets-to-json (mapcar #'get-preset *active-presets*)))
+  :yaml (lambda (args)
+          (declare (ignore args))
+          (presets-to-yaml (mapcar #'get-preset *active-presets*)))
+  :xml (lambda (args)
+         (declare (ignore args))
+         (presets-to-xml (mapcar #'get-preset *active-presets*)))
+  :markdown (lambda (args)
+              (declare (ignore args))
+              (presets-to-markdown (mapcar #'get-preset *active-presets*)))
+  :org-mode (lambda (args)
+              (declare (ignore args))
+              (presets-to-org-mode (mapcar #'get-preset *active-presets*))))
 
 (define-command preset.save (args)
   "Save current context as a new preset.
@@ -631,69 +796,7 @@ Usage: /preset.reload [name]"
         (dolist (name active)
           (preset/reload name)))))
 
-;;** REPL Commands - Snapshots
-
-(define-command snapshot (args)
-  "List snapshots or save current context.
-Usage: /snapshot           - List snapshots
-       /snapshot <name>    - Save snapshot with name"
-  (if args
-      (snapshot/save (first args))
-      (let ((snapshots (snapshot/list)))
-        (if snapshots
-            (progn
-              (format t "~&Snapshots:~%")
-              (dolist (s snapshots)
-                (format t "  ~A~@[ - ~A~]~@[ (~A)~]~%"
-                        (getf s :name)
-                        (when (getf s :timestamp)
-                          (format-timestamp (getf s :timestamp)))
-                        (getf s :description))))
-            (format t "~&No snapshots.~%")))))
-
-(define-command snapshot.save (args)
-  "Save current context as a snapshot.
-Usage: /snapshot.save <name> [--history] [--description \"desc\"]"
-  (if args
-      (let* ((name (first args))
-             (rest-args (rest args))
-             (include-history (member "--history" rest-args :test #'string=))
-             (desc-pos (position "--description" rest-args :test #'string=))
-             (description (when desc-pos (nth (1+ desc-pos) rest-args))))
-        (snapshot/save name :description description :include-history include-history))
-      (format t "~&Usage: /snapshot.save <name> [--history] [--description \"desc\"]~%")))
-
-(define-command snapshot.restore (args)
-  "Restore context from a snapshot.
-Usage: /snapshot.restore <name>"
-  (if args
-      (snapshot/restore (first args))
-      (format t "~&Usage: /snapshot.restore <name>~%")))
-
-(define-command snapshot.delete (args)
-  "Delete a snapshot.
-Usage: /snapshot.delete <name>"
-  (if args
-      (when (confirm-action (format nil "Delete snapshot '~A'?" (first args)))
-        (snapshot/delete (first args)))
-      (format t "~&Usage: /snapshot.delete <name>~%")))
-
-(define-command snapshot.list (args)
-  "List all snapshots with details."
-  (declare (ignore args))
-  (let ((snapshots (snapshot/list)))
-    (if snapshots
-        (progn
-          (format t "~&Snapshots:~%")
-          (dolist (s snapshots)
-            (format t "  ~A~%"  (getf s :name))
-            (when (getf s :timestamp)
-              (format t "    Time: ~A~%" (format-timestamp (getf s :timestamp))))
-            (when (getf s :description)
-              (format t "    Description: ~A~%" (getf s :description)))))
-        (format t "~&No snapshots.~%"))))
-
-;;** CLI Sub-commands
+;;* cli Sub-commands
 
 (define-sub-command preset (args)
   "Manage context presets.
@@ -704,18 +807,18 @@ Usage: hactar preset list
         (rest-args (rest args)))
     (cond
       ((or (null subcommand) (string= subcommand "list"))
-       (funcall (first (gethash "preset.list" *commands*)) nil))
+       (funcall (first (gethash "/preset.list" *commands*)) nil))
       ((string= subcommand "load")
        (when rest-args
          (preset/load (first rest-args))))
       ((string= subcommand "show")
        (when rest-args
-         (funcall (first (gethash "preset.show" *commands*)) rest-args)))
+         (funcall (first (gethash "/preset.show" *commands*)) rest-args)))
       (t
        (format t "~&Unknown preset command: ~A~%" subcommand)))))
 
-;;** Built-in Presets
-
+;;* Hactar Presets
+;; TODO move to hactar-mode
 (defpreset core
   "Hactar core development files"
   :files ("state.lisp"

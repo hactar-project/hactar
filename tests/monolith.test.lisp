@@ -1,14 +1,10 @@
 (in-package :hactar-tests)
-
-;;* Monolith Tests
-
 (def-suite monolith-tests
   :description "Tests for Hactar monolith (org-centric literate programming mode)")
 
 (in-suite monolith-tests)
 
-;;* Test Helpers
-
+;;* Helpers
 (defvar *test-monolith-root* nil
   "Temporary directory for monolith tests.")
 
@@ -339,7 +335,7 @@ See [[id:jwt-concept]] and [[Concepts/Crypto]].
               (merge-pathnames "Principles/" *test-monolith-root*)))))
 
 (test monolith-init-creates-db
-  "Test that init-monolith creates the SQLite database."
+  "Test that init-monolith creates the Lisp database."
   (with-test-monolith
     (is-true (probe-file hactar-monolith::*monolith-db-path*))))
 
@@ -349,7 +345,7 @@ See [[id:jwt-concept]] and [[Concepts/Crypto]].
     (let ((gitignore (merge-pathnames ".gitignore" *test-monolith-root*)))
       (is-true (probe-file gitignore))
       (let ((content (uiop:read-file-string gitignore)))
-        (is (search ".hactar-monolith.db" content))))))
+        (is (search ".hactar.monolith.lisp" content))))))
 
 (test monolith-init-sets-paths
   "Test that init-monolith sets global paths."
@@ -358,16 +354,14 @@ See [[id:jwt-concept]] and [[Concepts/Crypto]].
     (is-true hactar-monolith::*monolith-db-path*)))
 
 (test monolith-init-db-tables-exist
-  "Test that the database has the expected tables."
+  "Test that the in-memory registries are initialized."
   (with-test-monolith
-    (sqlite:with-open-database (db hactar-monolith::*monolith-db-path*)
-      ;; Check that tables exist by querying them
-      (is (listp (sqlite:execute-to-list db "SELECT * FROM concepts LIMIT 0")))
-      (is (listp (sqlite:execute-to-list db "SELECT * FROM projects LIMIT 0")))
-      (is (listp (sqlite:execute-to-list db "SELECT * FROM journal_entries LIMIT 0")))
-      (is (listp (sqlite:execute-to-list db "SELECT * FROM edges LIMIT 0")))
-      (is (listp (sqlite:execute-to-list db "SELECT * FROM code_blocks LIMIT 0")))
-      (is (listp (sqlite:execute-to-list db "SELECT * FROM tangle_history LIMIT 0"))))))
+    (is (hash-table-p hactar-monolith::*concepts*))
+    (is (hash-table-p hactar-monolith::*projects*))
+    (is (hash-table-p hactar-monolith::*journal-entries*))
+    (is (listp hactar-monolith::*edges*))
+    (is (hash-table-p hactar-monolith::*code-blocks*))
+    (is (listp hactar-monolith::*tangle-history*))))
 
 ;;* Concept Operations Tests
 
@@ -392,19 +386,16 @@ See [[id:jwt-concept]] and [[Concepts/Crypto]].
       ;; Verify the org file content
       (let ((file-content (uiop:read-file-string (hactar-monolith::org-concept-path concept))))
         (is (search "JWT Auth" file-content))
-        (is (search ":MATURITY: EVERGREEN" file-content))
+        (is (search ":MATURITY: evergreen" file-content))
         (is (search "JSON Web Token" file-content))))))
 
 (test monolith-create-concept-stored-in-db
   "Test that created concepts are stored in the database."
   (with-test-monolith
     (let ((concept (hactar-monolith::create-concept "Database Pooling")))
-      (sqlite:with-open-database (db hactar-monolith::*monolith-db-path*)
-        (let ((rows (sqlite:execute-to-list db
-                      "SELECT id, title, maturity FROM concepts WHERE id = ?"
-                      (hactar-monolith::org-concept-id concept))))
-          (is (= 1 (length rows)))
-          (is (string= "Database Pooling" (second (first rows)))))))))
+      (let ((stored (gethash (hactar-monolith::org-concept-id concept) hactar-monolith::*concepts*)))
+        (is-true stored)
+        (is (string= "Database Pooling" (hactar-monolith::org-concept-title stored)))))))
 
 (test monolith-find-concepts-by-query
   "Test finding concepts by title query."
@@ -456,14 +447,12 @@ See [[id:jwt-concept]] and [[Concepts/Crypto]].
            (id (hactar-monolith::org-concept-id concept)))
       (hactar-monolith::update-concept-maturity id :evergreen)
       ;; Check database
-      (sqlite:with-open-database (db hactar-monolith::*monolith-db-path*)
-        (let ((rows (sqlite:execute-to-list db
-                      "SELECT maturity FROM concepts WHERE id = ?" id)))
-          (is (string= "EVERGREEN" (first (first rows))))))
+      (let ((stored (gethash id hactar-monolith::*concepts*)))
+        (is (eq :evergreen (hactar-monolith::org-concept-maturity stored))))
       ;; Check org file
       (let ((file-content (uiop:read-file-string
                            (hactar-monolith::org-concept-path concept))))
-        (is (search ":MATURITY: EVERGREEN" file-content))))))
+        (is (search ":MATURITY: evergreen" file-content))))))
 
 ;;* Indexing Tests
 
@@ -487,16 +476,13 @@ See [[id:redis-concept]].
 ")
     (hactar-monolith::index-monolith)
     ;; Verify concept is in database
-    (sqlite:with-open-database (db hactar-monolith::*monolith-db-path*)
-      (let ((rows (sqlite:execute-to-list db
-                    "SELECT title, maturity FROM concepts WHERE id = 'caching-concept'")))
-        (is (= 1 (length rows)))
-        (is (string= "Caching" (first (first rows))))
-        (is (string= "growing" (second (first rows)))))
-      ;; Verify edge was created for the link
-      (let ((edges (sqlite:execute-to-list db
-                     "SELECT to_id FROM edges WHERE from_id = 'caching-concept'")))
-        (is (>= (length edges) 1))))))
+    (let ((stored (gethash "caching-concept" hactar-monolith::*concepts*)))
+      (is-true stored)
+      (is (string= "Caching" (hactar-monolith::org-concept-title stored)))
+      (is (eq :growing (hactar-monolith::org-concept-maturity stored))))
+    ;; Verify edge was created for the link
+    (is (some (lambda (e) (string= (hactar-monolith::org-edge-from-id e) "caching-concept"))
+              hactar-monolith::*edges*))))
 
 (test monolith-index-project-file
   "Test indexing a project file."
@@ -516,11 +502,9 @@ Web application.
 Uses [[Concepts/Auth]].
 ")
     (hactar-monolith::index-monolith)
-    (sqlite:with-open-database (db hactar-monolith::*monolith-db-path*)
-      (let ((rows (sqlite:execute-to-list db
-                    "SELECT name FROM projects WHERE id = 'myapp-project'")))
-        (is (= 1 (length rows)))
-        (is (string= "MyApp" (first (first rows))))))))
+    (let ((stored (gethash "myapp-project" hactar-monolith::*projects*)))
+      (is-true stored)
+      (is (string= "MyApp" (hactar-monolith::org-project-name stored))))))
 
 (test monolith-index-journal-file
   "Test indexing a journal file."
@@ -538,11 +522,9 @@ Uses [[Concepts/Auth]].
 Thought about [[Concepts/Caching]] today.
 ")
     (hactar-monolith::index-monolith)
-    (sqlite:with-open-database (db hactar-monolith::*monolith-db-path*)
-      (let ((rows (sqlite:execute-to-list db
-                    "SELECT date FROM journal_entries WHERE id = 'journal-2025-01-15'")))
-        (is (= 1 (length rows)))
-        (is (string= "2025-01-15" (first (first rows))))))))
+    (let ((stored (gethash "journal-2025-01-15" hactar-monolith::*journal-entries*)))
+      (is-true stored)
+      (is (string= "2025-01-15" (hactar-monolith::org-journal-entry-date stored))))))
 
 (test monolith-index-code-blocks
   "Test that code blocks are indexed."
@@ -565,10 +547,13 @@ print('hello')
 #+END_SRC
 ")
     (hactar-monolith::index-monolith)
-    (sqlite:with-open-database (db hactar-monolith::*monolith-db-path*)
-      (let ((rows (sqlite:execute-to-list db
-                    "SELECT language, tangle_target FROM code_blocks WHERE project = 'hello-proj'")))
-        (is (= 2 (length rows)))))))
+    (let ((count 0))
+      (maphash (lambda (id cb)
+                 (declare (ignore id))
+                 (when (string= (hactar-monolith::org-code-block-project cb) "hello-proj")
+                   (incf count)))
+               hactar-monolith::*code-blocks*)
+      (is (= 2 count)))))
 
 (test monolith-index-edges
   "Test that edges are indexed for links."
@@ -582,10 +567,8 @@ print('hello')
 Links to [[id:concept-b]] and [[Concepts/C]].
 ")
     (hactar-monolith::index-monolith)
-    (sqlite:with-open-database (db hactar-monolith::*monolith-db-path*)
-      (let ((edges (sqlite:execute-to-list db
-                     "SELECT to_id, relation FROM edges WHERE from_id = 'concept-a'")))
-        (is (>= (length edges) 1))))))
+    (is (some (lambda (e) (string= (hactar-monolith::org-edge-from-id e) "concept-a"))
+              hactar-monolith::*edges*))))
 
 ;;* Tangling Tests
 
@@ -669,11 +652,8 @@ print('tangled!')
 ")
     (hactar-monolith::index-monolith)
     (hactar-monolith::tangle-project "hist-proj")
-    (sqlite:with-open-database (db hactar-monolith::*monolith-db-path*)
-      (let ((rows (sqlite:execute-to-list db
-                    "SELECT target_path, checksum FROM tangle_history")))
-        (is (>= (length rows) 1))
-        (is (search "history.lisp" (first (first rows))))))))
+    (is (>= (length hactar-monolith::*tangle-history*) 1))
+    (is (search "history.lisp" (getf (first hactar-monolith::*tangle-history*) :target-path)))))
 
 (test monolith-resolve-tangle-target-relative
   "Test resolving relative tangle targets."
@@ -794,20 +774,14 @@ Links to [[id:child-concept-1]] and [[id:child-concept-2]].
   (with-test-monolith
     (hactar-monolith::index-edge "a" "b" :implements)
     (hactar-monolith::index-edge "a" "b" :implements)
-    (sqlite:with-open-database (db hactar-monolith::*monolith-db-path*)
-      (let ((rows (sqlite:execute-to-list db
-                    "SELECT COUNT(*) FROM edges WHERE from_id = 'a' AND to_id = 'b'")))
-        (is (= 1 (first (first rows))))))))
+    (is (= 1 (length hactar-monolith::*edges*)))))
 
 (test monolith-index-edge-different-relations
   "Test that same nodes can have different relation edges."
   (with-test-monolith
     (hactar-monolith::index-edge "a" "b" :implements)
     (hactar-monolith::index-edge "a" "b" :mentions)
-    (sqlite:with-open-database (db hactar-monolith::*monolith-db-path*)
-      (let ((rows (sqlite:execute-to-list db
-                    "SELECT COUNT(*) FROM edges WHERE from_id = 'a' AND to_id = 'b'")))
-        (is (= 2 (first (first rows))))))))
+    (is (= 2 (length hactar-monolith::*edges*)))))
 
 ;;* Hook Tests
 
@@ -857,7 +831,7 @@ Links to [[id:child-concept-1]] and [[id:child-concept-2]].
         (nhooks:remove-hook hactar-monolith::*tangle-completed-hook*
                             'test-tangle-completed)))))
 
-;;* Integration / End-to-End Tests
+;;* Full Workflow
 
 (test monolith-full-workflow
   "Test a complete workflow: create, index, tangle, detect drift."
@@ -903,4 +877,4 @@ A complete workflow test.
 
     (hactar-monolith::update-concept-maturity "workflow-concept" :growing)
     (let ((concept (hactar-monolith::get-concept "workflow-concept")))
-      (is (string= "GROWING" (fourth concept))))))
+      (is (string= "growing" (fourth concept))))))

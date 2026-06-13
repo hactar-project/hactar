@@ -6,8 +6,6 @@
 	       #:cl-csv
 	       #:cxml
 	       #:uuid
-	       #:sqlite
-               #:hactar-migrations
                #:llm
 	       #:chunga
                #:cl-readline
@@ -44,6 +42,7 @@
 	       #:cl-charms
                #:cl-ppcre
 	       #:cmark)
+  :serial t
   :components ((:file "packages")
 	       ;; core extras
 	       (:file "hooks")
@@ -51,18 +50,24 @@
 	       (:file "state")
 	       (:file "config")
 	       ;; utils and backing libs
+	       (:file "git")
 	       (:file "utils")
 	       (:file "formats")
+	       (:file "prompts")
 	       (:file "org-mode-parser")
 	       (:file "org-mode")
 	       (:file "markdown")
+	       (:file "md-render")
 	       ;; core
-	       (:file "tui-theme")
-	       (:file "tui")
-	       (:file "llm-utils")
-	       (:file "db")
-	       (:file "rag")
 	       (:file "commands")
+	       (:file "models")
+	       (:file "debug")
+	       (:file "tui")
+	       (:file "tui-theme")
+	       (:file "fzf")
+	       (:file "hydra")
+	       (:file "llm-utils")
+	       (:file "rag")
 	       (:file "permissions")
 	       (:file "tools")
 	       (:file "docs")
@@ -71,16 +76,17 @@
 	       (:file "processors")
 	       (:file "analyzers")
 	       (:file "rules")
+	       (:file "gen-helpers")
+	       (:file "mode")
+	       (:file "modes/rails")
 	       (:file "agents")
 	       (:file "check")
 	       (:file "dots")
 	       (:file "context")
+	       (:file "interface")
+	       (:file "history")
+	       (:file "persist")
                (:file "code-value")
-               (:file "entity")
-               (:file "entity-macros")
-               (:file "entity-storage")
-               (:file "entity-types")
-               (:file "gen")
 	       ;; interfaces and apis
 	       (:file "api-http")
 	       (:file "api-complete")
@@ -92,7 +98,7 @@
 	       (:file "web")
 	       (:file "import")
 	       (:file "copilot")
-               (:file "feature")
+	       (:file "oauth")
 	       (:file "proxy")
 	       ;; compiler
 	       (:file "vfs")
@@ -111,6 +117,7 @@
 	       (:file "npm")
 	       (:file "sh-mode")
 	       (:file "js-mode")
+	       (:file "hypertext")
 	       (:file "react-mode")
 	       (:file "react-router")
 	       (:file "hactar-mode")
@@ -135,8 +142,9 @@
 	       (:file "litmode")
 	       (:file "hyperfractal")
 	       (:file "ruhe")
+	       (:file "slynk")
 	       (:file "wiki")
-	       (:file "hactar"))         ; Compile main hactar file last
+	       (:file "hactar"))
   :build-operation "program-op"
   :build-pathname "hactar"
   :entry-point "hactar:main")

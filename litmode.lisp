@@ -1,5 +1,4 @@
-;;;; litmode.lisp — Single-File Literate Mode for Hactar
-
+;; single file literate mode. WIP
 (in-package :hactar)
 
 ;;* state
@@ -34,7 +33,11 @@
   "Default lock duration in seconds (30 minutes).")
 
 (defvar *litmode-db-path* nil
-  "Path to the litmode SQLite database.")
+  "Deprecated: retained for backward compatibility (litmode no longer uses SQLite).")
+
+(defvar *litmode-locks* '()
+  "In-memory list of active lock plists (Refactor Plan §6.9, replaces SQLite).
+   Each entry: (:owner :pid :ids :scope :acquired :expires).")
 
 (defvar *named-blocks* (make-hash-table :test 'equal)
   "Registry of named src blocks. Key: name, Value: plist with :content :language :eval :dir :tool-desc.")
@@ -222,66 +225,41 @@
 
 ;;* database
 
+(defun litmode-locks-path ()
+  "Side lisp file holding persisted agent locks for the current .hactar.org."
+  (when *litmode-path*
+    (merge-pathnames ".hactar.litmode.locks.lisp"
+                     (uiop:pathname-directory-pathname *litmode-path*))))
+
+(defun save-litmode-locks ()
+  "Persist *litmode-locks* to a side lisp file (Refactor Plan §6.9)."
+  (let ((path (litmode-locks-path)))
+    (when path
+      (handler-case
+          (with-open-file (s path :direction :output
+                                  :if-exists :supersede
+                                  :if-does-not-exist :create
+                                  :external-format :utf-8)
+            (let ((*print-case* :downcase))
+              (prin1 `(setf *litmode-locks* ',*litmode-locks*) s)
+              (terpri s)))
+        (error (e) (debug-log "Error saving litmode locks:" e))))))
+
+(defun load-litmode-locks ()
+  "Load persisted agent locks from the side lisp file; returns the list."
+  (let ((path (litmode-locks-path)))
+    (if (and path (probe-file path))
+        (handler-case
+            (progn (load path) *litmode-locks*)
+          (error (e) (debug-log "Error loading litmode locks:" e) '()))
+        '())))
+
 (defun init-litmode-db ()
-  "Initialize the litmode SQLite database."
-  (when *litmode-db-path*
-    (ensure-directories-exist *litmode-db-path*)
-    (sqlite:with-open-database (db *litmode-db-path*)
-      (sqlite:execute-non-query db
-        "CREATE TABLE IF NOT EXISTS headlines (
-           id TEXT PRIMARY KEY,
-           file_path TEXT NOT NULL,
-           title TEXT NOT NULL,
-           tags TEXT,
-           depth INTEGER,
-           tokens INTEGER,
-           summary TEXT,
-           checksum TEXT,
-           parent_id TEXT,
-           line_start INTEGER,
-           line_end INTEGER,
-           last_indexed INTEGER
-         )")
-
-      (sqlite:execute-non-query db
-        "CREATE TABLE IF NOT EXISTS agent_locks (
-           id INTEGER PRIMARY KEY AUTOINCREMENT,
-           lock_owner TEXT NOT NULL,
-           lock_pid INTEGER,
-           headline_ids TEXT NOT NULL,
-           scope_name TEXT,
-           acquired_at INTEGER NOT NULL,
-           expires_at INTEGER NOT NULL
-         )")
-
-      (sqlite:execute-non-query db
-        "CREATE TABLE IF NOT EXISTS context_moves (
-           id INTEGER PRIMARY KEY AUTOINCREMENT,
-           agent_id TEXT,
-           move_type TEXT NOT NULL,
-           headline_ids TEXT NOT NULL,
-           reason TEXT,
-           timestamp INTEGER DEFAULT (strftime('%s', 'now')),
-           task_id TEXT
-         )")
-
-      (sqlite:execute-non-query db
-        "CREATE TABLE IF NOT EXISTS tangle_history (
-           id INTEGER PRIMARY KEY AUTOINCREMENT,
-           block_id TEXT,
-           target_path TEXT NOT NULL,
-           checksum TEXT,
-           tangled_at INTEGER DEFAULT (strftime('%s', 'now'))
-         )")
-
-      (sqlite:execute-non-query db
-        "CREATE INDEX IF NOT EXISTS idx_headlines_tags ON headlines(tags)")
-      (sqlite:execute-non-query db
-        "CREATE INDEX IF NOT EXISTS idx_headlines_parent ON headlines(parent_id)")
-      (sqlite:execute-non-query db
-        "CREATE INDEX IF NOT EXISTS idx_locks_owner ON agent_locks(lock_owner)")
-      (sqlite:execute-non-query db
-        "CREATE INDEX IF NOT EXISTS idx_locks_expires ON agent_locks(expires_at)"))))
+  "Initialize in-memory litmode lock state (Refactor Plan §6.9: no SQLite)."
+  (setf *litmode-locks* (load-litmode-locks))
+  (setf *litmode-locks*
+        (remove-if (lambda (lock) (<= (getf lock :expires) (current-timestamp)))
+                   *litmode-locks*)))
 ;;* init
 (defun init-litmode (&optional path)
   "Initialize literate single-file mode.
@@ -295,7 +273,7 @@
 
     (setf *litmode-path* org-path)
     (setf *litmode-db-path*
-          (merge-pathnames ".hactar.litmode.db"
+          (merge-pathnames ".hactar.litmode.locks.lisp"
                            (uiop:pathname-directory-pathname org-path)))
     (setf *agent-id* (generate-agent-id))
 
@@ -303,6 +281,7 @@
       (create-default-litmode-file org-path))
 
     (init-litmode-db)
+    (save-litmode-locks)
     (load-litmode-file t)
     (build-headline-index)
     (register-org-tools)
@@ -442,25 +421,11 @@
                       :checksum checksum
                       :summary summary
                       :parent-id (or parent-id ""))
-                index)
-          ;; Store in DB
-          (handler-case
-              (sqlite:with-open-database (db *litmode-db-path*)
-                (sqlite:execute-non-query db
-                  "INSERT OR REPLACE INTO headlines
-                   (id, file_path, title, tags, depth, tokens, summary, checksum, parent_id, last_indexed)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
-                  id (namestring *litmode-path*) title
-                  (cl-json:encode-json-to-string (or tags '()))
-                  depth tokens summary checksum (or parent-id "")
-                  (current-timestamp)))
-            (error (e)
-              (:debug-log "Error indexing headline" id ":" e))))))
+                index))))
     (setf *headline-index-cache* (nreverse index))
 
     ;; Update the Headline Index table in the org file
     (update-index-headline-in-file)
-
     *headline-index-cache*))
 
 (defun update-index-headline-in-file ()
@@ -712,33 +677,14 @@
   (dolist (id (if (listp headline-ids) headline-ids (list headline-ids)))
     (when (find-heading-by-custom-id *litmode-parsed* id)
       (pushnew id *expanded-ids* :test #'string=)))
-  (when *litmode-db-path*
-    (handler-case
-        (sqlite:with-open-database (db *litmode-db-path*)
-          (sqlite:execute-non-query db
-            "INSERT INTO context_moves (agent_id, move_type, headline_ids, reason)
-             VALUES (?, 'expand', ?, ?)"
-            *agent-id*
-            (cl-json:encode-json-to-string
-             (if (listp headline-ids) headline-ids (list headline-ids)))
-            (or reason "")))
-      (error (e) (:debug-log "Error logging context move:" e))))
+  (when reason (debug-log "expand-context reason:" reason))
   *expanded-ids*)
 
 (defun focus-context (headline-id &optional reason)
   "Focus context on a single headline (plus pins and index)."
   (when (find-heading-by-custom-id *litmode-parsed* headline-id)
     (setf *focused-id* headline-id)
-    (when *litmode-db-path*
-      (handler-case
-          (sqlite:with-open-database (db *litmode-db-path*)
-            (sqlite:execute-non-query db
-              "INSERT INTO context_moves (agent_id, move_type, headline_ids, reason)
-               VALUES (?, 'focus', ?, ?)"
-              *agent-id*
-              (cl-json:encode-json-to-string (list headline-id))
-              (or reason "")))
-        (error (e) (:debug-log "Error logging context move:" e))))
+    (when reason (debug-log "focus-context reason:" reason))
     *focused-id*))
 
 ;;* tangling
@@ -805,15 +751,6 @@
                   (let ((heading (find-heading-by-custom-id *litmode-parsed* block-id)))
                     (when heading
                       (set-heading-property heading :HACTAR_CHECKSUM checksum)))
-
-                  ;; Record tangle history
-                  (handler-case
-                      (sqlite:with-open-database (db *litmode-db-path*)
-                        (sqlite:execute-non-query db
-                          "INSERT INTO tangle_history (block_id, target_path, checksum)
-                           VALUES (?, ?, ?)"
-                          block-id (namestring full-path) checksum))
-                    (error (e) (:debug-log "Error recording tangle:" e)))
 
                   (unless *silent*
                     (format t "  ✓ ~A~%" (uiop:native-namestring full-path))))
@@ -972,72 +909,72 @@
 ;;* locks
 
 (defun acquire-lock (headline-ids &key scope-name)
-  "Acquire locks on the given headline IDs for this agent.
+  "Acquire locks on the given headline IDs for this agent (in-memory; §6.9).
    Returns T on success, NIL on conflict."
   (let ((ids (if (listp headline-ids) headline-ids (list headline-ids)))
         (now (current-timestamp)))
-
-    (sqlite:with-open-database (db *litmode-db-path*)
-      (dolist (id ids)
-        (let ((conflicts (sqlite:execute-to-list db
-                           "SELECT lock_owner, headline_ids, expires_at FROM agent_locks
-                            WHERE headline_ids LIKE ? AND expires_at > ?"
-                           (format nil "%~A%" id) now)))
-          (dolist (conflict conflicts)
-            (let ((owner (first conflict)))
-              (unless (string= owner *agent-id*)
-                (unless *silent*
-                  (format t "~&Lock conflict: ~A is locked by ~A~%" id owner))
-                (return-from acquire-lock nil))))))
-
-      (sqlite:execute-non-query db
-        "INSERT INTO agent_locks (lock_owner, lock_pid, headline_ids, scope_name, acquired_at, expires_at)
-         VALUES (?, ?, ?, ?, ?, ?)"
-        *agent-id*
-        #+sbcl (sb-posix:getpid) #-sbcl 0
-        (cl-json:encode-json-to-string ids)
-        (or scope-name "")
-        now
-        (+ now *lock-duration-seconds*))
-
-      (update-locks-in-org)
-      t)))
+    (cleanup-expired-locks)
+    (dolist (lock *litmode-locks*)
+      (let ((owner (getf lock :owner))
+            (lock-ids (getf lock :ids))
+            (expires (getf lock :expires)))
+        (when (and (> expires now)
+                   (not (string= owner *agent-id*))
+                   (intersection ids lock-ids :test #'string=))
+          (unless *silent*
+            (format t "~&Lock conflict: ~{~A~^, ~} locked by ~A~%"
+                    (intersection ids lock-ids :test #'string=) owner))
+          (return-from acquire-lock nil))))
+    (push (list :owner *agent-id*
+                :pid #+sbcl (sb-posix:getpid) #-sbcl 0
+                :ids ids
+                :scope (or scope-name "")
+                :acquired now
+                :expires (+ now *lock-duration-seconds*))
+          *litmode-locks*)
+    (save-litmode-locks)
+    (update-locks-in-org)
+    t))
 
 (defun release-lock (headline-ids)
-  "Release locks on the given headline IDs for this agent."
+  "Release locks on the given headline IDs for this agent (in-memory; §6.9)."
   (let ((ids (if (listp headline-ids) headline-ids (list headline-ids))))
-    (sqlite:with-open-database (db *litmode-db-path*)
-      (dolist (id ids)
-        (sqlite:execute-non-query db
-          "DELETE FROM agent_locks WHERE lock_owner = ? AND headline_ids LIKE ?"
-          *agent-id* (format nil "%~A%" id))))
+    (setf *litmode-locks*
+          (remove-if (lambda (lock)
+                       (and (string= (getf lock :owner) *agent-id*)
+                            (intersection ids (getf lock :ids) :test #'string=)))
+                     *litmode-locks*))
+    (save-litmode-locks)
     (update-locks-in-org)
     t))
 
 (defun heartbeat-locks ()
-  "Extend the expiry of all locks owned by this agent."
+  "Extend the expiry of all locks owned by this agent (in-memory; §6.9)."
   (let ((now (current-timestamp)))
-    (sqlite:with-open-database (db *litmode-db-path*)
-      (sqlite:execute-non-query db
-        "UPDATE agent_locks SET expires_at = ? WHERE lock_owner = ?"
-        (+ now *lock-duration-seconds*) *agent-id*))
+    (dolist (lock *litmode-locks*)
+      (when (string= (getf lock :owner) *agent-id*)
+        (setf (getf lock :expires) (+ now *lock-duration-seconds*))))
+    (save-litmode-locks)
     (update-locks-in-org)))
 
 (defun get-active-locks ()
-  "Get all non-expired locks."
+  "Get all non-expired locks as (owner ids-json scope acquired expires) lists (§6.9)."
   (let ((now (current-timestamp)))
-    (sqlite:with-open-database (db *litmode-db-path*)
-      (sqlite:execute-to-list db
-        "SELECT lock_owner, headline_ids, scope_name, acquired_at, expires_at
-         FROM agent_locks WHERE expires_at > ?"
-        now))))
+    (loop for lock in *litmode-locks*
+          when (> (getf lock :expires) now)
+          collect (list (getf lock :owner)
+                        (cl-json:encode-json-to-string (getf lock :ids))
+                        (getf lock :scope)
+                        (getf lock :acquired)
+                        (getf lock :expires)))))
 
 (defun cleanup-expired-locks ()
-  "Remove expired locks from the database."
+  "Remove expired locks from the in-memory registry (§6.9)."
   (let ((now (current-timestamp)))
-    (sqlite:with-open-database (db *litmode-db-path*)
-      (sqlite:execute-non-query db
-        "DELETE FROM agent_locks WHERE expires_at <= ?" now))
+    (setf *litmode-locks*
+          (remove-if (lambda (lock) (<= (getf lock :expires) now))
+                     *litmode-locks*))
+    (save-litmode-locks)
     (update-locks-in-org)))
 
 (defun update-locks-in-org ()
@@ -1292,47 +1229,20 @@ Usage: /litmode-init [path]"
   (let ((path (first args)))
     (init-litmode (when path (pathname path)))))
 
-(define-command scope (args)
-  "Set or show the active scope profile.
-Usage: /scope [name]
-       /scope --list"
-  (cond
-    ((member "--list" args :test #'string=)
-     (let ((profiles (list-scope-profiles)))
-       (if profiles
-           (progn
-             (format t "~&Available scope profiles:~%")
-             (dolist (p profiles)
-               (format t "  ~A~%" (getf p :name))
-               (when (getf p :include-tags)
-                 (format t "    Tags: ~{~A~^, ~}~%" (getf p :include-tags)))
-               (when (getf p :max-tokens)
-                 (format t "    Max tokens: ~A~%" (getf p :max-tokens)))))
-           (format t "~&No scope profiles defined.~%"))))
 
-    ((first args)
-     (set-active-scope (first args))
-     (format t "~&Scope set to: ~A~%" (first args)))
-
-    (t
-     (let ((current (get-active-scope)))
-       (if current
-           (format t "~&Active scope: ~A~%" current)
-           (format t "~&No active scope. Use /scope <name> or /scope --list~%"))))))
-
-(define-command expand (args)
+(define-command context.expand (args)
   "Expand context to include additional headlines.
-Usage: /expand <id1> [id2 ...]"
+Usage: /context.expand <id1> [id2 ...]"
   (if args
       (progn
         (expand-context args "User requested expansion")
         (format t "~&Expanded context with: ~{~A~^, ~}~%" args))
       (format t "~&Usage: /expand <headline-id> [more-ids...]~%")))
 
-(define-command focus (args)
+(define-command context.focus (args)
   "Focus context on a single headline.
-Usage: /focus <id>
-       /focus --clear"
+Usage: /context.focus <id>
+       /context.focus --clear"
   (cond
     ((member "--clear" args :test #'string=)
      (setf *focused-id* nil)
@@ -1438,9 +1348,9 @@ Usage: /litmode-locks [--cleanup]"
                         (first lock) (second lock) (third lock))))
             (format t "~&No active locks.~%"))))))
 
-(define-command run (args)
+(define-command lit.run (args)
   "Run a named src block from the Tooling section.
-Usage: /run <name>"
+Usage: /lit.run <name>"
   (if (not (litmode-active-p))
     (format t "~&Literate mode not active.~%")
     (if (first args)
@@ -1605,7 +1515,6 @@ Usage: hactar litmode.index"
                   (- (length *headline-index-cache*) 20)))))))
 
 ;;* file watcher analyzer
-
 (def-analyzer litmode-file-watcher ((*file-event-hook*)) nil (pathname event-type)
   "Watch for changes to the .hactar.org file and reload when modified."
   (when (and (litmode-active-p)

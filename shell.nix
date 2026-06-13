@@ -1,5 +1,8 @@
 { pkgs ? import <nixpkgs> { } }:
 
+let
+  sbclWithAsdf = pkgs.sbcl;
+in
 pkgs.mkShell {
   buildInputs = with pkgs; [
     readline
@@ -10,12 +13,11 @@ pkgs.mkShell {
     openssl
     zlib
     libyaml
-   sbcl_2_4_6
+    sbclWithAsdf
     git
+    gnumake
     cacert
-    zlib
     libuuid
-    readline
     libpng
     libjpeg
     libtiff
@@ -41,6 +43,7 @@ pkgs.mkShell {
 
     # Set up ASDF to find local systems
     export CL_SOURCE_REGISTRY="$PWD//:$CL_SOURCE_REGISTRY"
+    export SBCL_HOME="${sbclWithAsdf}/lib/sbcl"
 
     echo "Common Lisp development environment loaded with readline support"
   '';

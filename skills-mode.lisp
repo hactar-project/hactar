@@ -1,17 +1,18 @@
-;; wip skills handling
+;; Skills handling
 (in-package :hactar)
 
+;;* core
 (defun parse-skill-frontmatter (content)
   "Parses YAML frontmatter from SKILL.md content."
   (let ((scanner (cl-ppcre:create-scanner "^---\\s*\\n(.*?)\\n---\\s*\\n" :single-line-mode t)))
     (multiple-value-bind (match regs) (cl-ppcre:scan-to-strings scanner content)
-      (when (and match (> (length regs) 0))
-        (let ((yaml-str (aref regs 0)))
-          (handler-case
-              (cl-yaml:parse yaml-str)
-            (error (e)
-              (format t "Error parsing YAML frontmatter: ~A~%" e)
-              nil)))))))
+			 (when (and match (> (length regs) 0))
+			   (let ((yaml-str (aref regs 0)))
+			     (handler-case
+				 (cl-yaml:parse yaml-str)
+			       ((or error yaml.error:parsing-error) (e)
+				(format t "Error parsing YAML frontmatter: ~A~%" e)
+				nil)))))))
 
 (defun get-skill-metadata (skill-dir)
   "Reads SKILL.md in skill-dir and returns metadata hash table or nil."
@@ -51,7 +52,7 @@
     (let ((name (gethash "name" meta))
           (desc (gethash "description" meta))
           (dir-name (car (last (pathname-directory skill-dir)))))
-      
+
       (unless name
         (push "Missing 'name' field in frontmatter." errors))
       (when name
@@ -59,12 +60,12 @@
           (push (format nil "Invalid name format: '~A'. Must be lowercase alphanumeric, no consecutive hyphens, no start/end hyphen." name) errors))
         (unless (string= name dir-name)
           (push (format nil "Name mismatch: frontmatter name '~A' does not match directory name '~A'." name dir-name) errors)))
-      
+
       (unless desc
         (push "Missing 'description' field in frontmatter." errors))
       (when (and desc (> (length desc) 1024))
         (push "Description exceeds 1024 characters." errors)))
-    
+
     errors))
 
 (defun run-skills-list ()
@@ -76,12 +77,13 @@
           (dolist (skill skills)
             (format t "  ~A: ~A~%" (gethash "name" skill) (gethash "description" skill))))
         (format t "No skills found in ~A~%" *hactar-skills-path*))))
-
+;;* commands
 (define-command skills.list (args)
   "List available skills."
   (declare (ignore args))
   (run-skills-list)
   :slash t :sub t
+  :examples '("/skills.list")
   :json (lambda (args)
           (declare (ignore args))
           (to-json (coerce (loop for s in (list-skills)
@@ -133,7 +135,7 @@
     (unless name
       (format t "Usage: /skills.load <name> [--forms] [--ref]~%")
       (return-from run-skills-load))
-    
+
     (let* ((skill-dir (merge-pathnames (format nil "~A/" name) *hactar-skills-path*))
            (skill-file (merge-pathnames "SKILL.md" skill-dir)))
       (if (probe-file skill-file)
@@ -154,10 +156,23 @@
 
 (define-command skills.load (args)
   "Load a skill into context. Usage: /skills.load <name> [--forms] [--ref]"
-  (run-skills-load args)
+  (let* ((pos-args (append (uiop:ensure-list (getf args :subcommand))
+                           (uiop:ensure-list (getf args :args))))
+         (name (first pos-args)))
+    (cond
+      (name (run-skills-load args))
+      ((and *tui-running* (list-skills))
+       (let* ((skills (list-skills))
+              (names (mapcar (lambda (s) (gethash "name" s)) skills))
+              (selected (when names (fuzzy-select names))))
+         (when selected
+           (setf (getf args :subcommand) (list selected))
+           (run-skills-load args))))
+      (t (run-skills-load args))))
   :slash t :sub nil
   :cli-options ((:long "forms" :description "Load forms file")
-                (:long "ref" :description "Load reference file")))
+                (:long "ref" :description "Load reference file"))
+  :examples '("/skills.load python" "/skills.load rust --forms" "/skills.load javascript --ref"))
 
 (defun run-skills-search ()
   "Implementation of skills.search command."
@@ -179,7 +194,8 @@
   "Search skills and load one."
   (declare (ignore args))
   (run-skills-search)
-  :slash t :sub t)
+  :slash t :sub t
+  :examples '("/skills.search"))
 
 (defun run-skills-validate (args)
   "Implementation of skills.validate command."
@@ -187,11 +203,11 @@
     (unless target
       (format t "Usage: /skills.validate <name_or_path>~%")
       (return-from run-skills-validate))
-    
+
     (let ((dir (if (probe-file target)
                    (uiop:ensure-directory-pathname target)
                    (merge-pathnames (format nil "~A/" target) *hactar-skills-path*))))
-      
+
       (if (uiop:directory-exists-p dir)
           (let ((errors (validate-skill dir)))
             (if errors
@@ -202,7 +218,8 @@
 (define-command skills.validate (args)
   "Validate a skill directory or name."
   (run-skills-validate args)
-  :slash t :sub t)
+  :slash t :sub t
+  :examples '("/skills.validate my-skill" "/skills.validate /path/to/skill-dir"))
 
 (defun run-skills-doc (args)
   "Implementation of skills.doc command."
@@ -222,7 +239,8 @@
 (define-command skills.doc (args)
   "Generate documentation for available skills."
   (run-skills-doc args)
-  :slash t :sub t)
+  :slash t :sub t
+  :examples '("/skills.doc" "/skills.doc markdown" "/skills.doc org"))
 
 (defun copy-dir (src dst)
   "Recursively copy directory."
@@ -233,7 +251,7 @@
   (let ((source (first args))
         (subpath (second args)))
     (unless source
-      (format t "Usage: /skills.add <source> [path_in_repo]~%")
+      (format t "Usage: /skills.add <source> [path_in_repo]~%~%Examples:~%  /skills.add user/repo~%  /skills.add user/repo skills/rust~%")
       (return-from run-skills-add))
 
     (ensure-directories-exist *hactar-skills-path*)
@@ -305,7 +323,7 @@
                            (format t "Added skill ~A~%" dir-name))))))
                (format t "Git clone failed: ~A~%" err))
            (uiop:delete-directory-tree temp-dir :validate t))))
-      
+
       (t (format t "Unknown source type: ~A~%" source)))))
 
 (define-command skills.add (args)
@@ -315,9 +333,88 @@
      - anthropics/skills (shorthand for GitHub)
      - https://github.com/...
      - ./local/path
-     - file.zip"
+     - file.zip
+
+   Examples:
+     /skills.add user/repo
+     /skills.add user/repo skills/rust"
   (run-skills-add args)
-  :slash t :sub t)
+  :slash t :sub t
+  :examples '("/skills.add user/repo" "/skills.add user/repo skills/rust" "/skills.add ./my-local-skill" "/skills.add my-skill.zip"))
+
+(defun run-skills-remove (args)
+  "Implementation of skills.remove command."
+  (let ((name (first args)))
+    (unless name
+      (format t "Usage: /skills.remove <name>~%")
+      (return-from run-skills-remove))
+    (let ((skill-dir (merge-pathnames (format nil "~A/" name) *hactar-skills-path*)))
+      (if (uiop:directory-exists-p skill-dir)
+          (when (confirm-action (format nil "Remove skill '~A'?" name))
+            (uiop:delete-directory-tree skill-dir :validate t)
+            (format t "Removed skill: ~A~%" name))
+          (format t "Skill '~A' not found.~%" name)))))
+
+(define-command skills.remove (args)
+  "Remove an installed skill. Usage: /skills.remove <name>"
+  (cond
+    (args (run-skills-remove args))
+    ((and *tui-running* (list-skills))
+     (let* ((skills (list-skills))
+            (names (mapcar (lambda (s) (gethash "name" s)) skills))
+            (selected (when names (fuzzy-select names))))
+       (when selected (run-skills-remove (list selected)))))
+    (t (run-skills-remove args)))
+  :slash t :sub t
+  :examples '("/skills.remove my-skill"))
+
+(defun run-skills-file (args)
+  "Implementation of skills.file command: print a skill's SKILL.md."
+  (let ((name (first args)))
+    (unless name
+      (format t "Usage: /skills.file <name>~%")
+      (return-from run-skills-file))
+    (let ((skill-file (merge-pathnames (format nil "~A/SKILL.md" name) *hactar-skills-path*)))
+      (if (probe-file skill-file)
+          (format t "~A~%" (uiop:read-file-string skill-file))
+          (format t "SKILL.md not found for skill '~A'.~%" name)))))
+
+(define-command skills.file (args)
+  "Print a skill's SKILL.md content. Usage: /skills.file <name>"
+  (cond
+    (args (run-skills-file args))
+    ((and *tui-running* (list-skills))
+     (let* ((skills (list-skills))
+            (names (mapcar (lambda (s) (gethash "name" s)) skills))
+            (selected (when names (fuzzy-select names))))
+       (when selected (run-skills-file (list selected)))))
+    (t (run-skills-file args)))
+  :slash t :sub t
+  :examples '("/skills.file my-skill"))
+
+(define-command skills (args)
+  "List skills, or pick one with fuzzy-select in the TUI to load it."
+  (if (and *tui-running* (null args))
+      (let* ((skills (list-skills))
+             (names (mapcar (lambda (s) (gethash "name" s)) skills))
+             (selected (when names (fuzzy-select names))))
+        (when selected
+          (run-skills-load (list :subcommand (list selected)))))
+      (run-skills-list))
+  :slash t :sub t
+  :examples '("/skills")
+  :json (lambda (args)
+          (declare (ignore args))
+          (to-json (coerce (loop for s in (list-skills)
+                                 collect `(("name" . ,(gethash "name" s))
+                                           ("description" . ,(gethash "description" s))))
+                           'vector)))
+  :yaml (lambda (args)
+          (declare (ignore args))
+          (with-output-to-string (s)
+            (dolist (skill (list-skills))
+              (format s "- name: ~A~%  description: ~A~%"
+                      (gethash "name" skill) (gethash "description" skill))))))
 
 (defun run-skills-help (args)
   "Implementation of skills.help command."
@@ -327,6 +424,8 @@
   (format t "  skills.search                      - Search skills and load one~%")
   (format t "  skills.load <name> [--forms] [--ref] - Load a skill into context~%")
   (format t "  skills.add <source>                - Add a skill from a source~%")
+  (format t "  skills.remove <name>               - Remove an installed skill~%")
+  (format t "  skills.file <name>                 - Print a skill's SKILL.md~%")
   (format t "  skills.validate <path>             - Validate a skill directory or name~%")
   (format t "  skills.doc [format]                - Generate documentation for available skills~%")
   (format t "  skills.help                        - Show this help message~%"))
@@ -334,9 +433,13 @@
 (define-command skills.help (args)
   "Show help for skills commands."
   (run-skills-help args)
-  :slash t :sub t)
+  :slash t :sub t
+  :examples '("/skills.help"))
 
-;; (define-command butts (args)
-;;   (declare (ignore args))
-;;   (format t "Hey")
-;;   :slash t :sub nil)
+(defhydra skills-hydra (:title "Skills Commands" :exit nil)
+  "Transient menu for managing skills."
+  ("l" skills.list "List available skills")
+  ("s" skills.search "Search skills and load one")
+  ("v" skills.validate "Validate a skill")
+  ("d" skills.doc "Generate documentation for skills")
+  ("h" skills.help "Show help for skills commands"))

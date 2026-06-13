@@ -1,4 +1,3 @@
-;;* Litmode Tests
 (in-package :hactar-tests)
 
 (def-suite litmode-tests
@@ -6,8 +5,7 @@
 
 (in-suite litmode-tests)
 
-;;** Test Helpers
-
+;;* Test Helpers
 (defvar *test-litmode-root* nil
   "Temporary directory for litmode tests.")
 
@@ -58,7 +56,7 @@
       (write-string content s))
     (hactar::load-litmode-file t)))
 
-;;** Initialization Tests
+;;* Initialization Tests
 
 (test litmode-init-creates-file
   "Test that init-litmode creates the .hactar.org file."
@@ -70,7 +68,7 @@
   "Test that init-litmode creates the litmode database."
   (with-test-litmode
     (is-true (probe-file hactar::*litmode-db-path*))
-    (is (str:ends-with-p ".hactar.litmode.db" (namestring hactar::*litmode-db-path*)))))
+    (is (str:ends-with-p ".hactar.litmode.locks.lisp" (namestring hactar::*litmode-db-path*)))))
 
 (test litmode-init-sets-active
   "Test that init-litmode sets the active flag."
@@ -101,13 +99,10 @@
       (is (search "* Scratch" content)))))
 
 (test litmode-init-db-tables-exist
-  "Test that the database has the expected tables."
+  "Test that the in-memory registries are initialized."
   (with-test-litmode
-    (sqlite:with-open-database (db hactar::*litmode-db-path*)
-      (is (listp (sqlite:execute-to-list db "SELECT * FROM headlines LIMIT 0")))
-      (is (listp (sqlite:execute-to-list db "SELECT * FROM agent_locks LIMIT 0")))
-      (is (listp (sqlite:execute-to-list db "SELECT * FROM context_moves LIMIT 0")))
-      (is (listp (sqlite:execute-to-list db "SELECT * FROM tangle_history LIMIT 0"))))))
+    (is (listp hactar::*litmode-locks*))
+    (is (hash-table-p hactar::*named-blocks*))))
 
 (test litmode-init-idempotent
   "Test that calling init-litmode twice doesn't error."
@@ -122,7 +117,7 @@
     (hactar::init-litmode *test-litmode-root*)
     (is-true hactar::*litmode-active*)))
 
-;;** File I/O Tests
+;;* File I/O Tests
 
 (test litmode-load-file
   "Test that load-litmode-file parses the org file."
@@ -146,7 +141,7 @@
       (is (> (length content) 0))
       (is (search "Meta" content)))))
 
-;;** Headline Index Tests
+;;* Headline Index Tests
 
 (test litmode-build-headline-index
   "Test building the headline index."
@@ -188,16 +183,14 @@
       (is (numberp (getf entry :tokens)))
       (is (> (getf entry :tokens) 0)))))
 
-(test litmode-headline-index-stored-in-db
-  "Test that headline index is stored in the database."
+(test litmode-headline-index-stored-in-cache
+  "Test that headline index is stored in the in-memory cache."
   (with-test-litmode
     (hactar::build-headline-index)
-    (sqlite:with-open-database (db hactar::*litmode-db-path*)
-      (let ((rows (sqlite:execute-to-list db
-                    "SELECT id, title FROM headlines WHERE id = 'headline-index'")))
-        (is (= 1 (length rows)))))))
+    (is (some (lambda (entry) (string= (getf entry :id) "headline-index"))
+              hactar::*headline-index-cache*))))
 
-;;** Utility Helper Tests
+;;* Utility Helper Tests
 
 (test litmode-estimate-tokens
   "Test token estimation."
@@ -235,7 +228,7 @@
     (is (string= h1 h2))
     (is (not (string= h1 h3)))))
 
-;;** Context Generation Tests
+;;* Context Generation Tests
 
 (test litmode-generate-context-no-scope
   "Test context generation without a scope (includes everything except noctx)."
@@ -274,16 +267,7 @@
     (is (member "project-details" hactar::*expanded-ids* :test #'string=))
     (is (member "arch-overview" hactar::*expanded-ids* :test #'string=))))
 
-(test litmode-expand-context-logs-move
-  "Test that expand-context logs a context move in the database."
-  (with-test-litmode
-    (hactar::expand-context '("project-details") "testing logging")
-    (sqlite:with-open-database (db hactar::*litmode-db-path*)
-      (let ((rows (sqlite:execute-to-list db
-                    "SELECT move_type, reason FROM context_moves WHERE move_type = 'expand'")))
-        (is (>= (length rows) 1))))))
-
-;;** Scope Resolution Tests
+;;* Scope Resolution Tests
 
 (test litmode-set-active-scope
   "Test setting the active scope."
@@ -346,7 +330,7 @@ Some project info.
       (is (= 1 (length profiles)))
       (is (string= "dev" (getf (first profiles) :name))))))
 
-;;** Tangling Tests
+;;* Tangling Tests
 
 (test litmode-extract-tangle-blocks-empty
   "Test extracting tangle blocks from code zone with no blocks."
@@ -442,34 +426,7 @@ Some project info.
       (let ((content (uiop:read-file-string result)))
         (is (search "defun single" content))))))
 
-(test litmode-tangle-records-history
-  "Test that tangling records history in the database."
-  (with-test-litmode
-    (write-test-litmode-file
-     (format nil "#+TITLE: History Test
-
-* Code                                                              :code:
-:PROPERTIES:
-:ID: code-zone
-:END:
-
-** History Block
-:PROPERTIES:
-:ID: history-block
-:HACTAR_TANGLE: src/history.lisp
-:END:
-#+begin_src lisp
-(print :history)
-#+end_src
-"))
-    (hactar::build-headline-index)
-    (hactar::tangle-code-zone)
-    (sqlite:with-open-database (db hactar::*litmode-db-path*)
-      (let ((rows (sqlite:execute-to-list db
-                    "SELECT target_path FROM tangle_history")))
-        (is (>= (length rows) 1))))))
-
-;;** Untangling Tests
+;;* Untangling Tests
 
 (test litmode-untangle-file
   "Test pulling changes from a tangled file back into org."
@@ -511,7 +468,7 @@ Some project info.
     (signals error
       (hactar::untangle-file "nonexistent/file.lisp"))))
 
-;;** Drift Detection Tests
+;;* Drift Detection Tests
 
 (test litmode-detect-drift-none
   "Test drift detection when no files have changed."
@@ -595,7 +552,7 @@ Some project info.
       (is (= 1 (length drifts)))
       (is (eq :not-tangled (getf (first drifts) :drift-type))))))
 
-;;** Task Management Tests
+;;* Task Management Tests
 
 (test litmode-get-tasks-empty
   "Test getting tasks when none are defined."
@@ -663,7 +620,7 @@ Some project info.
     (signals error
       (hactar::transition-task "nonexistent-task" "DONE"))))
 
-;;** Named Block / Tooling Tests
+;;* Named Block / Tooling Tests
 
 (test litmode-register-org-tools-empty
   "Test registering org tools when tooling section is empty."
@@ -756,7 +713,7 @@ echo hello-from-block
     (signals error
       (hactar::run-named-block "nonexistent-block"))))
 
-;;** /add integration (litmode)
+;;* /add integration (litmode)
 
 (test litmode-add-inserts-src-block-under-ctx-files
   "When litmode is active, /add (add-file-to-context) should insert a src block under ** Files (ID: ctx-files) in .hactar.org."
@@ -776,7 +733,7 @@ echo hello-from-block
         (is (search "src/foo.lisp" org))
         (is (search "defun foo" org))))))
 
-;;** /drop integration (litmode)
+;;* /drop integration (litmode)
 
 (test litmode-drop-removes-src-block-from-ctx-files
   "When litmode is active, /drop (drop-file-from-context) should remove the file's src block from ** Files (ID: ctx-files) in .hactar.org."
@@ -839,7 +796,7 @@ echo hello-from-block
       (let ((org-after (uiop:read-file-string hactar::*litmode-path* :external-format :utf-8)))
         (is (string= org-before org-after))))))
 
-;;** Agent Lock Tests
+;;* Agent Lock Tests
 
 (test litmode-acquire-lock
   "Test acquiring a lock on headline IDs."
@@ -865,15 +822,11 @@ echo hello-from-block
 (test litmode-cleanup-expired-locks
   "Test cleaning up expired locks."
   (with-test-litmode
-    (sqlite:with-open-database (db hactar::*litmode-db-path*)
-      (sqlite:execute-non-query db
-        "INSERT INTO agent_locks (lock_owner, lock_pid, headline_ids, scope_name, acquired_at, expires_at)
-         VALUES ('old-agent', 0, '[\"test-id\"]', '', 1000, 1001)"))
+    (push (list :owner "old-agent" :ids '("test-id") :scope "" :acquired 1000 :expires 1001)
+          hactar::*litmode-locks*)
     (hactar::cleanup-expired-locks)
-    (sqlite:with-open-database (db hactar::*litmode-db-path*)
-      (let ((rows (sqlite:execute-to-list db
-                    "SELECT * FROM agent_locks WHERE lock_owner = 'old-agent'")))
-        (is (= 0 (length rows)))))))
+    (is (= 0 (count-if (lambda (l) (string= (getf l :owner) "old-agent"))
+                       hactar::*litmode-locks*)))))
 
 (test litmode-heartbeat-locks
   "Test heartbeat extending lock expiry."
@@ -888,7 +841,7 @@ echo hello-from-block
                (expires-after (fifth (first locks-after))))
           (is (> expires-after expires-before)))))))
 
-;;** System Prompt Integration Tests
+;;* System Prompt Integration Tests
 
 (test litmode-system-prompt-section-when-active
   "Test system prompt section generation when litmode is active."
@@ -918,7 +871,7 @@ echo hello-from-block
     (let ((section (hactar::litmode-system-prompt-section)))
       (is (search "project-details" section)))))
 
-;;** Lock File Tests
+;;* Lock File Tests
 
 (test litmode-lock-path
   "Test lock path computation."
@@ -927,7 +880,7 @@ echo hello-from-block
       (is-true lock-path)
       (is (search ".hactar.org.lock" (namestring lock-path))))))
 
-;;** Integration Tests
+;;* Integration Tests
 
 (test litmode-full-workflow
   "Test a complete workflow: init, write code, tangle, modify, detect drift, untangle."

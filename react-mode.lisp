@@ -1,7 +1,7 @@
 ;;* React Mode
 (in-package :hactar)
 
-;;** React Detection
+;;** Analyzers
 
 (def-analyzer react-dependency ((*package-json-analyzed-hook*)) nil (metadata)
   "Checks for React dependency and updates the stack."
@@ -15,51 +15,108 @@
       (unless *silent* (format t "~&React detected, adding to stack.~%"))
       (add-to-stack "react"))))
 
-;;** React Generators
-(defgenerator component
-  "Generate a React functional component with TypeScript"
+;;** Mode
+(defmode react
+  "React functional component and hooks development mode."
   :when (member "react" *stack* :test #'string-equal)
-  :priority 10
-  :args (name &key props)
-  :operations
-  ((:create :file "src/components/${name}.tsx"
-            :template "react/component.tsx.mustache")))
+  :rules "When working with React components:
+- Prefer functional components and hooks (useState, useEffect, useCallback, useMemo, etc.) over class components.
+- Use JSX for templating.
+- Follow standard React coding conventions and best practices.
+- Use TypeScript for type safety when .tsx/.ts files are present.
+- Prefer composition over inheritance.
+- Use React.memo() for expensive pure components.
+- Keep components small and focused (single responsibility).
+- Lift state up only when necessary; prefer local state and context.
+- Use custom hooks to extract reusable logic.
+- Always provide a key prop when rendering lists.
+- Use Error Boundaries for graceful error handling.
+- Prefer controlled components for form inputs."
+  :commands
+  ((defmode-command react "component.create" (args)
+     "Generate a React functional component. Usage: /react.component.create <Name>"
+     (if (null args)
+         (format t "Usage: /react.component.create <Name>~%")
+         (let* ((name (first args))
+                (class-name (pascal-case name))
+                (file-name (format nil "src/components/~A.tsx" class-name))
+                (content (format nil "import React from 'react';~%~%export interface ~AProps {~%  // props~%}~%~%export const ~A: React.FC<~AProps> = () => {~%  return (~%    <div>~%      ~A~%    </div>~%  );~%};~%"
+                                 class-name class-name class-name class-name)))
+           (scaffold-create-file file-name content))))
 
-(defgenerator hook
-  "Generate a custom React hook"
-  :when (member "react" *stack* :test #'string-equal)
-  :priority 10
-  :args (name &key args return-type)
-  :operations
-  ((:create :file "src/hooks/use${name}.ts"
-            :template "react/hook.ts.mustache")))
+   (defmode-command react "hook.create" (args)
+     "Generate a custom React hook. Usage: /react.hook.create <Name>"
+     (if (null args)
+         (format t "Usage: /react.hook.create <Name>~%")
+         (let* ((name (first args))
+                (hook-name (format nil "use~A" (pascal-case name)))
+                (file-name (format nil "src/hooks/~A.ts" hook-name))
+                (content (format nil "import { useState, useEffect } from 'react';~%~%export const ~A = () => {~%  return {};~%};~%"
+                                 hook-name)))
+           (scaffold-create-file file-name content))))
 
-(defgenerator test
-  "Generate React component tests with Testing Library"
-  :when (member "react" *stack* :test #'string-equal)
-  :priority 10
-  :args (target &key coverage)
-  :operations
-  ((:create :file "src/components/${name}.test.tsx"
-            :template "react/component.test.tsx.mustache")))
+   (defmode-command react "test.create" (args)
+     "Generate component tests with Testing Library. Usage: /react.test.create <Target>"
+     (if (null args)
+         (format t "Usage: /react.test.create <Target>~%")
+         (let* ((name (first args))
+                (class-name (pascal-case name))
+                (file-name (format nil "src/components/~A.test.tsx" class-name))
+                (content (format nil "import React from 'react';~%import { render, screen } from '@testing-library/react';~%import { ~A } from './~A';~%~%describe('~A', () => {~%  it('renders without crashing', () => {~%    render(<~A />);~%  });~%});~%"
+                                 class-name class-name class-name class-name)))
+           (scaffold-create-file file-name content))))
 
-;;** React Patterns
+   (defmode-command react "error-boundary.create" (args)
+     "Generate a React Error Boundary component. Usage: /react.error-boundary.create"
+     (identity args)
+     (let* ((file-name "src/components/ErrorBoundary.tsx")
+            (content (format nil "import React, { Component, ErrorInfo, ReactNode } from 'react';~%~%interface Props {~%  children: ReactNode;~%  fallback?: ReactNode;~%}~%~%interface State {~%  hasError: boolean;~%}~%~%export class ErrorBoundary extends Component<Props, State> {~%  public state: State = {~%    hasError: false~%  };~%~%  public static getDerivedStateFromError(_: Error): State {~%    return { hasError: true };~%  }~%~%  public componentDidCatch(error: Error, errorInfo: ErrorInfo) {~%    console.error('Uncaught error:', error, errorInfo);~%  }~%~%  public render() {~%    if (this.state.hasError) {~%      return this.props.fallback || <h1>Sorry, something went wrong.</h1>;~%    }~%    return this.props.children;~%  }~%}~%")))
+       (scaffold-create-file file-name content)))
 
-(defpattern error-boundary
-  "React Error Boundary component"
-  :when (member "react" *stack* :test #'string-equal)
-  :priority 10
-  :operations
-  ((:create :file "src/components/ErrorBoundary.tsx"
-            :template "react/error-boundary.tsx.mustache")))
+   (defmode-command react "auth-context.create" (args)
+     "Generate AuthContext provider and useAuth hook for React. Usage: /react.auth-context.create"
+     (identity args)
+     (let* ((ctx-file "src/auth/AuthContext.tsx")
+            (ctx-content (format nil "import React, { createContext, useState, useContext, ReactNode } from 'react';~%~%interface AuthContextType {~%  user: any;~%  login: (userData: any) => void;~%  logout: () => void;~%  isAuthenticated: boolean;~%}~%~%const AuthContext = createContext<AuthContextType | undefined>(undefined);~%~%export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) => {~%  const [user, setUser] = useState<any>(null);~%  const login = (userData: any) => setUser(userData);~%  const logout = () => setUser(null);~%  return (~%    <AuthContext.Provider value={{ user, login, logout, isAuthenticated: !!user }}>~%      {children}~%    </AuthContext.Provider>~%  );~%};~%"))
+            (hook-file "src/auth/useAuth.ts")
+            (hook-content (format nil "import { useContext } from 'react';~%import { AuthContext } from './AuthContext';~%export const useAuth = () => {~%  const context = useContext(AuthContext);~%  if (!context) throw new Error('useAuth must be used within an AuthProvider');~%  return context;~%};~%")))
+       (scaffold-create-file ctx-file ctx-content)
+       (scaffold-create-file hook-file hook-content)))
 
-;;** React Rule
+   (defmode-command react "auth-middleware.create" (args)
+     "Generate auth middleware for Express/Node. Usage: /react.auth-middleware.create"
+     (identity args)
+     (let* ((file-name "src/server/middleware/auth.ts")
+            (content (format nil "import { Request, Response, NextFunction } from 'express';~%~%export const authMiddleware = (req: Request, res: Response, next: NextFunction) => {~%  const authHeader = req.headers.authorization;~%  if (!authHeader) return res.status(401).json({ error: 'Unauthorized' });~%  next();~%};~%")))
+       (scaffold-create-file file-name content)))
 
+   (defmode-command react "protected-route.create" (args)
+     "Generate React ProtectedRoute component. Usage: /react.protected-route.create"
+     (identity args)
+     (let* ((file-name "src/components/ProtectedRoute.tsx")
+            (content (format nil "import React from 'react';~%import { Navigate } from 'react-router-dom';~%import { useAuth } from '../auth/useAuth';~%~%export const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {~%  const { isAuthenticated } = useAuth();~%  if (!isAuthenticated) return <Navigate to='/login' replace />;~%  return <>{children}</>;~%};~%")))
+       (scaffold-create-file file-name content)))
+
+   (defmode-command react "auth-guard.create" (args)
+     "Client-side route guard using AuthContext. Usage: /react.auth-guard.create"
+     (identity args)
+     (let* ((file-name "src/components/AuthGuard.tsx")
+            (content (format nil "import React from 'react';~%import { useAuth } from '../auth/useAuth';~%~%export const AuthGuard: React.FC<{ children: React.ReactNode }> = ({ children }) => {~%  const { isAuthenticated } = useAuth();~%  if (!isAuthenticated) return <div>Access Denied</div>;~%  return <>{children}</>;~%};~%")))
+       (scaffold-create-file file-name content)))
+
+   (defmode-command react "token-refresh.create" (args)
+     "Automatic token refresh with interceptor. Usage: /react.token-refresh.create"
+     (identity args)
+     (let* ((file-name "src/auth/tokenRefresh.ts")
+            (content (format nil "export const setupTokenRefresh = () => {~%  console.log('Token refresh initialized');~%};~%")))
+       (scaffold-create-file file-name content)))))
+
+;;** Rules
 (defrule react-rule (*package-json-analyzed-hook*) (metadata)
   "Adds React-specific instructions to the system prompt if React is detected."
-  (let* ((deps (mapcar (lambda (dep) (string-downcase (string (car dep)))) 
+  (let* ((deps (mapcar (lambda (dep) (string-downcase (string (car dep))))
                        (gethash "dependencies" metadata)))
-         (dev-deps (mapcar (lambda (dep) (string-downcase (string (car dep)))) 
+         (dev-deps (mapcar (lambda (dep) (string-downcase (string (car dep))))
                            (gethash "dev-dependencies" metadata))))
     (when (or (member "react" deps :test #'string=)
               (member "react" dev-deps :test #'string=))
@@ -99,179 +156,28 @@
       (if toc-json-str
           (let* ((toc (cl-json:decode-json-from-string toc-json-str))
                  (paths (extract-react-doc-paths toc))
-                 (chunks '()))
-
-            (unless *silent* (format t "Found ~A pages. Fetching content...~%" (length paths)))
-
+                 (doc-contents '()))
+            (unless *silent* (format t "Fetched TOC containing ~A doc paths.~%" (length paths)))
             (dolist (path paths)
-              (let ((url (format nil "~A~A.md" base-content-url path)))
-                (unless *silent* (format t "Fetching ~A...~%" path))
-                (let ((content (fetch-url-content url)))
-                  (if content
-                      (push content chunks)
-                      (unless *silent* (format t "Warning: Failed to fetch ~A~%" url))))))
-            
-            (setf chunks (nreverse chunks))
+              (let ((full-url (format nil "~A/~A.md" base-content-url path)))
+                (unless *silent* (format t "Fetching doc: ~A...~%" path))
+                (let ((doc-content (fetch-url-content full-url)))
+                  (when doc-content
+                    (push doc-content doc-contents)))))
+
+            (setf doc-contents (nreverse doc-contents))
 
             (if process-flag
-                (process-docs-with-llm chunks format-opt output-file)
-                (let ((markdown-content (str:join (format nil "~%~%---~%~%") chunks)))
+                (process-docs-with-llm doc-contents format-opt output-file)
+                (let ((markdown-content (str:join (format nil "~%~%---~%~%") doc-contents)))
                   (cond
                     ((string= format-opt "markdown")
                      (output-docs-markdown markdown-content output-file))
                     (t
                      (output-docs-converted markdown-content format-opt output-file))))))
-          (format t "Error: Failed to fetch TOC.~%"))))
-  :cli-options ((:long "format" :description "Output format (default: markdown)")
-                (:long "version" :description "Version of docs (default: latest)")
-                (:long "output" :description "Output file")
-                (:long "process" :flag t :description "Use LLM to process/convert content")
-                (:short "h" :long "help" :description "Show help")))
+          (format t "Error: Failed to fetch React docs TOC.~%")))))
 
-(defdoc "Latest React Docs" :source "hactar:docsets/react.19.2.3.org" :version "latest")
-
-;;** Auth Skills for React Features
-
-(defskill :auth-patterns
-  "Authentication and authorization patterns for web apps"
-  :instructions "When implementing authentication:
-
-## Password Handling
-- ALWAYS hash passwords with bcrypt, minimum 12 rounds
-- NEVER store plaintext passwords anywhere (DB, logs, error messages)
-- Use constant-time comparison for password verification
-
-## Token Management
-- Use short-lived access tokens (15 min) with long-lived refresh tokens (7 days)
-- Store access tokens in memory (JS variable), NEVER in localStorage
-- Store refresh tokens in httpOnly, Secure, SameSite=Strict cookies
-- Implement token rotation: issue new refresh token on each refresh
-- Invalidate refresh tokens on logout (server-side blocklist or DB flag)
-
-## Session Security
-- Generate cryptographically random session IDs (min 128 bits entropy)
-- Implement CSRF protection on all state-changing endpoints
-- Set appropriate CORS headers (restrict origins)
-- Use Secure and HttpOnly flags on all auth cookies
-
-## Route Protection
-- Protect routes server-side, NEVER rely solely on client-side guards
-- Return 401 for unauthenticated, 403 for unauthorized
-- Implement role-based access control (RBAC) via middleware
-
-## Error Handling
-- Use generic error messages for auth failures ('Invalid credentials')
-- Do NOT reveal whether email/username exists on login failure
-- Rate-limit login attempts (e.g., 5 per minute per IP)
-- Log failed auth attempts for monitoring"
-  :rules "Always hash passwords with bcrypt. Never store tokens in localStorage. Use httpOnly cookies.")
-
-(defskill :react-context-patterns
-  "React Context API patterns for global state management"
-  :instructions "When using React Context for state management:
-
-## Context Structure
-- Create a dedicated context file per domain (AuthContext, ThemeContext, etc.)
-- Export both the Provider component and a custom hook (useAuth, useTheme, etc.)
-- NEVER export the raw context object; always use the hook for consumption
-- Throw an error in the hook if used outside the Provider
-
-## Provider Pattern
-- Place Providers at the appropriate level (not always app root)
-- Compose multiple providers using a single AppProviders wrapper
-- Keep Provider components focused: one concern per context
-- Initialize state from external sources in useEffect, not in the default value
-
-## Performance
-- Split frequently-changing values from rarely-changing ones into separate contexts
-- Memoize context values with useMemo to prevent unnecessary re-renders
-- Memoize callback functions passed via context with useCallback
-- Consider using useReducer for complex state transitions
-
-## TypeScript
-- Define explicit types for context value (never use 'any' or 'undefined | T' without null check)
-- Use a factory pattern: createContext<T | null>(null) + hook with null guard
-- Export the type interface for consumers that need to type their props"
-  :rules "Always provide a custom hook. Never export raw context. Memoize context values.")
-
-(defskill :oauth-patterns
-  "OAuth 2.0 / OpenID Connect integration patterns"
-  :instructions "When implementing OAuth flows:
-
-## Authorization Code Flow (recommended for web apps)
-1. Redirect user to provider's authorize URL with state + PKCE code_challenge
-2. Provider redirects back with authorization code
-3. Exchange code for tokens server-side (NEVER client-side)
-4. Store access/refresh tokens encrypted at rest
-
-## Security
-- ALWAYS use the 'state' parameter to prevent CSRF (random, per-session, verified on callback)
-- ALWAYS use PKCE (code_verifier / code_challenge) even for server-side apps
-- Request minimum necessary scopes
-- Validate the id_token signature and claims (iss, aud, exp, nonce)
-- Store OAuth tokens encrypted at rest (use AES-256-GCM or similar)
-
-## Token Lifecycle
-- Implement automatic token refresh before expiry
-- Handle token revocation on logout (call provider's revoke endpoint)
-- Clear all stored tokens on disconnect/unlink
-
-## Account Linking
-- Match OAuth accounts to existing users by email (with email verification check)
-- Allow users to link/unlink multiple OAuth providers
-- Store provider + provider_user_id as unique key"
-  :rules "Always use state parameter for CSRF. Always use PKCE. Exchange codes server-side only.")
-
-;;** React-specific Auth Generators
-
-(defgenerator auth-context
-  "Generate AuthContext provider and useAuth hook for React"
-  :when (member "react" *stack* :test #'string-equal)
-  :priority 15
-  :args (name &key user-type)
-  :operations
-  ((:create :file "src/auth/AuthContext.tsx"
-            :template "react/auth-context.tsx.mustache")
-   (:create :file "src/auth/useAuth.ts"
-            :template "react/use-auth.ts.mustache")))
-
-(defgenerator auth-middleware
-  "Generate Express/Node auth middleware for JWT verification"
-  :when (member "react" *stack* :test #'string-equal)
-  :priority 10
-  :args (name &key strategy)
-  :operations
-  ((:create :file "src/server/middleware/auth.ts"
-            :template "node/auth-middleware.ts.mustache")))
-
-(defgenerator protected-route
-  "Generate React ProtectedRoute wrapper component"
-  :when (member "react" *stack* :test #'string-equal)
-  :priority 15
-  :args (name &key role-field)
-  :operations
-  ((:create :file "src/components/ProtectedRoute.tsx"
-            :template "react/protected-route.tsx.mustache")))
-
-;;** React Auth Patterns
-
-(defpattern auth-guard
-  "Client-side route guard using AuthContext"
-  :when (member "react" *stack* :test #'string-equal)
-  :priority 15
-  :operations
-  ((:create :file "src/components/AuthGuard.tsx"
-            :template "react/auth-guard.tsx.mustache")))
-
-(defpattern token-refresh
-  "Automatic token refresh with interceptor"
-  :when (member "react" *stack* :test #'string-equal)
-  :priority 15
-  :operations
-  ((:create :file "src/auth/tokenRefresh.ts"
-            :template "react/token-refresh.ts.mustache")))
-
-;;** React Proxy Hook
+;;** Hooks
 ;; Detects React-related content in proxy requests and injects React-specific rules.
 
 (defun react-proxy-rules-text ()
@@ -347,101 +253,9 @@
                                 :fn #'proxy-react-hook
                                 :name 'proxy-react-hook))
 
-;;** Auth Feature Definition
-
-(deffeature auth
-  "Authentication and authorization for React apps"
-  :variants
-  ((:default
-    :description "JWT auth with React Context"
-    :skills (:auth-patterns :react-context-patterns)
-    :rules "For React authentication:
-- Use AuthContext with useAuth hook
-- Wrap protected routes with ProtectedRoute component
-- Store tokens in httpOnly cookies, never localStorage
-- Implement automatic token refresh"
-    :entities
-    ((:type component :name "AuthProvider" :tags (:auth :context))
-     (:type component :name "ProtectedRoute" :tags (:auth :routing))
-     (:type component :name "LoginForm" :tags (:auth :form :public))
-     (:type frameworkroute :name "/login" :tags (:auth :public))
-     (:type frameworkroute :name "/register" :tags (:auth :public))
-     (:type frameworkroute :name "/dashboard" :tags (:auth :protected)))
-    :generators (:auth-context :auth-middleware :protected-route)
-    :patterns (:auth-guard :token-refresh)
-    :packages ("jwt-decode" "bcrypt" "jsonwebtoken")
-    :tags (:authenticated :protected))
-
-   (:github
-    :description "GitHub OAuth for React"
-    :inherits :default
-    :skills (:oauth-patterns)
-    :rules "For GitHub OAuth:
-- Store OAuth tokens encrypted at rest
-- Request minimum necessary scopes (read:user, user:email)
-- Implement token refresh flow
-- Use state parameter to prevent CSRF"
-    :entities
-    ((:type component :name "GitHubLoginButton" :tags (:auth :oauth))
-     (:type frameworkroute :name "/auth/github" :method :get :tags (:auth :oauth :public))
-     (:type frameworkroute :name "/auth/github/callback" :method :get :tags (:auth :oauth :public)))
-    :packages ("@octokit/auth-oauth-app")
-    :env (("GITHUB_CLIENT_ID" . "Your GitHub OAuth App client ID")
-          ("GITHUB_CLIENT_SECRET" . "Your GitHub OAuth App client secret")))
-
-   (:google
-    :description "Google OAuth integration"
-    :inherits :default
-    :skills (:oauth-patterns)
-    :packages ("passport-google-oauth20")
-    :env (("GOOGLE_CLIENT_ID" . "Google OAuth client ID")
-          ("GOOGLE_CLIENT_SECRET" . "Google OAuth client secret")))))
-
-;;** Shopping Feature
-
-(deffeature shopping
-  "E-commerce / shopping cart functionality"
-  :variants
-  ((:default
-    :description "Basic shopping cart with product catalog"
-    :rules "For shopping features:
-- Use optimistic UI updates for cart operations
-- Validate stock availability server-side before checkout
-- Implement idempotent payment processing
-- Store cart in both client state and server session"
-    :entities
-    ((:type model :name "product"
-      :fields ((:name :string) (:price :number) (:description :string)
-               (:image-url :string) (:stock :integer) (:category :string)))
-     (:type model :name "cart-item"
-      :fields ((:product-id :string) (:quantity :integer) (:user-id :string)))
-     (:type model :name "order"
-      :fields ((:user-id :string) (:items :list) (:total :number)
-               (:status :keyword) (:created-at :timestamp)))
-     (:type frameworkroute :name "/api/products" :method :get :tags (:shop :public))
-     (:type frameworkroute :name "/api/products/:id" :method :get :tags (:shop :public))
-     (:type frameworkroute :name "/api/cart" :method :get :tags (:shop :protected))
-     (:type frameworkroute :name "/api/cart/add" :method :post :tags (:shop :protected))
-     (:type frameworkroute :name "/api/cart/remove" :method :delete :tags (:shop :protected))
-     (:type frameworkroute :name "/api/checkout" :method :post :tags (:shop :protected))
-     (:type frameworkroute :name "/api/orders" :method :get :tags (:shop :protected))
-     (:type component :name "ProductList" :tags (:shop :catalog))
-     (:type component :name "ProductCard" :tags (:shop :catalog))
-     (:type component :name "CartDrawer" :tags (:shop :cart))
-     (:type component :name "CheckoutForm" :tags (:shop :checkout)))
-    :packages ("stripe"))
-
-   (:stripe
-    :description "Stripe payment integration"
-    :inherits :default
-    :rules "For Stripe integration:
-- Use Stripe Elements for PCI compliance
-- Always verify webhook signatures
-- Implement idempotency keys for payment intents"
-    :entities
-    ((:type frameworkroute :name "/api/stripe/webhook" :method :post :tags (:shop :stripe :public))
-     (:type frameworkroute :name "/api/stripe/create-intent" :method :post :tags (:shop :stripe :protected)))
-    :packages ("@stripe/stripe-js" "@stripe/react-stripe-js")
-    :env (("STRIPE_SECRET_KEY" . "Stripe secret key")
-          ("STRIPE_PUBLISHABLE_KEY" . "Stripe publishable key")
-          ("STRIPE_WEBHOOK_SECRET" . "Stripe webhook signing secret")))))
+;; Register dynamic route for react-mode hypertext
+(register-protocol-route "docs" "^js/react/([^/]+)/dynamic$"
+  (lambda (version)
+    (list :content (format nil "# React ~A Dynamic Documentation~%Generated dynamically for React Mode!" version)
+          :title "React Dynamic Docs"
+          :tags '("react" "dynamic"))))

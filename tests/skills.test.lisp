@@ -72,7 +72,7 @@ Some other content"))
               (format s "---~%name: skill-one~%description: First skill~%---~%"))
             (with-open-file (s (merge-pathnames "SKILL.md" skill2-dir) :direction :output :if-does-not-exist :create)
               (format s "---~%name: skill-two~%description: Second skill~%---~%"))
-            
+
             (let ((skills (hactar::list-skills)))
               (is (= 2 (length skills)))
               (is (string= "skill-one" (gethash "name" (first skills))))
@@ -90,7 +90,7 @@ Some other content"))
           (progn
             (with-open-file (s (merge-pathnames "SKILL.md" skill1-dir) :direction :output :if-does-not-exist :create)
               (format s "---~%name: test-skill~%description: Format test skill~%---~%"))
-            
+
             ;; Get the format handlers
             (let ((json-fn (hactar::get-format-handler "/skills.list" :json))
                   (yaml-fn (hactar::get-format-handler "/skills.list" :yaml))
@@ -98,24 +98,24 @@ Some other content"))
                   (md-fn (hactar::get-format-handler "/skills.list" :markdown))
                   (org-fn (hactar::get-format-handler "/skills.list" :org-mode))
                   (acp-fn (gethash "/skills.list" hactar::*acp-commands*)))
-              
+
               ;; Verify each format produces expected structure
               (is-true json-fn)
               (let ((json-out (funcall json-fn nil)))
                 (is-true (search "test-skill" json-out))
                 (is-true (search "Format test skill" json-out)))
-              
+
               (is-true yaml-fn)
               (let ((yaml-out (funcall yaml-fn nil)))
                 (is-true (search "- name: test-skill" yaml-out))
                 (is-true (search "  description: Format test skill" yaml-out)))
-              
+
               (is-true xml-fn)
               (let ((xml-out (funcall xml-fn nil)))
                 (is-true (search "<skills>" xml-out))
                 (is-true (search "<name>test-skill</name>" xml-out))
                 (is-true (search "<description>Format test skill</description>" xml-out)))
-              
+
               (is-true md-fn)
               (let ((md-out (funcall md-fn nil)))
                 (is-true (search "| Name | Description |" md-out))
@@ -125,7 +125,7 @@ Some other content"))
               (let ((org-out (funcall org-fn nil)))
                 (is-true (search "| Name | Description |" org-out))
                 (is-true (search "| test-skill | Format test skill |" org-out)))
-              
+
               (is-true acp-fn)
               (let ((acp-out (funcall acp-fn nil)))
                 (is (string= "1 skills available." (cdr (assoc "text" acp-out :test #'string=))))

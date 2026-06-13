@@ -227,8 +227,8 @@
 (def-processor xml-tool-call-processor (history)
   "Parses and executes XML tool calls from the last assistant message.
    Only active when *tools-in-system-prompt* is T."
-  (when (and (boundp '*tools-in-system-prompt*) *tools-in-system-prompt* 
-             (boundp '*tool-use-enabled*) *tool-use-enabled* 
+  (when (and (boundp '*tools-in-system-prompt*) *tools-in-system-prompt*
+             (boundp '*tool-use-enabled*) *tool-use-enabled*
              history)
     (let ((last-message (car (last history))))
       (when (string= (cdr (assoc :role last-message)) "assistant")

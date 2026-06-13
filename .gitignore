@@ -1,8 +1,8 @@
 hactar
 # ignore this because it is just a convenient test file
 package.json
-.hactar.port
-.hactar*.context.org
-.hactar_history
-.hactar.transcript.json
+.hactar*.port
 releases
+.tags
+debug-error.lisp
+.hactar/

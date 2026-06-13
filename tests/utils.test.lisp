@@ -64,21 +64,21 @@ Outro")
          (hactar::*repo-root* temp-dir))
     (let ((test-file "safe-test.txt")
           (outside-file "../outside.txt"))
-      
+
       ;; Test safe write
       (is-true (hactar::safe-write-to-file test-file "initial content"))
       (is (string= (hactar::read-file-content (merge-pathnames test-file temp-dir)) "initial content"))
-      
+
       ;; Test safe replace
       (is-true (hactar::safe-replace-in-file test-file "initial" "updated"))
       (is (string= (hactar::read-file-content (merge-pathnames test-file temp-dir)) "updated content"))
-      
+
       ;; Test safe replace not found
       (is (null (hactar::safe-replace-in-file test-file "missing" "new")))
-      
+
       ;; Test outside write
       (signals error (hactar::safe-write-to-file outside-file "bad"))
-      
+
       ;; Test outside replace
       (signals error (hactar::safe-replace-in-file outside-file "x" "y")))))
 
@@ -190,14 +190,16 @@ echo hi
   ;; colorize returns string with ESC codes
   (let ((c (hactar::colorize "X" :red)))
     (is-true (str:containsp "[31m" c)))
-  ;; Capture output of log-good and log-warning
+  ;; Capture output of log-good, log-warning, and log-error
   (let* ((buf (make-string-output-stream))
          (*standard-output* buf))
     (hactar::log-good "It worked ~A" 42)
     (hactar::log-warning "Uh oh ~A" "nope")
+    (hactar::log-error "Fail ~A" "critical")
     (let ((s (get-output-stream-string buf)))
       (is-true (str:containsp "Good:" s))
-      (is-true (str:containsp "Warning:" s)))))
+      (is-true (str:containsp "Warning:" s))
+      (is-true (str:containsp "Error:" s)))))
 
 (test case-conversion-test
   "Test kebab-case, pascal-case, and camel-case conversions."
@@ -208,7 +210,7 @@ echo hi
   (is (string= (hactar::kebab-case "simple") "simple"))
   (is (string= (hactar::kebab-case "ALLCAPS") "allcaps"))
   (is (string= (hactar::kebab-case "") ""))
-  
+
   ;; pascal-case tests
   (is (string= (hactar::pascal-case "my-component") "MyComponent"))
   (is (string= (hactar::pascal-case "get_user_data") "GetUserData"))
@@ -216,7 +218,7 @@ echo hi
   (is (string= (hactar::pascal-case "simple") "Simple"))
   (is (string= (hactar::pascal-case "already-kebab") "AlreadyKebab"))
   (is (string= (hactar::pascal-case "") ""))
-  
+
   ;; camel-case tests
   (is (string= (hactar::camel-case "my-component") "myComponent"))
   (is (string= (hactar::camel-case "get_user_data") "getUserData"))

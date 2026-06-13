@@ -6,12 +6,22 @@
   "Registry of all state variables defined via defstate.")
 
 (defun format-state-xml (state-info)
-  (let ((name (getf state-info :name))
-        (doc (getf state-info :doc))
-        (type (getf state-info :type))
-        (examples (getf state-info :examples)))
-    (format nil "<var name=\"~A\" type=\"~A\">~%  <doc>~A</doc>~%  <examples>~%~{~A~^~%~}~%  </examples>~%</var>"
-            name type (or doc "") examples)))
+  (let* ((name (getf state-info :name))
+         (doc (getf state-info :doc))
+         (type (getf state-info :type))
+         (examples (getf state-info :examples))
+         (val (if (and name (boundp name))
+                  (symbol-value name)
+                  nil)))
+    (format nil "<var name=\"~A\" type=\"~A\">~%  <value>~A</value>~%  <doc>~A</doc>~%  <examples>~%~{~A~^~%~}~%  </examples>~%</var>"
+            name type val (or doc "") examples)))
+
+(defun state-modified-p (info)
+  (let ((sym (getf info :name)))
+    (and sym
+         (boundp sym)
+         (getf info :has-initial-value)
+         (not (equal (symbol-value sym) (getf info :initial-value))))))
 
 (defmacro defstate (name &optional (initial-value nil iv-supplied-p) docstring &rest meta)
   "Like defvar, but registers the variable in *state-registry*."
@@ -25,7 +35,9 @@
            (list :name ',name
                  :doc ,docstring
                  :type (getf ',meta :type "unknown")
-                 :examples (getf ',meta :examples nil)))
+                 :examples (getf ',meta :examples nil)
+                 :initial-value ,(if iv-supplied-p initial-value nil)
+                 :has-initial-value ,iv-supplied-p))
      ',name))
 
 ;;* General State
@@ -45,7 +57,6 @@
 (defstate *in-editor* nil "True if hactar is being run inside an editor (e.g. Emacs, Vim). Set via --in-editor flag or HACTAR_IN_EDITOR env var.")
 
 (defstate *editor-log-file* nil "Pathname to the .hactar.{pid}.log file used for structured output in editor mode.")
-(defstate *sqlite-vec-path* (uiop:getenv "SQLITE_VEC_PATH") "Path to the sqlite vec dynamic lib e.g ~/.local/share/sqlite-vec/vec0.so")
 
 ;;* Project Metadata
 (defstate *name* nil "The name of the project.")
@@ -59,17 +70,14 @@
 (defstate *stack-changed-hook* (make-instance 'nhooks:hook)
   "Hook run when the stack changes. Handlers receive the new stack as argument.")
 
-;; Install a handler to refresh generators/patterns when stack changes
+;; Install a handler to refresh modes when the stack changes
 (nhooks:add-hook *stack-changed-hook*
                  (make-instance 'nhooks:handler
                                 :fn (lambda (stack)
                                       (declare (ignore stack))
-                                      ;; Only refresh if gen.lisp has been loaded
-                                      (when (fboundp 'refresh-generators)
-                                        (funcall 'refresh-generators))
-                                      (when (fboundp 'refresh-patterns)
-                                        (funcall 'refresh-patterns)))
-                                :name 'refresh-generators-on-stack-change))
+                                      (when (fboundp 'refresh-modes)
+                                        (funcall 'refresh-modes)))
+                                :name 'refresh-modes-on-stack-change))
 
 (defstate *shell* (or (uiop:getenv "HACTAR_SHELL")
 		    (uiop:getenv "SHELL")
@@ -95,6 +103,10 @@ Generated using tree-sitter")
 
 (defstate *current-model* nil
   "The current model being used.")
+
+(defstate *last-user-prompt* nil
+  "The last prompt sent by the user to the LLM.")
+
 
 (defstate *embedding-model* "nomic-embed-text"
   "Model to use for generating embeddings.")
@@ -128,9 +140,6 @@ Generated using tree-sitter")
 
 (defstate *multiline-mode* nil
                          "Whether multiline mode is enabled.")
-
-(defstate *transcript-file* ".hactar.transcript.json"
-                          "File to save chat transcript to.")
 
 (defstate *file-watcher* nil "The global file watcher instance.")
 
@@ -179,7 +188,7 @@ Generated using tree-sitter")
   "Path to Hactar's configuration directory.")
 (defstate *db-path* (or (uiop:getenv "HACTAR_DB_PATH")
                       (uiop:subpathname *hactar-data-path*  "hactar.db"))
-  
+
   "Path to the SQLite database file.")
 
 
@@ -279,7 +288,7 @@ Generated using tree-sitter")
 (defstate *permission-log-max* 100
   "Maximum number of entries to keep in the permission log.")
 
-;;** Agent State
+;;* Agent
 (defstate *agent-definitions* (make-hash-table :test 'equal)
                             "Hash table storing agent definitions keyed by name.")
 (defstate *running-agents* (make-hash-table :test 'equal)
@@ -299,7 +308,7 @@ Generated using tree-sitter")
 (defstate *auto-suggest-commands* nil "Enable/disable automatic command suggestion.")
 (defstate *auto-cmds* nil "Enable/disable automatic execution of shell commands.")
 
-;;** Assistant Mode State
+;;* Assistant Mode
 (defstate *assistant-mode-active* nil "Is the assistant mode currently active?")
 (defstate *assistant-extraction* nil "The last text extracted by the assistant mode LLM.")
 (defstate *assistant-last-screenshot-path* nil "Pathname of the last screenshot taken by the assistant.")
@@ -313,14 +322,13 @@ Generated using tree-sitter")
 (defstate *assistant-initial-delay-done* nil "Has the initial 30s delay for assistant mode passed?")
 (defstate *assistant-previous-image-description* "Screenshot of the currently focused window." "Default description for assistant screenshots.")
 
-
-;;** AI Comment Analyzer State
+;;* AI Comment Analyzer
 (defstate *ai-comment-queue* '()
                            "Queue of files with AI! comments to process.")
 (defstate *ai-comment-processor-lock* (bt:make-lock "ai-comment-processor-lock")
                                     "Lock to ensure single-threaded AI! comment processing.")
 
-;;** HTTP Server State
+;;* HTTP Server
 (defstate *http-port* 4269
                     "Port for the HTTP server.")
 (defstate *http-server* nil
@@ -328,7 +336,7 @@ Generated using tree-sitter")
 (defstate *http-auto-start* nil
   "When T, automatically start the HTTP server on session init.")
 
-;;** Slynk Server State
+;;* Slynk Server
 (defstate *slynk-port* 4005
   "Port for the Slynk server.")
 (defstate *slynk-started* nil
@@ -336,9 +344,7 @@ Generated using tree-sitter")
 (defstate *slynk-auto-start* nil
   "When T, automatically start Slynk server on session init.")
 
-
-
-;;** Watcher configuration and state
+;;* Watcher
 (defstate *watcher-definitions* (make-hash-table :test 'equal)
                               "Hash table storing watcher definitions keyed by name.")
 (defstate *active-watchers* (make-hash-table :test 'equalp) ; Keyed by process-info object
@@ -357,7 +363,7 @@ Generated using tree-sitter")
 (defstate *litmode-enabled* nil
   "When T, literate single-file mode is active and provides context.")
 
-;;** Session Management State
+;;* Sessions
 (defstate *sessions-dir* nil
   "Directory for storing session files. Set per-project to .hactar/sessions/ under *repo-root*.")
 
@@ -373,23 +379,17 @@ Generated using tree-sitter")
 (defstate *session-auto-save-name* ".autosave"
   "Name used for the auto-saved session.")
 
-;;** Preset System State
+;;* Presets
 (defstate *presets* (make-hash-table :test 'equal)
   "Hash table of defined presets, keyed by name.")
 
 (defstate *active-presets* '()
   "List of currently active preset names, in order of activation.")
 
-(defstate *snapshots* (make-hash-table :test 'equal)
-  "Hash table of saved context snapshots, keyed by name.")
-
 (defstate *preset-search-paths* '()
   "List of directories to search for preset files.")
 
-(defstate *snapshots-dir* (uiop:subpathname (get-xdg-data-dir) "hactar/snapshots/")
-  "Directory for storing context snapshots.")
-
-;;** Code-Value System State
+;;* Code-Value
 (defstate *code-values* (make-hash-table :test 'equal)
   "Registry of all code-values by ID or name.")
 
@@ -414,7 +414,7 @@ Generated using tree-sitter")
 (defstate *recipes* (make-hash-table :test 'equal)
   "Registry of defined recipes by name.")
 
-;;** Mold System State
+;;* Molds
 (defstate *active-mold-name* nil
   "Name of the currently active mold, or NIL.")
 
@@ -424,26 +424,26 @@ Generated using tree-sitter")
                                       '()))
   "List of directories to search for templates, in priority order.")
 
-;;** Lisp-RPC State
+;;* lisp-rpc
 (defstate *lisp-rpc-mode* nil "T when running in Lisp-RPC mode (--lisp flag). LLM returns Lisp forms for evaluation.")
 (defstate *lisp-rpc-pending-permission* nil "Plist of the current pending permission request, or nil.")
 (defstate *lisp-rpc-permission-lock* nil "Lock for permission condition variable.")
 (defstate *lisp-rpc-permission-cv* nil "Condition variable for permission response signalling.")
 (defstate *lisp-rpc-permission-timeout* 120 "Seconds to wait for a permission response before auto-denying.")
 
-;;** Process History Hook
+;;* History state
 (defstate *process-history-hook*
   (make-instance 'nhooks:hook)
   "Hook run after chat history is updated with an LLM response. Handlers receive the full history list.")
 
-;;** AgentShell State
+;;* AgentShell
 (defstate *agentshell-mode* nil "T when running in AgentShell (ACP client) mode.")
 
-;;** MCP (Model Context Protocol) State
+;;* MCP
 (defstate *mcp-mode* nil "T when running as an MCP server over stdio.")
 (defstate *mcp-initialized* nil "T after the MCP initialize handshake is complete.")
 
-;;** ACP (Agent Client Protocol) State
+;;* ACP
 (defstate *acp-mode* nil "T when running in ACP stdio mode.")
 (defstate *acp-session-id* nil "The current ACP session ID.")
 (defstate *acp-client-capabilities* nil "Alist of client capabilities from initialize.")
@@ -453,8 +453,11 @@ Generated using tree-sitter")
 (defstate *acp-cancelled* nil "T when the current prompt turn has been cancelled.")
 (defstate *acp-initialized* nil "T after the initialize handshake is complete.")
 (defstate *lisp-mode-enabled* nil "T when lisp mode enabled")
+(defstate *lisp-response-mode-enabled* nil "T when lisp response mode enabled")
+(defstate *json-response-mode-enabled* nil "T when json response mode enabled")
+(defstate *response-mode* nil "Active response format conformance mode: nil, :lisp, :json, :xml, :yaml, :markdown, :org-mode")
 
-;;** Proxy State
+;;* Proxy
 (defstate *proxy-port* 4270
   "Port for the LLM proxy server (defaults to HTTP port, routes are registered on *app*).")
 (defstate *proxy-upstream-url* (or (uiop:getenv "HACTAR_PROXY_UPSTREAM_URL")
@@ -462,3 +465,27 @@ Generated using tree-sitter")
   "Upstream LLM API URL that the proxy forwards requests to.")
 (defstate *proxy-auto-start* nil
   "When T, automatically start the proxy on session init.")
+
+;;* Interfaces
+(defstate *instance-id* nil
+  "Unique ID for this Hactar instance (defaults to PID). Names ./.hactar/<id>/.")
+(defstate *instance-dir* nil
+  "Root directory for this instance's exposed two-way files (./.hactar/<id>/).")
+(defstate *interfaces* (make-hash-table :test 'eq)
+  "Registry of definterface definitions, keyed by name keyword.")
+(defstate *active-interfaces* '()
+  "List of materialized interface structs with absolute paths.")
+(defstate *pending-prompt* nil
+  "Scratch prompt buffer contents (from the prompt interface).")
+
+;;* Prompt / Guide / Mode Registries
+(defstate *prompts* (make-hash-table :test 'eq)
+  "Registry of defprompt templates, keyed by name symbol/keyword.")
+(defstate *guides* (make-hash-table :test 'equal)
+  "Registry of defguide definitions, keyed by name string.")
+(defstate *modes* (make-hash-table :test 'equal)
+  "Registry of defmode definitions, keyed by name string.")
+(defstate *active-modes* '()
+  "List of currently active mode name strings.")
+(defstate *loaded-state* nil
+  "Holds the most recently loaded state plist from a session file.")

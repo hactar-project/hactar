@@ -71,6 +71,7 @@
        (unless tgt (error "Target ~A not defined." ,target))
        (setf (gethash ',form-name (target-definition-macros tgt))
              (lambda ,fixed-ll ,@body)))))
+
 (defun detect-target-from-forms (forms)
   "Detect the compilation target from a (target :keyword) form in FORMS.
    Returns the target keyword, or :javascript as default."
@@ -170,17 +171,17 @@
          (*compilation-errors* nil))
     (unless target-def
       (error "Unknown compilation target: ~A" target))
-   
+
     (when check
       (let ((results (run-checks target forms)))
         (let ((errors (remove-if-not (lambda (r) (eq :error (check-result-level r))) results)))
           (when errors
             (dolist (e errors)
               (format *error-output* "Compile error: ~A~%" (check-result-message e)))))))
-    
+
     (when (target-definition-setup-fn target-def)
       (funcall (target-definition-setup-fn target-def)))
-   
+
     (dolist (form forms)
       (cond
         ;; (in-file "path") — switch VFS file
@@ -271,7 +272,7 @@
     (dolist (file-path files)
       (let ((full-path (if (uiop:absolute-pathname-p file-path)
                            file-path
-                           (merge-pathnames file-path *repo-root*))))
+                           (merge-pathnames file-path (or *repo-root* (uiop:getcwd))))))
         (unless (probe-file full-path)
           (format t "File not found: ~A~%" full-path)
           (return-from compile-read-source-forms nil))

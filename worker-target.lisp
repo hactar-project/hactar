@@ -4,7 +4,7 @@
   :parent :typescript
   :file-extension "ts")
 
-;;* Emitters 
+;;* Emitters
 (defemit :worker defworker (args &body body)
   (compiler-emitln "export default {")
   (with-indent

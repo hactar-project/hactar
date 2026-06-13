@@ -1,4 +1,4 @@
-;;* Lisp-RPC — Lisp-native RPC for Hactar
+;;* Lisp-RPC: Lisp-native RPC for Hactar
 (in-package :hactar)
 
 ;;* API definition
@@ -31,7 +31,6 @@
 
 (defvar *lisp-rpc-eval-log-max* 50
   "Maximum entries in the eval log.")
-
 
 ;;* defapi macro
 (defmacro defapi (name lambda-list &body body)
@@ -471,7 +470,7 @@ Example:
    Uses the standard system prompt template but replaces the tools section
    with the Lisp API reference."
   (let* ((mustache:*escape-tokens* nil)
-         (base-prompt (uiop:read-file-string (get-prompt-path "system.default.org")))
+         (base-prompt (get-prompt 'system.default "system.default.org"))
          (context (generate-context))
          (guide-content (get-active-guide-content))
          (rules-text (with-output-to-string (s)

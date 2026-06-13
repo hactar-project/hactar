@@ -1,5 +1,5 @@
 (uiop:define-package :hactar
-  (:use #:cl #:cl-ppcre #:sqlite #:cl-toml #:fuzzy-match #:clingon #:cl-fad #:usocket #:imago #:cl-base64 #:cffi #:cl-charms)
+  (:use #:cl #:cl-ppcre #:cl-toml #:fuzzy-match #:clingon #:cl-fad #:usocket #:imago #:cl-base64 #:cffi #:cl-charms)
   (:shadowing-import-from #:json
     #:encode-json-to-string)
   (:export #:main
@@ -27,11 +27,11 @@
            #:ruhe-init
            #:fetch-url-content
            #:*repo-root*
-           #:*sqlite-vec-path*
 	   #:get-all-md-src-blocks
 	   #:render-markdown-to-html
 	   #:insert-md-sibling
 	   #:insert-md-child
+	   #:render-md-ansi
 	   #:make-tui-theme
 	   ;; Compiler API
 	   #:compile-string
@@ -62,7 +62,13 @@
 	   #:check-result-level
 	   #:check-result-message
 	   #:check-result-form
-	   #:run-checks))
+	   #:run-checks
+	   ;; Hydra API
+	   #:defhydra
+	   #:run-hydra
+	   #:*hydras*
+	   #:*hydra-input*
+	   #:*hydra-output*))
 
 (in-package :hactar)
 (defpackage :nhooks

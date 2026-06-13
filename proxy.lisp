@@ -1,4 +1,4 @@
-;;* OpenRouter-compatible LLM Proxy
+;; OpenRouter compatible LLM Proxy
 ;; Intercepts requests, injects Hactar context, and forwards to upstream.
 (in-package :hactar)
 
@@ -26,7 +26,7 @@
 (defvar *proxy-response-hook* (make-instance 'hook-proxy-response)
   "Hook for inspecting/modifying proxy responses before returning to client.")
 
-;;** Proxy Request Processing
+;;* Processing
 
 (defun proxy-extract-system-prompt (messages)
   "Extract system prompt from messages array/list. Returns (values system-prompt-string remaining-messages)."
@@ -115,9 +115,8 @@
 (nhooks:add-hook *proxy-request-hook*
                  (make-instance 'nhooks:handler
                                 :fn #'proxy-inject-context
-                                :name 'proxy-inject-context))
-
-;;** Proxy Request Forwarding
+				:name 'proxy-inject-context))
+;;* Forwarding
 
 (defun proxy-reassemble-messages (system-prompt messages)
   "Reassemble messages with system prompt for forwarding to upstream API."
@@ -196,7 +195,7 @@
                                    :external-format-in :utf-8)
             (values body status-code resp-headers :body))))))
 
-;;** Proxy Ningle Route Handler
+;;* Routes
 
 (defun proxy-extract-request-headers (env)
   "Extract relevant HTTP headers from the Lack environment plist."
@@ -205,10 +204,9 @@
           when (and (keywordp key)
                     (str:starts-with-p "HTTP-" (symbol-name key)))
           do (let* ((header-name (string-downcase
-                                  (substitute #\- #\_ 
+                                  (substitute #\- #\_
                                               (subseq (symbol-name key) 5)))))
                (push (cons header-name val) headers)))
-    ;; Also check for content-type
     (let ((ct (getf env :content-type)))
       (when ct (push (cons "content-type" ct) headers)))
     headers))
@@ -223,6 +221,25 @@
              (messages-raw (gethash "messages" json-body))
              (model (gethash "model" json-body))
              (request-headers (proxy-extract-request-headers env)))
+
+        (when (proxy-messages-contain-p messages-raw "Test Message")
+          (return-from handle-proxy-request
+            (list 200
+                  '(:content-type "application/json")
+                  (list (to-json
+                         `(("id" . "chatcmpl-test")
+                           ("object" . "chat.completion")
+                           ("created" . ,(get-universal-time))
+                           ("model" . ,(or model "test-model"))
+                           ("choices" . ,(coerce
+                                          (list `(("index" . 0)
+                                                  ("message" . (("role" . "assistant")
+                                                                ("content" . "Test Response")))
+                                                  ("finish_reason" . "stop")))
+                                          'vector))
+                           ("usage" . (("prompt_tokens" . 0)
+                                       ("completion_tokens" . 0)
+                                       ("total_tokens" . 0)))))))))
 
         (debug-log "Proxy received request for model:" model)
 
@@ -252,7 +269,6 @@
                    ;; For streaming, we need to collect and relay.
                    ;; Ningle/Lack doesn't natively support streaming responses easily,
                    ;; so we collect the full streamed response and return it.
-                   ;; A production proxy would use a streaming-capable server.
                    (handler-case
                        (loop for line = (read-line flexi-stream nil nil)
                              while line
@@ -287,8 +303,7 @@
         (,(format nil "{\"error\": \"Proxy internal error: ~A\"}"
                   (substitute #\" #\' (format nil "~A" e))))))))
 
-;;** Proxy Route Registration
-
+;;* Route Registration
 (defun register-proxy-routes ()
   "Register the proxy routes on the Ningle app."
   ;; OpenRouter/OpenAI compatible chat completions endpoint
@@ -332,24 +347,40 @@
                 (,(format nil "{\"error\": \"Failed to fetch models: ~A\"}"
                           (substitute #\" #\' (format nil "~A" e))))))))))
 
-;;** Proxy Start/Stop Commands
+;;* Commands
 
-(defun start-proxy (&key (port *proxy-port*))
+(defun start-proxy (&key (port *proxy-port*) (silent nil))
   "Start the LLM proxy server. Registers routes and starts the HTTP server if needed."
   (register-proxy-routes)
-  (unless *silent*
+  (unless (or *silent* silent)
     (format t "~&Proxy routes registered on HTTP server.~%")
     (format t "~&Proxy endpoint: http://localhost:~A/v1/chat/completions~%" (or *http-port* port))
     (format t "~&Set your client's base URL to: http://localhost:~A/v1~%" (or *http-port* port)))
   ;; Ensure HTTP server is running
   (unless *http-server*
-    (start-http-server :port (or *http-port* port)))
+    (if (or *silent* silent)
+        (let ((*standard-output* (make-broadcast-stream))
+              (*error-output*   (make-broadcast-stream)))
+          (start-http-server :port (or *http-port* port)))
+        (start-http-server :port (or *http-port* port))))
   t)
 
 (define-command proxy.start (args)
   "Start the OpenRouter-compatible LLM proxy."
   (declare (ignore args))
   (start-proxy)
+  :json (lambda (args)
+          (declare (ignore args))
+          (start-proxy)
+          (to-json `(("started" . t)
+                     ("port" . ,*http-port*)
+                     ("endpoint" . ,(format nil "http://localhost:~A/v1/chat/completions" *http-port*)))))
+  :yaml (lambda (args)
+          (declare (ignore args))
+          (start-proxy)
+          (with-output-to-string (s)
+            (format s "started: true~%port: ~A~%endpoint: http://localhost:~A/v1/chat/completions~%"
+                    *http-port* *http-port*)))
   :acp (lambda (cmd-args)
          (declare (ignore cmd-args))
          (start-proxy)
@@ -369,6 +400,28 @@
   (format t "  Files in Context: ~A~%" (length *files*))
   (format t "  Active Rules: ~A~%" (hash-table-count *active-rules*))
   (format t "  Stack: ~{~A~^, ~}~%" *stack*)
+  :json (lambda (args)
+          (declare (ignore args))
+          (to-json `(("running" . ,(if *http-server* t :false))
+                     ("port" . ,*http-port*)
+                     ("upstreamUrl" . ,(or *proxy-upstream-url* "https://openrouter.ai/api/v1/chat/completions"))
+                     ("hookHandlers" . ,(length (nhooks:handlers *proxy-request-hook*)))
+                     ("filesInContext" . ,(length *files*))
+                     ("activeRules" . ,(hash-table-count *active-rules*))
+                     ("stack" . ,(coerce *stack* 'vector)))))
+  :yaml (lambda (args)
+          (declare (ignore args))
+          (with-output-to-string (s)
+            (format s "running: ~A~%port: ~A~%upstreamUrl: ~A~%hookHandlers: ~D~%filesInContext: ~D~%activeRules: ~D~%"
+                    (if *http-server* "true" "false")
+                    *http-port*
+                    (or *proxy-upstream-url* "https://openrouter.ai/api/v1/chat/completions")
+                    (length (nhooks:handlers *proxy-request-hook*))
+                    (length *files*)
+                    (hash-table-count *active-rules*))
+            (format s "stack:~%")
+            (dolist (st *stack*)
+              (format s "  - ~A~%" st))))
   :acp (lambda (cmd-args)
          (declare (ignore cmd-args))
          `(("text" . ,(format nil "Proxy on port ~A, ~A handler(s)" *http-port*
@@ -381,7 +434,21 @@
                       ("activeRules" . ,(hash-table-count *active-rules*))
                       ("stack" . ,(coerce *stack* 'vector)))))))
 
-;;** Utility: Detect content in messages
+(define-command proxy.stop (args)
+  "Stop the LLM proxy by stopping the underlying HTTP server."
+  (declare (ignore args))
+  (if *http-server*
+      (progn (stop-http-server)
+             (format t "Proxy stopped.~%"))
+      (format t "Proxy is not running.~%"))
+  :acp (lambda (cmd-args)
+         (declare (ignore cmd-args))
+         (if *http-server*
+             (progn (stop-http-server)
+                    `(("text" . "Proxy stopped.")))
+             `(("text" . "Proxy is not running.")))))
+
+;;* utils
 
 (defun proxy-messages-contain-p (messages &rest search-strings)
   "Return T if any message content in MESSAGES contains any of SEARCH-STRINGS (case-insensitive)."

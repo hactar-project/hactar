@@ -3,7 +3,7 @@
   :parent :javascript
   :file-extension "ts")
 
-;;* Helpers 
+;;* Helpers
 (defun extract-type-annotation (arg-form)
   "Parse (name :type 'typename) or just name. Returns (values clean-name type-string-or-nil)."
   (if (and (listp arg-form) (member :type arg-form))
@@ -14,7 +14,7 @@
                     (format nil "~A" type-val))))
       (values (if (listp arg-form) (first arg-form) arg-form)
               nil)))
-;;* Emitters 
+;;* Emitters
 (defemit :typescript defun (name args &body body)
   (let ((return-type nil)
         (clean-body body))

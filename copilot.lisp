@@ -2,7 +2,7 @@
 (in-package :hactar)
 
 ;;* Configuration
-(defvar *github-copilot-config-path* 
+(defvar *github-copilot-config-path*
   (merge-pathnames ".config/github-copilot/hosts.json" (user-homedir-pathname))
   "Path to GitHub Copilot configuration file.")
 ;; NOTE: this client-id is not a private thing. Just a GH copilot api thing
@@ -36,7 +36,7 @@
 (defun request-copilot-device-code ()
   "Request a device code for GitHub Copilot authorization."
   (let* ((endpoint "https://github.com/login/device/code")
-         (payload (format nil "{\"client_id\":\"~A\",\"scope\":\"read:user\"}" 
+         (payload (format nil "{\"client_id\":\"~A\",\"scope\":\"read:user\"}"
                          *github-copilot-client-id*))
          (headers '(("accept" . "application/json")
                    ("editor-version" . "Neovim/0.6.1")
@@ -51,7 +51,7 @@
                             :external-format-in :utf-8
                             :external-format-out :utf-8)
       (if (= status 200)
-          (cl-json:decode-json-from-string 
+          (cl-json:decode-json-from-string
            (if (stringp body) body (babel:octets-to-string body :encoding :utf-8)))
           (progn
             (format t "~&Error requesting device code: HTTP ~A~%" status)
@@ -74,7 +74,7 @@
                               :external-format-in :utf-8
                               :external-format-out :utf-8)
         (when (= status 200)
-          (let* ((response (cl-json:decode-json-from-string 
+          (let* ((response (cl-json:decode-json-from-string
                            (if (stringp body) body (babel:octets-to-string body :encoding :utf-8))))
                  (error-msg (cdr (assoc :error response)))
                  (access-token (cdr (assoc :access_token response))))
@@ -101,7 +101,7 @@
                             :external-format-in :utf-8
                             :external-format-out :utf-8)
       (if (= status 200)
-          (let ((response (cl-json:decode-json-from-string 
+          (let ((response (cl-json:decode-json-from-string
                           (if (stringp body) body (babel:octets-to-string body :encoding :utf-8)))))
             (cdr (assoc :token response)))
           (progn
@@ -126,11 +126,18 @@ A short-lived Copilot token will be fetched automatically when needed and refres
 
 ;;* Subcommand
 (define-sub-command copilotapi (args)
-  "GitHub Copilot API commands: models, authorize, complete"
+  "GitHub Copilot API commands: models, authorize, complete, help
+
+Examples:
+  hactar copilotapi models
+  hactar copilotapi authorize
+  hactar copilotapi complete \"Write a quicksort function in Lisp\""
   (if (null args)
-      (format t "Usage: hactar copilotapi <command>~%Commands:~%  models     - List available models~%  authorize  - Authorize GitHub Copilot~%  complete   - Generate completion~%")
+      (format t "Usage: hactar copilotapi <command>~%Commands:~%  models     - List available models~%  authorize  - Authorize GitHub Copilot~%  complete   - Generate completion~%  help       - Display this help message~%~%Examples:~%  hactar copilotapi models~%  hactar copilotapi authorize~%  hactar copilotapi complete \"Write a quicksort function in Lisp\"~%")
       (let ((command (first args)))
         (cond
+          ((or (string= command "help") (string= command "-h") (string= command "--help"))
+           (format t "Usage: hactar copilotapi <command>~%Commands:~%  models     - List available models~%  authorize  - Authorize GitHub Copilot~%  complete   - Generate completion~%  help       - Display this help message~%~%Examples:~%  hactar copilotapi models~%  hactar copilotapi authorize~%  hactar copilotapi complete \"Write a quicksort function in Lisp\"~%"))
           ((string= command "models")
            (format t "~&Fetching models...~%")
            (let ((models (llm:list-copilot-models)))
@@ -150,6 +157,5 @@ A short-lived Copilot token will be fetched automatically when needed and refres
                      (format t "~A~%" result)
                      (format t "~&Failed to generate completion~%")))
                (format t "~&Usage: hactar copilotapi complete <query>~%")))
-          
           (t
            (format t "~&Unknown command: ~A~%" command))))))

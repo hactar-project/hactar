@@ -3,7 +3,7 @@
 (def-suite redwood-target-tests :description "Redwood target tests.")
 (in-suite redwood-target-tests)
 
-;;* Helpers 
+;;* Helpers
 (defun rw-compile (source)
   "Compile to redwood, return VFS for multi-file inspection."
   (hactar::compile-string source :target :redwood :check nil))

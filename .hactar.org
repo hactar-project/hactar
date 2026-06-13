@@ -1,0 +1,14 @@
+#+TITLE: hactar
+#+HACTAR_MODEL: ollama/qwen3:14b
+#+HACTAR_STACK: lisp, sqlite
+#+HACTAR_LANGUAGE: lisp
+
+* Gotchas
+** Modifying the Command Macros without Modifying the Commands themselves will Cause Bugs
+You need to =make clean= to overcome this. Most LLMs will not catch this issue.
+* Tasks :tasks:
+** Trivial
+** Simple
+** Moderate
+** Complex
+** Waiting

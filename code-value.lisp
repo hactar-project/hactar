@@ -59,7 +59,7 @@
 (defun list-code-values ()
   "Return a list of all registered code-values."
   (let ((values '()))
-    (maphash (lambda (k v) 
+    (maphash (lambda (k v)
                (declare (ignore k))
                (push v values))
              *code-values*)
@@ -74,18 +74,18 @@
 
 (defun code/select (source &key function class method region name)
   "Select code from a source and wrap it as a code-value.
-   
+
    SOURCE can be:
    - A file path (string or pathname)
    - A file path with line range: \"file.py:10-20\"
-   
+
    Keyword arguments for precise selection:
    - :function NAME - Select a specific function
    - :class NAME - Select a specific class
    - :method NAME - Select a specific method (requires :class)
    - :region (START . END) - Select specific line range
    - :name - Optional name to bind this code-value to
-   
+
    Returns the created code-value."
   (let* ((parsed (parse-source-specifier source))
          (file-path (car parsed))
@@ -95,42 +95,42 @@
                     (uiop:read-file-string full-path)))
          (selected-text nil)
          (actual-region nil))
-    
+
     (unless content
       (error "Cannot read file: ~A" full-path))
-    
+
     (cond
       (line-range
        (multiple-value-setq (selected-text actual-region)
          (extract-lines content (car line-range) (cdr line-range))))
-      
+
       (function
        (multiple-value-setq (selected-text actual-region)
          (extract-function content function full-path)))
-      
+
       (class
        (multiple-value-setq (selected-text actual-region)
          (extract-class content class method full-path)))
-      
+
       (t
        (setf selected-text content)
        (setf actual-region nil)))
-    
+
     (let ((cv (make-code-value
                :id (generate-code-value-id)
                :source-file full-path
                :source-region actual-region
                :source-text selected-text
-               :language (get-language-hint-from-extension 
+               :language (get-language-hint-from-extension
                           (pathname-type (pathname full-path)))
                :origin :selection
                :timestamp (get-universal-time))))
-      
+
       (register-code-value cv)
-      
+
       (when name
         (setf (gethash name *code-values*) cv))
-      
+
       cv)))
 
 (defun code/from-string (text &key language name)
@@ -144,7 +144,7 @@
              :language language
              :origin :generated
              :timestamp (get-universal-time))))
-    
+
     (register-code-value cv)
     (when name
       (setf (gethash name *code-values*) cv))
@@ -165,13 +165,13 @@
 
 (defun parse-source-specifier (source)
   "Parse a source specifier like 'file.py:10-20' into (path . (start . end))."
-  (let* ((source-str (if (pathnamep source) 
-                         (namestring source) 
+  (let* ((source-str (if (pathnamep source)
+                         (namestring source)
                          source))
          (colon-pos (position #\: source-str :from-end t))
-         (has-line-range (and colon-pos 
+         (has-line-range (and colon-pos
                               (> colon-pos 0)
-                              (not (and (= colon-pos 1) 
+                              (not (and (= colon-pos 1)
                                         (alpha-char-p (char source-str 0)))))))
     (if has-line-range
         (let* ((path (subseq source-str 0 colon-pos))
@@ -209,8 +209,8 @@
                               Also include a comment on the first line indicating ~
                               the line numbers in format: // Lines: START-END~%~%~A"
                          function-name content))
-         (response (get-llm-response prompt 
-                                     :stream nil 
+         (response (get-llm-response prompt
+                                     :stream nil
                                      :add-to-history nil
                                      :custom-system-prompt "You are a code extraction tool. Extract exactly what is requested.")))
     (if response
@@ -229,8 +229,8 @@
                               Return ONLY the code, nothing else. ~
                               Include a comment on the first line: // Lines: START-END~%~%~A"
                          what content))
-         (response (get-llm-response prompt 
-                                     :stream nil 
+         (response (get-llm-response prompt
+                                     :stream nil
                                      :add-to-history nil
                                      :custom-system-prompt "You are a code extraction tool.")))
     (if response
@@ -249,7 +249,7 @@
 (defun remove-line-comment (text)
   "Remove the first line if it's a Lines: comment."
   (let ((lines (str:lines text)))
-    (if (and lines 
+    (if (and lines
              (cl-ppcre:scan "(?://|#|--) Lines?:" (first lines)))
         (str:join #\Newline (rest lines))
         text)))
@@ -281,8 +281,8 @@ EFFECTS: <comma-separated list or 'none'>
 INVARIANTS: <comma-separated list or 'none'>"
                            (or (code-value-language cv) "")
                            (code-value-source-text cv)))
-           (response (get-llm-response prompt 
-                                       :stream nil 
+           (response (get-llm-response prompt
+                                       :stream nil
                                        :add-to-history nil
                                        :custom-system-prompt "You are a code analysis tool. Be precise and concise.")))
       (when response
@@ -296,7 +296,7 @@ INVARIANTS: <comma-separated list or 'none'>"
       (let ((trimmed (string-trim '(#\Space #\Tab) line)))
         (cond
           ((str:starts-with? "INTENT:" trimmed)
-           (setf (code-value-intent cv) 
+           (setf (code-value-intent cv)
                  (string-trim '(#\Space) (subseq trimmed 7))))
           ((str:starts-with? "INPUTS:" trimmed)
            (setf (code-value-inputs cv)
@@ -316,7 +316,7 @@ INVARIANTS: <comma-separated list or 'none'>"
   "Parse a comma-separated list, filtering out 'none'."
   (let* ((trimmed (string-trim '(#\Space #\Tab) str))
          (items (str:split "," trimmed)))
-    (remove-if (lambda (s) 
+    (remove-if (lambda (s)
                  (or (string= s "")
                      (string-equal (string-trim '(#\Space) s) "none")))
                (mapcar (lambda (s) (string-trim '(#\Space #\Tab) s)) items))))
@@ -343,8 +343,8 @@ Question: ~A"
                          (or (code-value-language cv) "")
                          (code-value-source-text cv)
                          question))
-         (response (get-llm-response prompt 
-                                     :stream nil 
+         (response (get-llm-response prompt
+                                     :stream nil
                                      :add-to-history nil)))
     response))
 
@@ -383,7 +383,7 @@ Question: ~A"
     (when (code-value-source-file cv)
       (format stream " ~A" (file-namestring (code-value-source-file cv))))
     (when (code-value-source-region cv)
-      (format stream ":~A-~A" 
+      (format stream ":~A-~A"
               (car (code-value-source-region cv))
               (cdr (code-value-source-region cv))))
     (when (code-value-intent cv)
@@ -402,7 +402,7 @@ Question: ~A"
   (when (code-value-source-file cv)
     (format stream "Source: ~A" (uiop:native-namestring (code-value-source-file cv)))
     (when (code-value-source-region cv)
-      (format stream " (lines ~A-~A)" 
+      (format stream " (lines ~A-~A)"
               (car (code-value-source-region cv))
               (cdr (code-value-source-region cv))))
     (format stream "~%"))
@@ -443,18 +443,18 @@ Examples:
                        (cons (parse-integer (first parts))
                              (parse-integer (second parts))))))))
     (if file
-        (let ((cv (code/select file 
-                               :function function-name 
+        (let ((cv (code/select file
+                               :function function-name
                                :class class-name
                                :region region
                                :name name)))
           (when cv
             (format t "~&Created: ~A~%" cv)
             (when (code-value-source-region cv)
-              (format t "Selected lines ~A-~A~%" 
+              (format t "Selected lines ~A-~A~%"
                       (car (code-value-source-region cv))
                       (cdr (code-value-source-region cv))))
-            (format t "~A characters of ~A code~%" 
+            (format t "~A characters of ~A code~%"
                     (length (code-value-source-text cv))
                     (or (code-value-language cv) "unknown"))))
         (format t "Usage: /cv/select <file> [--function NAME] [--class NAME] [--lines START-END]~%"))))
@@ -524,7 +524,7 @@ Usage: /code/ask <id-or-name> <question>"
 
 (defmacro deftransform (name description &body body)
   "Define a reusable code transformation (zero LLM).
-   
+
    Usage:
    (deftransform add-rate-limit
      \"Add rate limiting middleware\"
@@ -569,28 +569,28 @@ Usage: /code/ask <id-or-name> <question>"
   (let* ((transform-def (if (transform-def-p transform)
                             transform
                             (get-transform transform)))
-         (params (append args (when transform-def 
+         (params (append args (when transform-def
                                 (transform-def-defaults transform-def)))))
     (unless transform-def
       (error "Unknown transform: ~A" transform))
-    
+
     (when (and (transform-def-when-fn transform-def)
                (not (funcall (transform-def-when-fn transform-def) cv)))
-      (format t "~&Transform ~A precondition not met for ~A~%" 
+      (format t "~&Transform ~A precondition not met for ~A~%"
               (transform-def-name transform-def) (code-value-id cv))
       (return-from code/transform cv))
-    
+
     (when (transform-def-compose transform-def)
       (return-from code/transform
         (reduce (lambda (current-cv sub-transform)
-                  (apply #'code/transform current-cv sub-transform 
+                  (apply #'code/transform current-cv sub-transform
                          (when (listp sub-transform) (rest sub-transform))))
                 (transform-def-compose transform-def)
                 :initial-value cv)))
-    
+
     (let ((new-text (cond
                       ((transform-def-pattern transform-def)
-                       (apply-pattern-transform cv 
+                       (apply-pattern-transform cv
                                                 (transform-def-pattern transform-def)
                                                 params))
                       ((transform-def-template transform-def)
@@ -599,7 +599,7 @@ Usage: /code/ask <id-or-name> <question>"
                                                  (transform-def-template-vars transform-def)
                                                  params))
                       (t (code-value-source-text cv)))))
-      
+
       (make-code-value
        :id (generate-code-value-id)
        :source-file (code-value-source-file cv)
@@ -642,7 +642,7 @@ Usage: /code/ask <id-or-name> <question>"
 (defun expand-pattern-vars (pattern params)
   "Expand {{var}} placeholders in a pattern string."
   (if pattern
-      (cl-ppcre:regex-replace-all 
+      (cl-ppcre:regex-replace-all
        "\\{\\{(\\w+)\\}\\}"
        pattern
        (lambda (target-string start end match-start match-end reg-starts reg-ends)
@@ -753,22 +753,22 @@ Usage: /code/ask <id-or-name> <question>"
         (new-text (code-value-source-text cv)))
     (when file
       (let ((full-path (if (pathnamep file) file (pathname file))))
-        (push (list :cv cv 
+        (push (list :cv cv
                     :original-text (when (probe-file full-path)
                                      (uiop:read-file-string full-path))
                     :timestamp (get-universal-time))
               *code-value-history*)
         (when (> (length *code-value-history*) *code-value-history-limit*)
-          (setf *code-value-history* 
+          (setf *code-value-history*
                 (subseq *code-value-history* 0 *code-value-history-limit*)))
-        
+
         (ensure-directories-exist full-path)
         (write-file-content (uiop:native-namestring full-path) new-text)
-        
+
         (setf (code-value-applied-p cv) t)
         (setf (code-value-staged-p cv) nil)
         (setf *staged-code-values* (remove cv *staged-code-values* :test #'eq))
-        
+
         (format t "~&Applied: ~A~%" (uiop:native-namestring full-path))
         cv))))
 
@@ -784,7 +784,7 @@ Usage: /code/ask <id-or-name> <question>"
   "Apply all staged changes and create a git commit."
   (let ((applied (code/apply-staged!)))
     (when applied
-      (let ((files (remove-duplicates 
+      (let ((files (remove-duplicates
                     (mapcar #'code-value-source-file applied)
                     :test #'equal)))
         (git-add files)
@@ -821,7 +821,7 @@ Usage: /code/ask <id-or-name> <question>"
               (write-file-content full-path (code-value-source-text cv))
               (let ((result (run-typecheck language full-path)))
                 (setf (code-value-verified-p cv) result)
-                (setf (code-value-verification-result cv) 
+                (setf (code-value-verification-result cv)
                       (if result :passed :failed))
                 result))
           (when original
@@ -831,7 +831,7 @@ Usage: /code/ask <id-or-name> <question>"
   "Run the appropriate typechecker for the language."
   (cond
     ((member language '("typescript" "ts" "tsx") :test #'string-equal)
-     (zerop (nth-value 2 
+     (zerop (nth-value 2
               (uiop:run-program (list "tsc" "--noEmit" file)
                                 :ignore-error-status t))))
     ((member language '("python" "py") :test #'string-equal)
@@ -875,7 +875,7 @@ Usage: /code/ask <id-or-name> <question>"
 (defun code/query (&rest query-spec)
   "Query for code-values matching the specification.
    This is ZERO LLM - uses file scanning and pattern matching.
-   
+
    Supported keys:
    - :type - Symbol type (function, class, handler, etc.)
    - :in - File glob pattern
@@ -888,7 +888,7 @@ Usage: /code/ask <id-or-name> <question>"
          (matches (getf query-spec :matches))
          (files (find-files-matching in-pattern))
          (results '()))
-    
+
     (dolist (file files)
       (let ((content (uiop:read-file-string file)))
         ;; Check contains/matches
@@ -897,14 +897,14 @@ Usage: /code/ask <id-or-name> <question>"
           ;; TODO: Parse and extract specific types
           ;; For now, return whole file as code-value
           (push (code/select file) results))))
-    
+
     (nreverse results)))
 
 (defun find-files-matching (pattern)
   "Find files matching a glob pattern."
   (if pattern
       (let ((files '()))
-        (uiop:collect-sub*directories 
+        (uiop:collect-sub*directories
          *repo-root*
          (constantly t)
          (constantly t)
@@ -955,7 +955,7 @@ Usage: /code/ask <id-or-name> <question>"
             :description ,description
             :detect-fn (lambda () ,detect)
             :queries (list ,@(mapcar (lambda (q)
-                                       `(cons ',(first q) 
+                                       `(cons ',(first q)
                                               (lambda () ,@(cddr q))))
                                      queries))))))
 
@@ -1059,7 +1059,7 @@ Usage: /code/transform <id> <transform-name>"
           (format t "~&Available transforms:~%")
           (dolist (name transforms)
             (let ((t-def (get-transform name)))
-              (format t "  ~A - ~A~%" name 
+              (format t "  ~A - ~A~%" name
                       (or (transform-def-description t-def) "No description")))))
         (format t "~&No transforms defined.~%"))))
 
@@ -1086,14 +1086,14 @@ Usage: /code/generate <id> <description>"
   :queries
   ((:components ()
     "Find all React components"
-    (code/query :matches "function\\s+[A-Z]\\w*\\s*\\(" 
+    (code/query :matches "function\\s+[A-Z]\\w*\\s*\\("
                 :in "**/*.tsx"))
-   
+
    (:hooks ()
     "Find all custom hooks"
-    (code/query :matches "function\\s+use[A-Z]\\w*\\s*\\(" 
+    (code/query :matches "function\\s+use[A-Z]\\w*\\s*\\("
                 :in "**/*.ts"))
-   
+
    (:routes ()
     "Find route definitions"
     (code/query :contains "createBrowserRouter\\|Route\\|Routes"
@@ -1107,12 +1107,12 @@ Usage: /code/generate <id> <description>"
     "Find all route definitions"
     (code/query :matches "router\\.(get|post|put|delete|patch)"
                 :in "**/*.ts"))
-   
+
    (:middleware ()
     "Find middleware functions"
     (code/query :matches "app\\.use\\|router\\.use"
                 :in "**/*.ts"))
-   
+
    (:handlers ()
     "Find route handler functions"
     (code/query :matches "(req,\\s*res)\\s*=>"
@@ -1144,7 +1144,7 @@ Usage: /code/generate <id> <description>"
   "Query React components. Zero LLM."
   (let ((analyzer (get-analyzer 'react)))
     (when analyzer
-      (let ((query-fn (cdr (assoc :components 
+      (let ((query-fn (cdr (assoc :components
                                   (framework-analyzer-queries analyzer)))))
         (when query-fn (funcall query-fn))))))
 
@@ -1177,7 +1177,7 @@ Usage: /code/generate <id> <description>"
 (defun code/generate-transform (description &key for examples)
   "Generate a transformation using LLM.
    This is an EXPLICIT LLM operation.
-   
+
    DESCRIPTION: What transformation to perform
    FOR: The code-value to transform
    EXAMPLES: Optional list of before/after examples"
@@ -1196,8 +1196,8 @@ Return ONLY the transformed code, no explanations."
                          language
                          source-text
                          examples-text))
-         (response (get-llm-response prompt 
-                                     :stream nil 
+         (response (get-llm-response prompt
+                                     :stream nil
                                      :add-to-history nil
                                      :custom-system-prompt "You are a code transformation tool. Return only code.")))
     (when response

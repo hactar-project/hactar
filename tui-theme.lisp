@@ -82,7 +82,7 @@
 (defvar *tui-color-cache* (make-hash-table :test 'equal)
   "Cache mapping hex color strings to resolved ncurses color IDs.")
 
-;;* conversion 
+;;* conversion
 (cffi:defcvar ("COLORS" %ncurses-colors) :int)
 
 (defun ncurses-colors ()
@@ -207,7 +207,7 @@
       (setf (gethash hex-or-nil *tui-color-cache*) color-id)
       color-id)))
 
-;;* color pairs 
+;;* color pairs
 (defun tui-register-pair (role fg-hex bg-hex)
   "Register a color pair for ROLE (a keyword). Returns the pair ID."
   (let ((fg-id (tui-resolve-color fg-hex))
@@ -264,217 +264,210 @@
   (tui-register-pair :chat-thought   (tui-theme-chat-thought theme)   (tui-theme-bg theme))
   (tui-register-pair :chat-bash      (tui-theme-chat-bash theme)      (tui-theme-bg theme))
   (tui-register-pair :chat-error     (tui-theme-chat-error theme)     (tui-theme-bg theme))
+  ;; ANSI color pairs
+  (tui-register-pair :ansi-red       (tui-theme-chat-error theme)     (tui-theme-bg theme))
+  (tui-register-pair :ansi-green     (tui-theme-file-added theme)     (tui-theme-bg theme))
+  (tui-register-pair :ansi-yellow    (tui-theme-tool-pending theme)   (tui-theme-bg theme))
+  (tui-register-pair :ansi-blue      (tui-theme-chat-user theme)      (tui-theme-bg theme))
+  (tui-register-pair :ansi-magenta   (tui-theme-sidebar-title theme)  (tui-theme-bg theme))
+  (tui-register-pair :ansi-cyan      (tui-theme-prompt-marker theme)  (tui-theme-bg theme))
+  (tui-register-pair :ansi-white     (tui-theme-modal-bg-fg theme)    (tui-theme-bg theme))
   ;; Completion dropdown
   (tui-register-pair :completion     (tui-theme-completion-fg theme)  (tui-theme-completion-bg theme))
   theme)
 
-;;* built in themese 
-(defun make-default-theme ()
-  "Create the default theme using basic terminal colors (no hex, maps to defaults)."
-  (make-tui-theme
-   :name "default"
-   :bg nil :fg nil
-   :border nil
-   :border-accent nil
-   :header "#d787af"
-   :header-bold "#d787af"
-   :selected-fg "#000000" :selected-bg "#d787af"
-   :muted "#808080"
-   :prompt-marker "#00afaf"
-   :status-info-fg nil :status-info-bg nil
-   :status-ok-fg "#000000" :status-ok-bg "#00af00"
-   :status-error-fg "#ffffff" :status-error-bg "#af0000"
-   :sidebar-title "#d787af"
-   :sidebar-label "#00afaf"
-   :file-added "#00af00" :file-removed "#af0000"
-   :modal-bg-fg "#ffffff" :modal-bg-bg "#000000"
-   :modal-border "#00afaf"
-   :modal-input-fg "#ffffff" :modal-input-bg "#000000"
-   :tab-active-fg "#ffffff" :tab-active-bg "#d787af"
-   :tab-inactive-fg "#ffffff" :tab-inactive-bg nil
-   :keyhint "#00afaf"
-   :lsp-ok "#00af00"
-   :tool-pending "#afaf00" :tool-running "#00afaf"
-   :tool-done "#00af00" :tool-failed "#af0000"
-   :chat-user "#00afaf" :chat-assistant nil
-   :chat-thought "#808080" :chat-bash "#00af00" :chat-error "#af0000"
-   :completion-fg "#ffffff" :completion-bg "#000000"))
+;;* built in themese
+(defvar *tui-builtin-themes* '()
+  "List of factory functions for built-in themes. Populated by deftheme.")
 
-(defun make-gruvbox-dark-theme ()
-  "Create the Gruvbox Dark theme."
-  (make-tui-theme
-   :name "gruvbox-dark"
-   :bg "#282828" :fg "#ebdbb2"
-   :border "#a89984" :border-accent "#83a598"
-   :header "#d3869b" :header-bold "#d3869b"
-   :selected-fg "#282828" :selected-bg "#d3869b"
-   :muted "#928374" :prompt-marker "#83a598"
-   :status-info-fg "#ebdbb2" :status-info-bg nil
-   :status-ok-fg "#282828" :status-ok-bg "#b8bb26"
-   :status-error-fg "#ebdbb2" :status-error-bg "#fb4934"
-   :sidebar-title "#d3869b" :sidebar-label "#83a598"
-   :file-added "#b8bb26" :file-removed "#fb4934"
-   :modal-bg-fg "#ebdbb2" :modal-bg-bg "#3c3836"
-   :modal-border "#83a598"
-   :modal-input-fg "#ebdbb2" :modal-input-bg "#504945"
-   :tab-active-fg "#282828" :tab-active-bg "#d3869b"
-   :tab-inactive-fg "#a89984" :tab-inactive-bg nil
-   :keyhint "#83a598"
-   :lsp-ok "#b8bb26"
-   :tool-pending "#fabd2f" :tool-running "#83a598"
-   :tool-done "#b8bb26" :tool-failed "#fb4934"
-   :chat-user "#83a598" :chat-assistant nil
-   :chat-thought "#928374" :chat-bash "#b8bb26" :chat-error "#fb4934"
-   :completion-fg "#ebdbb2" :completion-bg "#3c3836"))
+(defmacro deftheme (name &body slots)
+  "Define a TUI theme. NAME is a string (e.g. \"gruvbox-dark\").
+   SLOTS are keyword-value pairs matching tui-theme struct slots (excluding :name).
+   Generates a make-NAME-theme factory function and registers it in *tui-builtin-themes*."
+  (let* ((name-str (etypecase name
+                     (string name)
+                     (symbol (string-downcase (symbol-name name)))))
+         (fn-name (intern (format nil "MAKE-~A-THEME"
+                                  (string-upcase (substitute #\- #\Space name-str)))
+                          :hactar)))
+    `(progn
+       (defun ,fn-name ()
+         ,(format nil "Create the ~A theme." name-str)
+         (make-tui-theme :name ,name-str ,@slots))
+       (pushnew ',fn-name *tui-builtin-themes* :test #'eq)
+       ',fn-name)))
 
-(defun make-gruvbox-light-theme ()
-  "Create the Gruvbox Light theme."
-  (make-tui-theme
-   :name "gruvbox-light"
-   :bg "#fbf1c7" :fg "#3c3836"
-   :border "#928374" :border-accent "#076678"
-   :header "#8f3f71" :header-bold "#8f3f71"
-   :selected-fg "#fbf1c7" :selected-bg "#8f3f71"
-   :muted "#928374" :prompt-marker "#076678"
-   :status-info-fg "#3c3836" :status-info-bg nil
-   :status-ok-fg "#fbf1c7" :status-ok-bg "#79740e"
-   :status-error-fg "#fbf1c7" :status-error-bg "#9d0006"
-   :sidebar-title "#8f3f71" :sidebar-label "#076678"
-   :file-added "#79740e" :file-removed "#9d0006"
-   :modal-bg-fg "#3c3836" :modal-bg-bg "#ebdbb2"
-   :modal-border "#076678"
-   :modal-input-fg "#3c3836" :modal-input-bg "#d5c4a1"
-   :tab-active-fg "#fbf1c7" :tab-active-bg "#8f3f71"
-   :tab-inactive-fg "#928374" :tab-inactive-bg nil
-   :keyhint "#076678"
-   :lsp-ok "#79740e"
-   :tool-pending "#b57614" :tool-running "#076678"
-   :tool-done "#79740e" :tool-failed "#9d0006"
-   :chat-user "#076678" :chat-assistant nil
-   :chat-thought "#928374" :chat-bash "#79740e" :chat-error "#9d0006"
-   :completion-fg "#3c3836" :completion-bg "#ebdbb2"))
+(deftheme "default"
+  :bg nil :fg nil
+  :border nil
+  :border-accent nil
+  :header "#d787af"
+  :header-bold "#d787af"
+  :selected-fg "#000000" :selected-bg "#d787af"
+  :muted "#808080"
+  :prompt-marker "#00afaf"
+  :status-info-fg nil :status-info-bg nil
+  :status-ok-fg "#000000" :status-ok-bg "#00af00"
+  :status-error-fg "#ffffff" :status-error-bg "#af0000"
+  :sidebar-title "#d787af"
+  :sidebar-label "#00afaf"
+  :file-added "#00af00" :file-removed "#af0000"
+  :modal-bg-fg "#ffffff" :modal-bg-bg "#000000"
+  :modal-border "#00afaf"
+  :modal-input-fg "#ffffff" :modal-input-bg "#000000"
+  :tab-active-fg "#ffffff" :tab-active-bg "#d787af"
+  :tab-inactive-fg "#ffffff" :tab-inactive-bg nil
+  :keyhint "#00afaf"
+  :lsp-ok "#00af00"
+  :tool-pending "#afaf00" :tool-running "#00afaf"
+  :tool-done "#00af00" :tool-failed "#af0000"
+  :chat-user "#00afaf" :chat-assistant nil
+  :chat-thought "#808080" :chat-bash "#00af00" :chat-error "#af0000"
+  :completion-fg "#ffffff" :completion-bg "#000000")
 
-(defun make-dracula-theme ()
-  "Create the Dracula theme."
-  (make-tui-theme
-   :name "dracula"
-   :bg "#282a36" :fg "#f8f8f2"
-   :border "#6272a4" :border-accent "#bd93f9"
-   :header "#ff79c6" :header-bold "#ff79c6"
-   :selected-fg "#282a36" :selected-bg "#ff79c6"
-   :muted "#6272a4" :prompt-marker "#bd93f9"
-   :status-info-fg "#f8f8f2" :status-info-bg nil
-   :status-ok-fg "#282a36" :status-ok-bg "#50fa7b"
-   :status-error-fg "#f8f8f2" :status-error-bg "#ff5555"
-   :sidebar-title "#ff79c6" :sidebar-label "#bd93f9"
-   :file-added "#50fa7b" :file-removed "#ff5555"
-   :modal-bg-fg "#f8f8f2" :modal-bg-bg "#44475a"
-   :modal-border "#bd93f9"
-   :modal-input-fg "#f8f8f2" :modal-input-bg "#44475a"
-   :tab-active-fg "#282a36" :tab-active-bg "#ff79c6"
-   :tab-inactive-fg "#6272a4" :tab-inactive-bg nil
-   :keyhint "#bd93f9"
-   :lsp-ok "#50fa7b"
-   :tool-pending "#f1fa8c" :tool-running "#8be9fd"
-   :tool-done "#50fa7b" :tool-failed "#ff5555"
-   :chat-user "#bd93f9" :chat-assistant nil
-   :chat-thought "#6272a4" :chat-bash "#50fa7b" :chat-error "#ff5555"
-   :completion-fg "#f8f8f2" :completion-bg "#44475a"))
+(deftheme "gruvbox-dark"
+  :bg "#282828" :fg "#ebdbb2"
+  :border "#a89984" :border-accent "#83a598"
+  :header "#d3869b" :header-bold "#d3869b"
+  :selected-fg "#282828" :selected-bg "#d3869b"
+  :muted "#928374" :prompt-marker "#83a598"
+  :status-info-fg "#ebdbb2" :status-info-bg nil
+  :status-ok-fg "#282828" :status-ok-bg "#b8bb26"
+  :status-error-fg "#ebdbb2" :status-error-bg "#fb4934"
+  :sidebar-title "#d3869b" :sidebar-label "#83a598"
+  :file-added "#b8bb26" :file-removed "#fb4934"
+  :modal-bg-fg "#ebdbb2" :modal-bg-bg "#3c3836"
+  :modal-border "#83a598"
+  :modal-input-fg "#ebdbb2" :modal-input-bg "#504945"
+  :tab-active-fg "#282828" :tab-active-bg "#d3869b"
+  :tab-inactive-fg "#a89984" :tab-inactive-bg nil
+  :keyhint "#83a598"
+  :lsp-ok "#b8bb26"
+  :tool-pending "#fabd2f" :tool-running "#83a598"
+  :tool-done "#b8bb26" :tool-failed "#fb4934"
+  :chat-user "#83a598" :chat-assistant nil
+  :chat-thought "#928374" :chat-bash "#b8bb26" :chat-error "#fb4934"
+  :completion-fg "#ebdbb2" :completion-bg "#3c3836")
 
-(defun make-catppuccin-mocha-theme ()
-  "Create the Catppuccin Mocha theme."
-  (make-tui-theme
-   :name "catppuccin-mocha"
-   :bg "#1e1e2e" :fg "#cdd6f4"
-   :border "#585b70" :border-accent "#89b4fa"
-   :header "#f5c2e7" :header-bold "#f5c2e7"
-   :selected-fg "#1e1e2e" :selected-bg "#f5c2e7"
-   :muted "#6c7086" :prompt-marker "#89b4fa"
-   :status-info-fg "#cdd6f4" :status-info-bg nil
-   :status-ok-fg "#1e1e2e" :status-ok-bg "#a6e3a1"
-   :status-error-fg "#cdd6f4" :status-error-bg "#f38ba8"
-   :sidebar-title "#f5c2e7" :sidebar-label "#89b4fa"
-   :file-added "#a6e3a1" :file-removed "#f38ba8"
-   :modal-bg-fg "#cdd6f4" :modal-bg-bg "#313244"
-   :modal-border "#89b4fa"
-   :modal-input-fg "#cdd6f4" :modal-input-bg "#45475a"
-   :tab-active-fg "#1e1e2e" :tab-active-bg "#f5c2e7"
-   :tab-inactive-fg "#6c7086" :tab-inactive-bg nil
-   :keyhint "#89b4fa"
-   :lsp-ok "#a6e3a1"
-   :tool-pending "#f9e2af" :tool-running "#89b4fa"
-   :tool-done "#a6e3a1" :tool-failed "#f38ba8"
-   :chat-user "#89b4fa" :chat-assistant nil
-   :chat-thought "#6c7086" :chat-bash "#a6e3a1" :chat-error "#f38ba8"
-   :completion-fg "#cdd6f4" :completion-bg "#313244"))
+(deftheme "gruvbox-light"
+  :bg "#fbf1c7" :fg "#3c3836"
+  :border "#928374" :border-accent "#076678"
+  :header "#8f3f71" :header-bold "#8f3f71"
+  :selected-fg "#fbf1c7" :selected-bg "#8f3f71"
+  :muted "#928374" :prompt-marker "#076678"
+  :status-info-fg "#3c3836" :status-info-bg nil
+  :status-ok-fg "#fbf1c7" :status-ok-bg "#79740e"
+  :status-error-fg "#fbf1c7" :status-error-bg "#9d0006"
+  :sidebar-title "#8f3f71" :sidebar-label "#076678"
+  :file-added "#79740e" :file-removed "#9d0006"
+  :modal-bg-fg "#3c3836" :modal-bg-bg "#ebdbb2"
+  :modal-border "#076678"
+  :modal-input-fg "#3c3836" :modal-input-bg "#d5c4a1"
+  :tab-active-fg "#fbf1c7" :tab-active-bg "#8f3f71"
+  :tab-inactive-fg "#928374" :tab-inactive-bg nil
+  :keyhint "#076678"
+  :lsp-ok "#79740e"
+  :tool-pending "#b57614" :tool-running "#076678"
+  :tool-done "#79740e" :tool-failed "#9d0006"
+  :chat-user "#076678" :chat-assistant nil
+  :chat-thought "#928374" :chat-bash "#79740e" :chat-error "#9d0006"
+  :completion-fg "#3c3836" :completion-bg "#ebdbb2")
 
-(defun make-solarized-dark-theme ()
-  "Create the Solarized Dark theme."
-  (make-tui-theme
-   :name "solarized-dark"
-   :bg "#002b36" :fg "#839496"
-   :border "#586e75" :border-accent "#268bd2"
-   :header "#d33682" :header-bold "#d33682"
-   :selected-fg "#fdf6e3" :selected-bg "#d33682"
-   :muted "#586e75" :prompt-marker "#268bd2"
-   :status-info-fg "#839496" :status-info-bg nil
-   :status-ok-fg "#002b36" :status-ok-bg "#859900"
-   :status-error-fg "#fdf6e3" :status-error-bg "#dc322f"
-   :sidebar-title "#d33682" :sidebar-label "#268bd2"
-   :file-added "#859900" :file-removed "#dc322f"
-   :modal-bg-fg "#839496" :modal-bg-bg "#073642"
-   :modal-border "#268bd2"
-   :modal-input-fg "#839496" :modal-input-bg "#073642"
-   :tab-active-fg "#fdf6e3" :tab-active-bg "#d33682"
-   :tab-inactive-fg "#586e75" :tab-inactive-bg nil
-   :keyhint "#268bd2"
-   :lsp-ok "#859900"
-   :tool-pending "#b58900" :tool-running "#2aa198"
-   :tool-done "#859900" :tool-failed "#dc322f"
-   :chat-user "#268bd2" :chat-assistant nil
-   :chat-thought "#586e75" :chat-bash "#859900" :chat-error "#dc322f"
-   :completion-fg "#839496" :completion-bg "#073642"))
+(deftheme "dracula"
+  :bg "#282a36" :fg "#f8f8f2"
+  :border "#6272a4" :border-accent "#bd93f9"
+  :header "#ff79c6" :header-bold "#ff79c6"
+  :selected-fg "#282a36" :selected-bg "#ff79c6"
+  :muted "#6272a4" :prompt-marker "#bd93f9"
+  :status-info-fg "#f8f8f2" :status-info-bg nil
+  :status-ok-fg "#282a36" :status-ok-bg "#50fa7b"
+  :status-error-fg "#f8f8f2" :status-error-bg "#ff5555"
+  :sidebar-title "#ff79c6" :sidebar-label "#bd93f9"
+  :file-added "#50fa7b" :file-removed "#ff5555"
+  :modal-bg-fg "#f8f8f2" :modal-bg-bg "#44475a"
+  :modal-border "#bd93f9"
+  :modal-input-fg "#f8f8f2" :modal-input-bg "#44475a"
+  :tab-active-fg "#282a36" :tab-active-bg "#ff79c6"
+  :tab-inactive-fg "#6272a4" :tab-inactive-bg nil
+  :keyhint "#bd93f9"
+  :lsp-ok "#50fa7b"
+  :tool-pending "#f1fa8c" :tool-running "#8be9fd"
+  :tool-done "#50fa7b" :tool-failed "#ff5555"
+  :chat-user "#bd93f9" :chat-assistant nil
+  :chat-thought "#6272a4" :chat-bash "#50fa7b" :chat-error "#ff5555"
+  :completion-fg "#f8f8f2" :completion-bg "#44475a")
 
-(defun make-nord-theme ()
-  "Create the Nord theme."
-  (make-tui-theme
-   :name "nord"
-   :bg "#2e3440" :fg "#d8dee9"
-   :border "#4c566a" :border-accent "#81a1c1"
-   :header "#b48ead" :header-bold "#b48ead"
-   :selected-fg "#2e3440" :selected-bg "#b48ead"
-   :muted "#4c566a" :prompt-marker "#81a1c1"
-   :status-info-fg "#d8dee9" :status-info-bg nil
-   :status-ok-fg "#2e3440" :status-ok-bg "#a3be8c"
-   :status-error-fg "#d8dee9" :status-error-bg "#bf616a"
-   :sidebar-title "#b48ead" :sidebar-label "#81a1c1"
-   :file-added "#a3be8c" :file-removed "#bf616a"
-   :modal-bg-fg "#d8dee9" :modal-bg-bg "#3b4252"
-   :modal-border "#81a1c1"
-   :modal-input-fg "#d8dee9" :modal-input-bg "#434c5e"
-   :tab-active-fg "#2e3440" :tab-active-bg "#b48ead"
-   :tab-inactive-fg "#4c566a" :tab-inactive-bg nil
-   :keyhint "#81a1c1"
-   :lsp-ok "#a3be8c"
-   :tool-pending "#ebcb8b" :tool-running "#88c0d0"
-   :tool-done "#a3be8c" :tool-failed "#bf616a"
-   :chat-user "#81a1c1" :chat-assistant nil
-   :chat-thought "#4c566a" :chat-bash "#a3be8c" :chat-error "#bf616a"
-   :completion-fg "#d8dee9" :completion-bg "#3b4252"))
+(deftheme "catppuccin-mocha"
+  :bg "#1e1e2e" :fg "#cdd6f4"
+  :border "#585b70" :border-accent "#89b4fa"
+  :header "#f5c2e7" :header-bold "#f5c2e7"
+  :selected-fg "#1e1e2e" :selected-bg "#f5c2e7"
+  :muted "#6c7086" :prompt-marker "#89b4fa"
+  :status-info-fg "#cdd6f4" :status-info-bg nil
+  :status-ok-fg "#1e1e2e" :status-ok-bg "#a6e3a1"
+  :status-error-fg "#cdd6f4" :status-error-bg "#f38ba8"
+  :sidebar-title "#f5c2e7" :sidebar-label "#89b4fa"
+  :file-added "#a6e3a1" :file-removed "#f38ba8"
+  :modal-bg-fg "#cdd6f4" :modal-bg-bg "#313244"
+  :modal-border "#89b4fa"
+  :modal-input-fg "#cdd6f4" :modal-input-bg "#45475a"
+  :tab-active-fg "#1e1e2e" :tab-active-bg "#f5c2e7"
+  :tab-inactive-fg "#6c7086" :tab-inactive-bg nil
+  :keyhint "#89b4fa"
+  :lsp-ok "#a6e3a1"
+  :tool-pending "#f9e2af" :tool-running "#89b4fa"
+  :tool-done "#a6e3a1" :tool-failed "#f38ba8"
+  :chat-user "#89b4fa" :chat-assistant nil
+  :chat-thought "#6c7086" :chat-bash "#a6e3a1" :chat-error "#f38ba8"
+  :completion-fg "#cdd6f4" :completion-bg "#313244")
 
-;;; ============================================================
-;;; Built-in theme registry
-;;; ============================================================
+(deftheme "solarized-dark"
+  :bg "#002b36" :fg "#839496"
+  :border "#586e75" :border-accent "#268bd2"
+  :header "#d33682" :header-bold "#d33682"
+  :selected-fg "#fdf6e3" :selected-bg "#d33682"
+  :muted "#586e75" :prompt-marker "#268bd2"
+  :status-info-fg "#839496" :status-info-bg nil
+  :status-ok-fg "#002b36" :status-ok-bg "#859900"
+  :status-error-fg "#fdf6e3" :status-error-bg "#dc322f"
+  :sidebar-title "#d33682" :sidebar-label "#268bd2"
+  :file-added "#859900" :file-removed "#dc322f"
+  :modal-bg-fg "#839496" :modal-bg-bg "#073642"
+  :modal-border "#268bd2"
+  :modal-input-fg "#839496" :modal-input-bg "#073642"
+  :tab-active-fg "#fdf6e3" :tab-active-bg "#d33682"
+  :tab-inactive-fg "#586e75" :tab-inactive-bg nil
+  :keyhint "#268bd2"
+  :lsp-ok "#859900"
+  :tool-pending "#b58900" :tool-running "#2aa198"
+  :tool-done "#859900" :tool-failed "#dc322f"
+  :chat-user "#268bd2" :chat-assistant nil
+  :chat-thought "#586e75" :chat-bash "#859900" :chat-error "#dc322f"
+  :completion-fg "#839496" :completion-bg "#073642")
 
-(defvar *tui-builtin-themes*
-  (list #'make-default-theme
-        #'make-gruvbox-dark-theme
-        #'make-gruvbox-light-theme
-        #'make-dracula-theme
-        #'make-catppuccin-mocha-theme
-        #'make-solarized-dark-theme
-        #'make-nord-theme)
-  "List of factory functions for built-in themes.")
+(deftheme "nord"
+  :bg "#2e3440" :fg "#d8dee9"
+  :border "#4c566a" :border-accent "#81a1c1"
+  :header "#b48ead" :header-bold "#b48ead"
+  :selected-fg "#2e3440" :selected-bg "#b48ead"
+  :muted "#4c566a" :prompt-marker "#81a1c1"
+  :status-info-fg "#d8dee9" :status-info-bg nil
+  :status-ok-fg "#2e3440" :status-ok-bg "#a3be8c"
+  :status-error-fg "#d8dee9" :status-error-bg "#bf616a"
+  :sidebar-title "#b48ead" :sidebar-label "#81a1c1"
+  :file-added "#a3be8c" :file-removed "#bf616a"
+  :modal-bg-fg "#d8dee9" :modal-bg-bg "#3b4252"
+  :modal-border "#81a1c1"
+  :modal-input-fg "#d8dee9" :modal-input-bg "#434c5e"
+  :tab-active-fg "#2e3440" :tab-active-bg "#b48ead"
+  :tab-inactive-fg "#4c566a" :tab-inactive-bg nil
+  :keyhint "#81a1c1"
+  :lsp-ok "#a3be8c"
+  :tool-pending "#ebcb8b" :tool-running "#88c0d0"
+  :tool-done "#a3be8c" :tool-failed "#bf616a"
+  :chat-user "#81a1c1" :chat-assistant nil
+  :chat-thought "#4c566a" :chat-bash "#a3be8c" :chat-error "#bf616a"
+  :completion-fg "#d8dee9" :completion-bg "#3b4252")
 
 (defun list-available-themes ()
   "Return a list of available theme structs (built-in + user files)."
@@ -538,7 +531,7 @@
               (make-default-theme))
           (make-default-theme))))
 
-;;* widgets 
+;;* widgets
 (defstruct tui-sidebar-widget
 	   (name "unnamed" :type string)
 	   (render-fn nil :type (or null function))
@@ -599,6 +592,36 @@
                 for i from 0 below files-to-show
                 while (<= (- y row) max-height)
                 do (tui-safe-write win (str:shorten width (format nil "  ~A" f) :ellipsis "..")
+                                   col y width)
+                   (incf y))
+          (when (and (> remaining 0) (<= (- y row) max-height))
+            (charms/ll:attron (charms/ll:color-pair (tui-color-pair :muted)))
+            (tui-safe-write win (format nil "  ...and ~A more" remaining) col y width)
+            (charms/ll:attroff (charms/ll:color-pair (tui-color-pair :muted)))
+            (incf y)))
+        (when (<= (- y row) max-height)
+          (charms/ll:attron (charms/ll:color-pair (tui-color-pair :muted)))
+          (tui-safe-write win "  None" col y width)
+          (charms/ll:attroff (charms/ll:color-pair (tui-color-pair :muted)))
+          (incf y)))
+    (- y row)))
+
+(defun sidebar-render-docs (win col row width max-height)
+  "Render the docs-in-context section. Returns rows used."
+  (let ((y row))
+    (when (<= (- y row) max-height)
+      (charms/ll:attron (charms/ll:color-pair (tui-color-pair :sidebar-label)))
+      (tui-safe-write win "Docs in Context" col y width)
+      (charms/ll:attroff (charms/ll:color-pair (tui-color-pair :sidebar-label)))
+      (incf y))
+    (if *tui-sidebar-docs*
+        (let* ((avail (- max-height (- y row)))
+               (docs-to-show (min (length *tui-sidebar-docs*) (max 1 avail)))
+               (remaining (- (length *tui-sidebar-docs*) docs-to-show)))
+          (loop for doc in *tui-sidebar-docs*
+                for i from 0 below docs-to-show
+                while (<= (- y row) max-height)
+                do (tui-safe-write win (str:shorten width (format nil "  ~A" doc) :ellipsis "..")
                                    col y width)
                    (incf y))
           (when (and (> remaining 0) (<= (- y row) max-height))
@@ -686,7 +709,7 @@
           (incf y)))
     (- y row)))
 
-;;* widgets factory functions 
+;;* widgets factory functions
 (defun make-sidebar-widget-project-header ()
   "Create the project header sidebar widget."
   (make-tui-sidebar-widget
@@ -704,6 +727,12 @@
   (make-tui-sidebar-widget
    :name "files"
    :render-fn #'sidebar-render-files))
+
+(defun make-sidebar-widget-docs ()
+  "Create the docs-in-context sidebar widget."
+  (make-tui-sidebar-widget
+   :name "docs"
+   :render-fn #'sidebar-render-docs))
 
 (defun make-sidebar-widget-tool-calls ()
   "Create the tool calls sidebar widget."
@@ -728,6 +757,7 @@
   (list (make-sidebar-widget-project-header)
         (make-sidebar-widget-model)
         (make-sidebar-widget-files)
+        (make-sidebar-widget-docs)
         (make-sidebar-widget-tool-calls)
         (make-sidebar-widget-lsps)
         (make-sidebar-widget-mcps)))
@@ -740,3 +770,96 @@
     ((string= status "completed") :tool-done)
     ((string= status "failed") :tool-failed)
     (t :muted)))
+(defun set-theme-by-name (theme-name &key apply-immediate)
+  "Set theme by its name string. If APPLY-IMMEDIATE is true, applies to active TUI."
+  (let ((theme (find-theme-by-name theme-name)))
+    (if theme
+        (progn
+          (setf *tui-theme-name* (tui-theme-name theme))
+          (setf *tui-theme* theme)
+          (when apply-immediate
+            (tui-apply-theme theme))
+          (format t "Theme set to: ~A~%" (tui-theme-name theme))
+          t)
+        (progn
+          (format t "Theme not found: ~A~%Available themes: ~{~A~^, ~}~%"
+                  theme-name
+                  (mapcar #'tui-theme-name (list-available-themes)))
+          nil))))
+
+(defun run-theme-fuzzy-select (&key apply-immediate)
+  "Run interactive fuzzy selector for choosing a theme."
+  (let* ((themes (list-available-themes))
+         (items (loop for th in themes
+                      collect `((:item . ,(tui-theme-name th))
+                                (:preview . ,(format nil "Theme: ~A~%BG: ~A~%FG: ~A~%Border: ~A~%Header: ~A~%Prompt: ~A"
+                                                     (tui-theme-name th)
+                                                     (or (tui-theme-bg th) "default")
+                                                     (or (tui-theme-fg th) "default")
+                                                     (or (tui-theme-border th) "default")
+                                                     (or (tui-theme-header th) "default")
+                                                     (or (tui-theme-prompt-marker th) "default"))))))
+         (selected (fuzzy-select items)))
+    (if selected
+        (let* ((selected-name (cdr (assoc :item selected)))
+               (theme (find-theme-by-name selected-name)))
+          (when theme
+            (setf *tui-theme-name* (tui-theme-name theme))
+            (setf *tui-theme* theme)
+            (when apply-immediate
+              (tui-apply-theme theme))
+            (format t "Theme set to: ~A~%" (tui-theme-name theme))))
+        (format t "Theme selection cancelled.~%"))))
+
+(define-command theme (args)
+  "Switch TUI theme. No args = list available themes."
+  (if args
+      (set-theme-by-name (first args))
+      (let ((themes (list-available-themes)))
+        (format t "Available themes:~%")
+        (dolist (th themes)
+          (format t "  ~A~@[ (active)~]~%"
+                  (tui-theme-name th)
+                  (and *tui-theme*
+                       (string= (tui-theme-name th) (tui-theme-name *tui-theme*)))))))
+  :completions (lambda (text args)
+                 (declare (ignore args))
+                 (let ((names (mapcar #'tui-theme-name (list-available-themes))))
+                   (if (string= text "")
+                       names
+                       (remove-if-not
+                        (lambda (n) (str:starts-with-p text n :ignore-case t))
+                        names))))
+  :tui (lambda (args)
+         (if args
+             (set-theme-by-name (first args) :apply-immediate t)
+             (run-theme-fuzzy-select :apply-immediate t)))
+  :repl (lambda (args)
+          (if args
+              (set-theme-by-name (first args))
+              (run-theme-fuzzy-select)))
+  :acp (lambda (cmd-args)
+         (if cmd-args
+             (let* ((theme-name (first cmd-args))
+                    (theme (find-theme-by-name theme-name)))
+               (if theme
+                   (progn
+                     (setf *tui-theme-name* (tui-theme-name theme))
+                     (setf *tui-theme* theme)
+                     (when *tui-running*
+                       (tui-apply-theme theme))
+                     `(("text" . ,(format nil "Theme set to: ~A" (tui-theme-name theme)))
+                       ("data" . (("theme" . ,(tui-theme-name theme))))))
+                   `(("text" . ,(format nil "Theme not found: ~A" theme-name)))))
+             (let ((themes (list-available-themes)))
+               `(("text" . ,(format nil "~A theme(s) available." (length themes)))
+                 ("data" . ,(coerce
+                             (mapcar (lambda (th)
+                                       `(("name" . ,(tui-theme-name th))
+                                         ("active" . ,(if (and *tui-theme*
+                                                               (string= (tui-theme-name th)
+                                                                        (tui-theme-name *tui-theme*)))
+                                                          t :false))))
+                                     themes)
+                            'vector))))))
+  :in-editor nil)

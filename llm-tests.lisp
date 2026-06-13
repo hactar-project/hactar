@@ -1,21 +1,18 @@
 (defpackage :llm-tests
   (:use :cl :fiveam :llm :mockingbird :shasht)
   (:export #:run-tests))
-
 (in-package :llm-tests)
-
-;; Define the test suite
 (def-suite llm-tests
   :description "Tests for the llm library")
 
 (in-suite llm-tests)
 
-;; Helper function to read all chunks from a stream reader
+;;* helpers
 (defun read-all-chunks (reader)
   (with-output-to-string (s)
-    (loop for chunk = (read-next-chunk reader)
-          while chunk
-          do (write-string chunk s))))
+			 (loop for chunk = (read-next-chunk reader)
+			       while chunk
+			       do (write-string chunk s))))
 
 ;; Test the stream reader functionality with different providers
 (test stream-reader-parsing
@@ -68,7 +65,7 @@
     (is (string= "System prompt" (cdr (assoc :content (first result)))))
     (is (string= "user" (cdr (assoc :role (second result)))))
     (is (string= "Hello" (cdr (assoc :content (second result))))))
-  
+
   ;; Test with a message array
   (let (
 	(result (llm::prepare-messages '(((:role . "user") (:content . "Hello"))) "System prompt")))
@@ -83,49 +80,49 @@
   "Test the complete function dispatches to the correct completer"
   (let ((test-message "Test message")
         (mock-response "This is a mock response"))
-    
+
     ;; Test OpenAI dispatch
-    (with-dynamic-stubs ((llm:openai-complete 
+    (with-dynamic-stubs ((llm:openai-complete
                           (lambda (messages &rest args)
                             (declare (ignore args))
                             (is (equal test-message messages))
                             mock-response)))
       (is (equal mock-response (llm:complete :openai test-message))))
-    
+
     ;; Test Ollama dispatch
-    (with-dynamic-stubs ((llm:ollama-complete 
+    (with-dynamic-stubs ((llm:ollama-complete
                           (lambda (messages &rest args)
                             (declare (ignore args))
                             (is (equal test-message messages))
                             mock-response)))
       (is (equal mock-response (llm:complete :ollama test-message))))
-    
+
     ;; Test Anthropic dispatch
-    (with-dynamic-stubs ((llm:anthropic-complete 
+    (with-dynamic-stubs ((llm:anthropic-complete
                           (lambda (messages &rest args)
                             (declare (ignore args))
                             (is (equal test-message messages))
                             mock-response)))
       (is (equal mock-response (llm:complete :anthropic test-message))))
-    
+
     ;; Test OpenRouter dispatch
-    (with-dynamic-stubs ((llm:openrouter-complete 
+    (with-dynamic-stubs ((llm:openrouter-complete
                           (lambda (messages &rest args)
                             (declare (ignore args))
                             (is (equal test-message messages))
                             mock-response)))
       (is (equal mock-response (llm:complete :openrouter test-message))))
-    
+
     ;; Test Gemini dispatch
-    (with-dynamic-stubs ((llm:gemini-complete 
+    (with-dynamic-stubs ((llm:gemini-complete
                           (lambda (messages &rest args)
                             (declare (ignore args))
                             (is (equal test-message messages))
                             mock-response)))
       (is (equal mock-response (llm:complete :gemini test-message))))
-    
+
     ;; Test error on unknown type
-    (signals error 
+    (signals error
       (llm:complete :unknown test-message))))
 
 ;; Test OpenAI complete function with mocked API
@@ -170,10 +167,10 @@
         (model "gpt-3.5-turbo")
         (api-key "test-api-key")
         (response-content "This is a test response from OpenAI"))
-    
+
     ;; Test non-streaming case
-    (let ((mock-response (babel:string-to-octets 
-                          (format nil "{\"choices\": [{\"message\": {\"content\": ~S}}]}" 
+    (let ((mock-response (babel:string-to-octets
+                          (format nil "{\"choices\": [{\"message\": {\"content\": ~S}}]}"
                                   response-content))))
       (with-dynamic-stubs ((drakma:http-request (lambda (endpoint &key method content content-type additional-headers &allow-other-keys)
 						  (declare (ignore endpoint method content content-type additional-headers))
@@ -246,6 +243,136 @@
           (is (equal `(((:role . "system") (:content . ,llm:*default-system-prompt*))
                        ((:role . "user") (:content . ,stream-messages)))
                      processed-messages)))))))
+
+;; Test Mistral complete function (OpenAI-compatible)
+(test mistral-complete-test
+  "Test the mistral-complete function"
+  (let ((messages "Mistral test")
+        (model "mistral-small-latest")
+        (api-key "mistral-key")
+        (response-content "Mistral response"))
+    ;; Non-streaming
+    (let ((captured-endpoint nil)
+          (mock-response (babel:string-to-octets
+                          (format nil "{\"choices\": [{\"message\": {\"content\": ~S}}]}" response-content))))
+      (with-dynamic-stubs ((drakma:http-request
+                            (lambda (endpoint &key &allow-other-keys)
+                              (setf captured-endpoint endpoint)
+                              (values mock-response 200 nil nil nil nil nil))))
+        (multiple-value-bind (content tool-calls updated-messages)
+            (llm:mistral-complete messages :model model :api-key api-key)
+          (declare (ignore tool-calls))
+          (is (string= response-content content))
+          (is (string= "https://api.mistral.ai/v1/chat/completions" captured-endpoint))
+          (is (equal `((:role . "assistant") (:content . ,response-content))
+                     (car (last updated-messages)))))))
+    ;; Streaming
+    (let ((mock-stream-content (format nil "data: {\"choices\":[{\"delta\":{\"content\":\"Mistral streaming\"}}]}~%data: [DONE]~%")))
+      (with-dynamic-stubs ((drakma:http-request
+                            (lambda (endpoint &key want-stream &allow-other-keys)
+                              (declare (ignore endpoint want-stream))
+                              (values (flexi-streams:make-in-memory-input-stream
+                                       (babel:string-to-octets mock-stream-content :encoding :utf-8))
+                                      200 nil nil nil nil))))
+        (multiple-value-bind (reader processed-messages)
+            (llm:mistral-complete messages :model model :api-key api-key :stream t)
+          (declare (ignore processed-messages))
+          (is (typep reader 'llm-stream-reader))
+          (is (eq :openai (llm-stream-reader-provider reader)))
+          (is (string= "Mistral streaming" (read-all-chunks reader))))))))
+
+;; Test DeepSeek complete function (OpenAI-compatible)
+(test deepseek-complete-test
+  "Test the deepseek-complete function"
+  (let ((messages "DeepSeek test")
+        (model "deepseek-v4-pro")
+        (api-key "deepseek-key")
+        (response-content "DeepSeek response"))
+    (let ((captured-endpoint nil)
+          (mock-response (babel:string-to-octets
+                          (format nil "{\"choices\": [{\"message\": {\"content\": ~S}}]}" response-content))))
+      (with-dynamic-stubs ((drakma:http-request
+                            (lambda (endpoint &key &allow-other-keys)
+                              (setf captured-endpoint endpoint)
+                              (values mock-response 200 nil nil nil nil nil))))
+        (multiple-value-bind (content tool-calls updated-messages)
+            (llm:deepseek-complete messages :model model :api-key api-key)
+          (declare (ignore tool-calls))
+          (is (string= response-content content))
+          (is (string= "https://api.deepseek.com/chat/completions" captured-endpoint))
+          (is (equal `((:role . "assistant") (:content . ,response-content))
+                     (car (last updated-messages)))))))))
+
+;; Test Kimi (Moonshot) complete function (OpenAI-compatible)
+(test kimi-complete-test
+  "Test the kimi-complete function"
+  (let ((messages "Kimi test")
+        (model "kimi-k2.6")
+        (api-key "kimi-key")
+        (response-content "Kimi response"))
+    (let ((captured-endpoint nil)
+          (mock-response (babel:string-to-octets
+                          (format nil "{\"choices\": [{\"message\": {\"content\": ~S}}]}" response-content))))
+      (with-dynamic-stubs ((drakma:http-request
+                            (lambda (endpoint &key &allow-other-keys)
+                              (setf captured-endpoint endpoint)
+                              (values mock-response 200 nil nil nil nil nil))))
+        (multiple-value-bind (content tool-calls updated-messages)
+            (llm:kimi-complete messages :model model :api-key api-key)
+          (declare (ignore tool-calls))
+          (is (string= response-content content))
+          (is (string= "https://api.moonshot.ai/v1/chat/completions" captured-endpoint))
+          (is (equal `((:role . "assistant") (:content . ,response-content))
+                     (car (last updated-messages)))))))))
+
+;; Test OpenCode Go complete function (OpenAI-compatible)
+(test opencode-complete-test
+  "Test the opencode-complete function"
+  (let ((messages "OpenCode test")
+        (model "kimi-k2.6")
+        (api-key "opencode-key")
+        (response-content "OpenCode response"))
+    (let ((captured-endpoint nil)
+          (mock-response (babel:string-to-octets
+                          (format nil "{\"choices\": [{\"message\": {\"content\": ~S}}]}" response-content))))
+      (with-dynamic-stubs ((drakma:http-request
+                            (lambda (endpoint &key &allow-other-keys)
+                              (setf captured-endpoint endpoint)
+                              (values mock-response 200 nil nil nil nil nil))))
+        (multiple-value-bind (content tool-calls updated-messages)
+            (llm:opencode-complete messages :model model :api-key api-key)
+          (declare (ignore tool-calls))
+          (is (string= response-content content))
+          (is (string= "https://opencode.ai/zen/go/v1/chat/completions" captured-endpoint))
+          (is (equal `((:role . "assistant") (:content . ,response-content))
+                     (car (last updated-messages)))))))))
+
+;; Test Amazon Bedrock complete function (Converse API)
+(test bedrock-complete-test
+  "Test the bedrock-complete function"
+  (let ((messages "Bedrock test")
+        (model "anthropic.claude-3-5-sonnet-20241022-v2:0")
+        (token "bedrock-token")
+        (response-content "Bedrock response"))
+    (let ((captured-endpoint nil)
+          (captured-headers nil)
+          (mock-response (babel:string-to-octets
+                          (format nil "{\"output\": {\"message\": {\"role\": \"assistant\", \"content\": [{\"text\": ~S}]}}, \"stopReason\": \"end_turn\"}" response-content))))
+      (with-dynamic-stubs ((drakma:http-request
+                            (lambda (endpoint &key additional-headers &allow-other-keys)
+                              (setf captured-endpoint endpoint)
+                              (setf captured-headers additional-headers)
+                              (values mock-response 200 nil nil nil nil nil))))
+        (multiple-value-bind (content tool-calls updated-messages)
+            (llm:bedrock-complete messages :model model :bearer-token token :region "us-east-1")
+          (declare (ignore tool-calls))
+          (is (string= response-content content))
+          (is (search "bedrock-runtime.us-east-1.amazonaws.com" captured-endpoint))
+          (is (search "/converse" captured-endpoint))
+          (is (equal "Bearer bedrock-token"
+                     (cdr (assoc "Authorization" captured-headers :test #'string=))))
+          (is (equal `((:role . "assistant") (:content . ,response-content))
+                     (car (last updated-messages)))))))))
 
 ;; Test Anthropic complete function with mocked API
 (test anthropic-complete-test
@@ -393,14 +520,14 @@
                                (:parameters . ((:type . "object")
                                               (:properties . ((:location . ((:type . "string")))))
                                               (:required . #("location"))))))))))
-    
+
     ;; Test that tools are included in the payload
     (let ((captured-payload nil))
-      (with-dynamic-stubs ((drakma:http-request 
+      (with-dynamic-stubs ((drakma:http-request
                             (lambda (endpoint &key content &allow-other-keys)
                               (declare (ignore endpoint))
                               (setf captured-payload content)
-                              (values (babel:string-to-octets 
+                              (values (babel:string-to-octets
                                        "{\"choices\": [{\"message\": {\"content\": \"test\"}}]}")
                                       200 nil nil nil nil nil))))
         (llm:openai-complete messages :model model :api-key api-key :tools tools)
@@ -413,10 +540,10 @@
   (let ((messages "What's the weather in NYC?")
         (model "gpt-4")
         (api-key "test-key")
-        (mock-response (babel:string-to-octets 
+        (mock-response (babel:string-to-octets
                         "{\"choices\": [{\"message\": {\"role\": \"assistant\", \"content\": null, \"tool_calls\": [{\"id\": \"call_123\", \"type\": \"function\", \"function\": {\"name\": \"get_weather\", \"arguments\": \"{\\\"location\\\": \\\"NYC\\\"}\"}}]}}]}")))
-    
-    (with-dynamic-stubs ((drakma:http-request 
+
+    (with-dynamic-stubs ((drakma:http-request
                           (lambda (endpoint &key &allow-other-keys)
                             (declare (ignore endpoint))
                             (values mock-response 200 nil nil nil nil nil))))
@@ -439,18 +566,28 @@
                                (:description . "Get weather")
                                (:parameters . ((:type . "object")
                                               (:properties . ((:location . ((:type . "string")))))))))))))
-    
+
     (let ((captured-payload nil))
-      (with-dynamic-stubs ((drakma:http-request 
+      (with-dynamic-stubs ((drakma:http-request
                             (lambda (endpoint &key content &allow-other-keys)
                               (declare (ignore endpoint))
                               (setf captured-payload content)
-                              (values (babel:string-to-octets 
+                              (values (babel:string-to-octets
                                        "{\"content\": [{\"type\": \"text\", \"text\": \"test\"}]}")
                                       200 nil nil nil nil nil))))
         (llm:anthropic-complete messages :model model :api-key api-key :tools tools)
         (is-true captured-payload)
         (is (search "get_weather" captured-payload))))))
+
+;; OAuth env-token specials
+(test oauth-env-token-vars
+  "OAuth env token special variables exist and are strings or NIL"
+  (is (or (null llm:*anthropic-oauth-token*) (stringp llm:*anthropic-oauth-token*)))
+  (is (or (null llm:*antigravity-token*) (stringp llm:*antigravity-token*)))
+  (is (or (null llm:*antigravity-project-id*) (stringp llm:*antigravity-project-id*)))
+  ;; They are dynamically rebindable
+  (let ((llm:*anthropic-oauth-token* "test-token"))
+    (is (string= "test-token" llm:*anthropic-oauth-token*))))
 
 ;; Function to run all tests
 (defun run-tests ()

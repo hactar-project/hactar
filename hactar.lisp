@@ -19,218 +19,19 @@
              (funcall 'litmode-active-p))
     (funcall 'generate-litmode-context)))
 
+(defun get-mode-rules-section ()
+  "Generate the rules section for the system prompt from active modes (Refactor Plan §7.6)."
+  (get-active-mode-rules))
+
 (defun get-entity-rules-section ()
-  "Generate the entity rules section for the system prompt from BOT active rules."
-  (get-active-entity-rules))
+  "Deprecated shim: the BOT entity system is being replaced by modes.
+   Returns the active mode rules so existing callers keep working."
+  (get-mode-rules-section))
 
 (defun get-feature-rules-section ()
-  "Generate the feature rules section for the system prompt from active features."
-  (get-active-feature-rules))
-
-(defmacro with-suppressed-output-if-rpc (&body body)
-  "In lisp-rpc-mode, suppress stdout/stderr during BODY to avoid polluting the s-expression protocol stream."
-  `(if *lisp-rpc-mode*
-       (let ((*standard-output* (make-broadcast-stream))
-             (*error-output*   (make-broadcast-stream)))
-         ,@body)
-       (progn ,@body)))
-
-(defun start-http ()
-  "Start the HTTP server if not already running."
-  (if *http-server*
-      (progn
-        (unless *silent*
-          (if *lisp-rpc-mode*
-              (rpc-log :info "HTTP server already running" :port *http-port*)
-              (format t "HTTP server already running on port ~A.~%" *http-port*)))
-        *http-port*)
-      (handler-case
-          (progn
-            (with-suppressed-output-if-rpc
-              (start-http-server :port *http-port*))
-            (when *lisp-rpc-mode*
-              (rpc-log :info "HTTP server started" :port *http-port*))
-            (unless *silent*
-              (format t "HTTP server running on port ~A.~%" *http-port*))
-            *http-port*)
-        (error (e)
-          (if *lisp-rpc-mode*
-              (rpc-error (format nil "Failed to start HTTP server: ~A" e))
-              (format *error-output* "~&Error starting HTTP server: ~A~%" e))
-          nil))))
-
-(define-command http (args)
-  "Start the HTTP API server manually (if not already running)."
-  (declare (ignore args))
-  (let ((port (start-http)))
-    (when port
-      (format t "HTTP server running on port ~A.~%" port)))
-  :acp (lambda (cmd-args)
-         (declare (ignore cmd-args))
-         (let ((port (start-http)))
-           (if port
-               `(("text" . ,(format nil "HTTP server running on port ~A." port))
-                 ("data" . (("port" . ,port))))
-               `(("text" . "Failed to start HTTP server."))))))
-
-(defun start-slynk ()
-  "Start the Slynk server if not already running."
-  (if *slynk-started*
-      (progn
-        (unless *silent*
-          (if *lisp-rpc-mode*
-              (rpc-log :info "Slynk already running" :port *slynk-port*)
-              (format t "Slynk server already running on port ~A.~%" *slynk-port*)))
-        *slynk-port*)
-      (let ((actual-slynk-port (find-free-port *slynk-port*)))
-        (handler-case
-            (with-suppressed-output-if-rpc
-              (unless *silent*
-                (format t "~&Starting Slynk server on port ~A...~%" actual-slynk-port))
-              (slynk:create-server :port actual-slynk-port :dont-close t))
-          (error (e)
-            (if *lisp-rpc-mode*
-                (rpc-error (format nil "Failed to start Slynk: ~A" e))
-                (progn
-                  (format *error-output* "~&Error starting Slynk server: ~A~%" e)
-                  (format *error-output* "~&Ensure Slynk is installed and port ~A is free.~%" actual-slynk-port)))
-            (return-from start-slynk nil)))
-        (write-slynk-port-file actual-slynk-port)
-        (setf *slynk-port* actual-slynk-port)
-        (setf *slynk-started* t)
-        (when *lisp-rpc-mode*
-          (rpc-log :info "Slynk started" :port *slynk-port*))
-        actual-slynk-port)))
-
-(define-command slynk (args)
-  "Start the Slynk server manually (if not already running)."
-  (declare (ignore args))
-  (let ((port (start-slynk)))
-    (when port
-      (format t "Slynk server running on port ~A.~%" port)))
-  :acp (lambda (cmd-args)
-         (declare (ignore cmd-args))
-         (let ((port (start-slynk)))
-           (if port
-               `(("text" . ,(format nil "Slynk server running on port ~A." port))
-                 ("data" . (("port" . ,port))))
-               `(("text" . "Failed to start Slynk server."))))))
-
-(define-command theme (args)
-  "Switch TUI theme. No args = fuzzy-select from available themes."
-  (if args
-      (let* ((theme-name (first args))
-             (theme (find-theme-by-name theme-name)))
-        (if theme
-            (progn
-              (setf *tui-theme-name* (tui-theme-name theme))
-              (setf *tui-theme* theme)
-              ;; If TUI is running, re-apply immediately
-              (when *tui-running*
-                (tui-apply-theme theme))
-              (format t "Theme set to: ~A~%" (tui-theme-name theme)))
-            (format t "Theme not found: ~A~%Available themes: ~{~A~^, ~}~%"
-                    theme-name
-                    (mapcar #'tui-theme-name (list-available-themes)))))
-      ;; No args: list or fuzzy-select
-      (cond
-        ((or *acp-mode* (not *in-repl*))
-         (let ((themes (list-available-themes)))
-           (format t "Available themes:~%")
-           (dolist (th themes)
-             (format t "  ~A~@[ (active)~]~%"
-                     (tui-theme-name th)
-                     (and *tui-theme*
-                          (string= (tui-theme-name th) (tui-theme-name *tui-theme*)))))))
-        (t
-         (let* ((themes (list-available-themes))
-                (items (loop for th in themes
-                             collect `((:item . ,(tui-theme-name th))
-                                       (:preview . ,(format nil "Theme: ~A~%BG: ~A~%FG: ~A~%Border: ~A~%Header: ~A~%Prompt: ~A"
-                                                            (tui-theme-name th)
-                                                            (or (tui-theme-bg th) "default")
-                                                            (or (tui-theme-fg th) "default")
-                                                            (or (tui-theme-border th) "default")
-                                                            (or (tui-theme-header th) "default")
-                                                            (or (tui-theme-prompt-marker th) "default"))))))
-                (selected (fuzzy-select items)))
-           (if selected
-               (let* ((selected-name (cdr (assoc :item selected)))
-                      (theme (find-theme-by-name selected-name)))
-                 (when theme
-                   (setf *tui-theme-name* (tui-theme-name theme))
-                   (setf *tui-theme* theme)
-                   (when *tui-running*
-                     (tui-apply-theme theme))
-                   (format t "Theme set to: ~A~%" (tui-theme-name theme))))
-               (format t "Theme selection cancelled.~%"))))))
-  :completions (lambda (text args)
-                 (declare (ignore args))
-                 (let ((names (mapcar #'tui-theme-name (list-available-themes))))
-                   (if (string= text "")
-                       names
-                       (remove-if-not
-                        (lambda (n) (str:starts-with-p text n :ignore-case t))
-                        names))))
-  :acp (lambda (cmd-args)
-         (if cmd-args
-             (let* ((theme-name (first cmd-args))
-                    (theme (find-theme-by-name theme-name)))
-               (if theme
-                   (progn
-                     (setf *tui-theme-name* (tui-theme-name theme))
-                     (setf *tui-theme* theme)
-                     (when *tui-running*
-                       (tui-apply-theme theme))
-                     `(("text" . ,(format nil "Theme set to: ~A" (tui-theme-name theme)))
-                       ("data" . (("theme" . ,(tui-theme-name theme))))))
-                   `(("text" . ,(format nil "Theme not found: ~A" theme-name)))))
-             (let ((themes (list-available-themes)))
-               `(("text" . ,(format nil "~A theme(s) available." (length themes)))
-                 ("data" . ,(coerce
-                             (mapcar (lambda (th)
-                                       `(("name" . ,(tui-theme-name th))
-                                         ("active" . ,(if (and *tui-theme*
-                                                               (string= (tui-theme-name th)
-                                                                        (tui-theme-name *tui-theme*)))
-                                                          t :false))))
-                                     themes)
-                             'vector)))))))
-
-(define-command tui (args)
-                "Launch the 3-column TUI interface (Crush-style)."
-                (declare (ignore args))
-                (run-tui))
-
-(define-command debug (args)
-                "Toggle debug mode for both hactar and llm packages."
-                (declare (ignore args))
-                (setf *debug* (not *debug*))
-                ;; Also toggle the debug flag in the llm package
-                (setf llm:*debug* *debug*)
-                (format t "Debug mode is now ~A for hactar and llm.~%" (if *debug* "enabled" "disabled"))
-                :acp (lambda (cmd-args)
-                       (declare (ignore cmd-args))
-                       (setf *debug* (not *debug*))
-                       (setf llm:*debug* *debug*)
-                       `(("text" . ,(format nil "Debug mode is now ~A." (if *debug* "enabled" "disabled")))
-                         ("data" . (("debug" . ,(if *debug* t :false)))))))
-
-(define-command ask (args)
-                "Ask questions about the code base without editing any files."
-                (let ((question (format nil "~{~A~^ ~}" args)))
-		  (get-llm-response question))
-                :acp t)
-
-(define-command correct (args)
-                "Resend the chat asking the LLM to fix its search/replace blocks.
-Optionally provide additional guidance about what went wrong."
-                (let* ((guidance (when args (format nil "~{~A~^ ~}" args)))
-                       (correction-prompt
-                         (format nil "Your previous response contained SEARCH/REPLACE blocks that did not match the existing file content. The SEARCH section must EXACTLY match the existing code, character for character.~%~%~@[The user says: ~A~%~%~]Please carefully re-read the file contents provided in the context and rewrite your SEARCH/REPLACE blocks so that each SEARCH section is an exact, character-for-character copy of the lines in the actual file. Pay close attention to whitespace, indentation, comments, and punctuation."
-                                 guidance)))
-                  (get-llm-response correction-prompt))
-                :acp t)
+  "Deprecated shim: the feature system is being replaced by modes.
+   Returns \"\" so mode rules are not duplicated (the entity shim already emits them)."
+  "")
 
 ;; TODO: Add automatic skills lookup and insertion
 ;; the main purpose of a seperate /code command is so we can have smart prompts
@@ -259,6 +60,27 @@ Optionally provide additional guidance about what went wrong."
                        (perform-history-compression)
                        `(("text" . "Chat history compression completed."))))
 
+(define-command help.flag (args)
+                "Print details and specifications for a registered global CLI flag."
+                (if args
+                    (let* ((flag-name (first args))
+                           (flag (gethash flag-name *flags*)))
+                      (unless flag
+                        (setf flag (or (gethash (format nil "-~A" flag-name) *flags*)
+                                       (gethash (format nil "--~A" flag-name) *flags*))))
+                      (if flag
+                          (progn
+                            (format t "Flag: ~{~A~^, ~}~%" (append (flag-long-names flag) (flag-short-names flag)))
+                            (format t "  Description: ~A~%" (or (flag-description flag) "No description available."))
+                            (format t "  Takes value: ~A~%" (if (flag-takes-value flag) "Yes" "No"))
+                            (when (flag-examples flag)
+                              (format t "  Examples:~%")
+                              (dolist (ex (flag-examples flag))
+                                (format t "    ~A~%" ex))))
+                          (format t "Flag not found: ~A~%" flag-name)))
+                    (format t "Usage: /help.flag <flag-name>~%"))
+                :acp t)
+
 (define-command help (args)
                 "Display available commands and their descriptions. Use --spec or --spec-lisp for machine-readable output."
                 (cond
@@ -267,39 +89,42 @@ Optionally provide additional guidance about what went wrong."
                   ((member "--spec" args :test #'string=)
                    (emit-cli-spec))
                   (t
-                (format t "Available commands:~%")
-                ;; Sort commands alphabetically for better readability
-                (let ((sorted-commands (sort (alexandria:hash-table-keys *commands*) #'string<)))
-                  (dolist (cmd sorted-commands)
-                    (let* ((command-info (gethash cmd *commands*))
-                           (description (second command-info)))
-                      (format t "  ~A - ~A~%" cmd description))))
-                (format t "~%Available sub-commands:~%")
-                (let ((sorted-subcommands (sort (alexandria:hash-table-keys *sub-commands*) #'string<)))
-                  (dolist (subcmd sorted-subcommands)
-                    (let* ((subcmd-info (gethash subcmd *sub-commands*))
-                           (description (second subcmd-info))
-                           (cli-options (third subcmd-info)))
-                      (format t "  ~A~%" subcmd)
-                      (format t "      ~A~%" description)
-                      (when cli-options
-                        (format t "      Options:~%")
-                        (dolist (opt cli-options)
-                          (let ((opt-short (getf opt :short))
-                                (opt-long (getf opt :long))
-                                (opt-desc (getf opt :description)))
-                            (format t "        ")
-                            (when opt-short (format t "-~A" opt-short))
-                            (when (and opt-short opt-long) (format t ", "))
-                            (when opt-long (format t "--~A" opt-long))
-                            (format t " : ~A~%" opt-desc))))
-                      ;; Check if this is a web command and print its routes
-                      (let ((web-cmd (gethash subcmd *web-commands*)))
-                        (when web-cmd
-                          (dolist (route (web-command-routes web-cmd))
-                            (format t "    ~A - ~A~%"
-                                    (first (web-route-pattern route))
-                                    (web-route-description route))))))))))
+                  (format t "~A~%" (colorize "Available commands:" :bold-cyan))
+                 ;; Sort commands alphabetically for better readability
+                 (let ((sorted-commands (sort (alexandria:hash-table-keys *commands*) #'string<)))
+                   (dolist (cmd sorted-commands)
+                     (unless (gethash cmd *hidden-commands*)
+                       (let* ((command-info (gethash cmd *commands*))
+                              (description (second command-info)))
+                         (format t "  ~A ~A ~A~%" (colorize cmd :bold-green) (colorize "-" :dim) (colorize description :dim))))))
+                 (format t "~%~A~%" (colorize "Available sub-commands:" :bold-cyan))
+                 (let ((sorted-subcommands (sort (alexandria:hash-table-keys *sub-commands*) #'string<)))
+                   (dolist (subcmd sorted-subcommands)
+                     (unless (gethash (format nil "/~A" subcmd) *hidden-commands*)
+                       (let* ((subcmd-info (gethash subcmd *sub-commands*))
+                              (description (second subcmd-info))
+                              (cli-options (third subcmd-info)))
+                         (format t "  ~A~%" (colorize subcmd :bold-magenta))
+                         (format t "      ~A~%" (colorize description :dim))
+                         (when cli-options
+                           (format t "      ~A~%" (colorize "Options:" :cyan))
+                           (dolist (opt cli-options)
+                             (let ((opt-short (getf opt :short))
+                                   (opt-long (getf opt :long))
+                                   (opt-desc (getf opt :description)))
+                               (format t "        ")
+                               (when opt-short (format t "~A" (colorize (format nil "-~A" opt-short) :yellow)))
+                               (when (and opt-short opt-long) (format t "~A " (colorize "," :dim)))
+                               (when opt-long (format t "~A" (colorize (format nil "--~A" opt-long) :yellow)))
+                               (format t " ~A~%" (colorize (format nil ": ~A" opt-desc) :dim)))))
+                         ;; Check if this is a web command and print its routes
+                         (let ((web-cmd (gethash subcmd *web-commands*)))
+                           (when web-cmd
+                             (dolist (route (web-command-routes web-cmd))
+                               (format t "    ~A ~A ~A~%"
+                                       (colorize (first (web-route-pattern route)) :cyan)
+                                       (colorize "-" :dim)
+                                       (colorize (web-route-description route) :dim)))))))))))
                 :acp (lambda (cmd-args)
                        (cond
                          ((member "--spec-lisp" cmd-args :test #'string=)
@@ -308,208 +133,90 @@ Optionally provide additional guidance about what went wrong."
                           `(("text" . ,(with-output-to-string (s) (emit-cli-spec :stream s)))
                             ("data" . ,(build-cli-spec))))
                          (t
-                       (let ((commands '()))
-                         (maphash (lambda (cmd-name handler)
-                                    (declare (ignore handler))
-                                    (let* ((cmd-info (gethash cmd-name *commands*))
-                                           (description (if cmd-info (second cmd-info) "")))
-                                      (push `(("name" . ,(string-trim "/" cmd-name))
-                                              ("description" . ,description))
-                                            commands)))
-                                  *acp-commands*)
-                         `(("text" . ,(format nil "~A commands available." (length commands)))
-                           ("data" . ,(coerce (sort commands #'string< :key (lambda (c) (cdr (assoc "name" c :test #'string=)))) 'vector))))))))
+                        (let ((commands '()))
+                          (maphash (lambda (cmd-name handler)
+                                     (declare (ignore handler))
+                                     (unless (gethash cmd-name *hidden-commands*)
+                                       (let* ((cmd-info (gethash cmd-name *commands*))
+                                              (description (if cmd-info (second cmd-info) "")))
+                                         (push `(("name" . ,(string-trim "/" cmd-name))
+                                                 ("description" . ,description))
+                                               commands))))
+                                   *acp-commands*)
+                          `(("text" . ,(format nil "~A commands available." (length commands)))
+                            ("data" . ,(coerce (sort commands #'string< :key (lambda (c) (cdr (assoc "name" c :test #'string=)))) 'vector))))))))
 
-(define-command model (args)
-                "Switch to a new LLM. Uses fuzzy-select if no model name is provided."
-                (if args
-                  (let ((model-name (first args)))
-                    (set-current-model model-name))
-                  (cond
-                    ;; In ACP mode or non-interactive mode, list models instead of fuzzy-select
-                    ((or *acp-mode* (not *in-repl*))
-                     (if *available-models*
-                       (progn
-                         (format t "Current model: ~A~%" (if *current-model* (model-config-name *current-model*) "None"))
-                         (format t "Available models (use /model <name> to switch):~%")
-                         (dolist (model *available-models*)
-                           (format t "  ~A~%" (model-config-name model))))
-                       (format t "No models available.~%")))
-                    ;; Interactive mode with fuzzy-select
-                    (*available-models*
-                     (let* ((items (loop for model in *available-models*
-                                         collect `((:item . ,(model-config-name model))
-                                                   (:preview . ,(format nil "Provider: ~A~%Model: ~A~%Max Tokens: ~A In / ~A Out~%Edit Format: ~A~%Cost (In/Out): $~8F / $~8F: Supports: ~A"
-                                                                        (model-config-provider model)
-                                                                        (model-config-model-name model)
-                                                                        (model-config-max-input-tokens model)
-                                                                        (model-config-max-output-tokens model)
-                                                                        (model-config-edit-format model)
-                                                                        (model-config-input-cost-per-token model)
-                                                                        (model-config-output-cost-per-token model)
-                                                                        (format nil "~{~A~^, ~}" (model-config-supports model)))))))
-                            (selected-item (fuzzy-select items)))
-                       (if selected-item
-                         (let ((selected-model-name (cdr (assoc :item selected-item))))
-                           (set-current-model selected-model-name))
-                         (format t "Model selection cancelled.~%"))))
-                    (t (format t "No models available to select.~%"))))
-                :completions (lambda (text args)
-                               (declare (ignore args))
-                               (let ((names (mapcar #'model-config-name *available-models*)))
-                                 (if (string= text "")
-                                     names
-                                     (remove-if-not
-                                      (lambda (n)
-                                        (str:starts-with-p text n :ignore-case t))
-                                      names))))
-                :acp (lambda (cmd-args)
-                       (if cmd-args
-                           (let ((model-name (first cmd-args)))
-                             (set-current-model model-name)
-                             `(("text" . ,(format nil "Model set to: ~A" model-name))
-                               ("data" . (("model" . ,model-name)))))
-                           `(("text" . ,(format nil "Current model: ~A"
-                                                (if *current-model* (model-config-name *current-model*) "None")))
-                             ("data" . (("currentModel" . ,(if *current-model* (model-config-name *current-model*) :null))
-                                        ("availableModels" . ,(coerce
-                                                               (mapcar (lambda (m)
-                                                                         `(("name" . ,(model-config-name m))
-                                                                           ("provider" . ,(model-config-provider m))
-                                                                           ("modelName" . ,(model-config-model-name m))))
-                                                                       *available-models*)
-                                                               'vector))))))))
+(defun token-cost-for-count (token-count)
+  "Return estimated input cost for TOKEN-COUNT using the current model."
+  (calculate-model-cost *current-model* :input-tokens token-count))
 
-(define-command models (args)
-                "Search the list of available models."
-                (let ((search-term (if args (first args) "")))
-                  (format t "Available models:~%")
-                  (dolist (model *available-models*)
-                    (when (or (string= search-term "")
-                              (search search-term (model-config-name model) :test #'char-equal))
-                      (format t "  ~A~%" (model-config-name model))
-                      (format t "    Model name: ~A~%" (model-config-model-name model))
-                      (format t "    Edit format: ~A~%" (model-config-edit-format model))
-                      (format t "    Max tokens: ~A input / ~A output~%"
-                              (model-config-max-input-tokens model)
-                              (model-config-max-output-tokens model))
-                      (format t "    Supports: ~{~A~^, ~}~%" (model-config-supports model)))))
-                :acp (lambda (cmd-args)
-                       (let ((search-term (if cmd-args (first cmd-args) "")))
-                         (let ((matching (loop for model in *available-models*
-                                               when (or (string= search-term "")
-                                                        (search search-term (model-config-name model) :test #'char-equal))
-                                               collect `(("name" . ,(model-config-name model))
-                                                         ("modelName" . ,(model-config-model-name model))
-                                                         ("provider" . ,(model-config-provider model))
-                                                         ("editFormat" . ,(model-config-edit-format model))
-                                                         ("maxInputTokens" . ,(model-config-max-input-tokens model))
-                                                         ("maxOutputTokens" . ,(model-config-max-output-tokens model))
-                                                         ("supports" . ,(coerce (model-config-supports model) 'vector))))))
-                           `(("text" . ,(format nil "~A model(s) found." (length matching)))
-                             ("data" . ,(coerce matching 'vector)))))))
+(defun token-breakdown-items ()
+  "Return a list of token breakdown plists for system prompt, chat history, and files."
+  (let* ((system-text (system-prompt))
+         (system-tokens (estimate-tokens system-text))
+         (history-text (with-output-to-string (s)
+                         (dolist (msg *chat-history*)
+                           (format s "~A~%~A~%~%"
+                                   (or (cdr (assoc :role msg)) "")
+                                   (or (cdr (assoc :content msg)) "")))))
+         (history-tokens (estimate-tokens history-text))
+         (items (list (list :label "system messages"
+                            :tokens system-tokens
+                            :cost (token-cost-for-count system-tokens)
+                            :hint nil)
+                      (list :label "chat history"
+                            :tokens history-tokens
+                            :cost (token-cost-for-count history-tokens)
+                            :hint "use /clear to clear"))))
+    (dolist (file *files*)
+      (let* ((rel (if *repo-root*
+                      (uiop:native-namestring (uiop:enough-pathname file *repo-root*))
+                      (uiop:native-namestring file)))
+             (content (or (ignore-errors (get-file-content file)) ""))
+             (tokens (estimate-tokens content)))
+        (push (list :label rel
+                    :tokens tokens
+                    :cost (token-cost-for-count tokens)
+                    :hint "/drop to remove")
+              items)))
+    (nreverse items)))
 
-(define-command cheap-model (args)
-                "Set the cheap model to use when cost is a concern."
-                (if args
-                  (let ((model-name (first args)))
-                    (setf *cheap-model* model-name)
-                    (format t "Cheap model set to: ~A~%" model-name))
-                  (cond
-                    ((or *acp-mode* (not *in-repl*))
-                     (if *available-models*
-                       (progn
-                         (format t "Current cheap model: ~A~%" (or *cheap-model* "None"))
-                         (format t "Available models (use /cheap-model <name> to switch):~%")
-                         (dolist (model *available-models*)
-                           (format t "  ~A~%" (model-config-name model))))
-                       (format t "No models available.~%")))
-                    (*available-models*
-                     (let* ((items (loop for model in *available-models*
-                                         collect `((:item . ,(model-config-name model))
-                                                   (:preview . ,(format nil "Provider: ~A~%Model: ~A~%Max Tokens: ~A In / ~A Out~%Edit Format: ~A~%Cost (In/Out): $~8F / $~8F: Supports: ~A"
-                                                                        (model-config-provider model)
-                                                                        (model-config-model-name model)
-                                                                        (model-config-max-input-tokens model)
-                                                                        (model-config-max-output-tokens model)
-                                                                        (model-config-edit-format model)
-                                                                        (model-config-input-cost-per-token model)
-                                                                        (model-config-output-cost-per-token model)
-                                                                        (format nil "~{~A~^, ~}" (model-config-supports model)))))))
-                            (selected-item (fuzzy-select items)))
-                       (if selected-item
-                         (let ((selected-model-name (cdr (assoc :item selected-item))))
-                           (setf *cheap-model* selected-model-name)
-                           (format t "Cheap model set to: ~A~%" selected-model-name))
-                         (format t "Model selection cancelled.~%"))))
-                    (t (format t "No models available to select.~%")))))
-
-(define-command docs-meta-model (args)
-                "Set the model to use for generating documentation metadata."
-                (if args
-                  (let ((model-name (first args)))
-                    (setf *docs-meta-model* model-name)
-                    (format t "Docs meta model set to: ~A~%" model-name))
-                  (cond
-                    ((or *acp-mode* (not *in-repl*))
-                     (if *available-models*
-                       (progn
-                         (format t "Current docs meta model: ~A~%" (or *docs-meta-model* "None"))
-                         (format t "Available models (use /docs-meta-model <name> to switch):~%")
-                         (dolist (model *available-models*)
-                           (format t "  ~A~%" (model-config-name model))))
-                       (format t "No models available.~%")))
-                    (*available-models*
-                     (let* ((items (loop for model in *available-models*
-                                         collect `((:item . ,(model-config-name model))
-                                                   (:preview . ,(format nil "Provider: ~A~%Model: ~A~%Max Tokens: ~A In / ~A Out~%Edit Format: ~A~%Cost (In/Out): $~8F / $~8F: Supports: ~A"
-                                                                        (model-config-provider model)
-                                                                        (model-config-model-name model)
-                                                                        (model-config-max-input-tokens model)
-                                                                        (model-config-max-output-tokens model)
-                                                                        (model-config-edit-format model)
-                                                                        (model-config-input-cost-per-token model)
-                                                                        (model-config-output-cost-per-token model)
-                                                                        (format nil "~{~A~^, ~}" (model-config-supports model)))))))
-                            (selected-item (fuzzy-select items)))
-                       (if selected-item
-                         (let ((selected-model-name (cdr (assoc :item selected-item))))
-                           (setf *docs-meta-model* selected-model-name)
-                           (format t "Docs meta model set to: ~A~%" selected-model-name))
-                         (format t "Model selection cancelled.~%"))))
-                    (t (format t "No models available to select.~%")))))
+(defun render-token-breakdown ()
+  "Render a granular token breakdown string."
+  (let* ((items (token-breakdown-items))
+         (total (reduce #'+ items :key (lambda (item) (getf item :tokens)) :initial-value 0))
+         (total-cost (reduce #'+ items :key (lambda (item) (getf item :cost)) :initial-value 0.0)))
+    (with-output-to-string (s)
+      (dolist (item items)
+        (format s "$ ~,4F ~10:D ~A~@[ ~A~]~%"
+                (getf item :cost)
+                (getf item :tokens)
+                (getf item :label)
+                (getf item :hint)))
+      (format s "==================~%")
+      (format s "$ ~,4F ~10:D tokens total~%" total-cost total))))
 
 (define-command tokens (args)
                 "Report on the number of tokens used by the current chat context."
                 (declare (ignore args))
-                (let* ((messages (prepare-messages ""))
-                       (total-chars (reduce #'+ messages
-                                            :key (lambda (msg)
-                                                   (length (cdr (assoc :content msg))))))
-                       (estimated-tokens (round total-chars 4)))
-                  (format t "Estimated token usage:~%")
-                  (format t "  Total characters: ~A~%" total-chars)
-                  (format t "  Estimated tokens: ~A~%" estimated-tokens)
-                  (when *current-model*
-                    (let ((input-cost (model-config-input-cost-per-token *current-model*)))
-                      (format t "  Estimated cost for next input: $~8F~%" (* estimated-tokens input-cost)))))
+                (format t "~A" (render-token-breakdown))
                 :acp (lambda (cmd-args)
                        (declare (ignore cmd-args))
-                       (let* ((messages (prepare-messages ""))
-                              (total-chars (reduce #'+ messages
-                                                   :key (lambda (msg)
-                                                          (length (cdr (assoc :content msg))))))
-                              (estimated-tokens (round total-chars 4))
-                              (cost (when *current-model*
-                                      (* estimated-tokens (model-config-input-cost-per-token *current-model*)))))
-                         `(("text" . ,(format nil "Estimated tokens: ~A, chars: ~A~@[, cost: $~8F~]"
-                                              estimated-tokens total-chars cost))
-                           ("data" . (("totalCharacters" . ,total-chars)
-                                      ("estimatedTokens" . ,estimated-tokens)
-                                      ("estimatedCost" . ,(or cost :null))
+                       (let* ((items (token-breakdown-items))
+                              (total (reduce #'+ items :key (lambda (item) (getf item :tokens)) :initial-value 0))
+                              (total-cost (reduce #'+ items :key (lambda (item) (getf item :cost)) :initial-value 0.0)))
+                         `(("text" . ,(render-token-breakdown))
+                           ("data" . (("items" . ,(coerce
+                                                   (mapcar (lambda (item)
+                                                             `(("label" . ,(getf item :label))
+                                                               ("tokens" . ,(getf item :tokens))
+                                                               ("cost" . ,(getf item :cost))
+                                                               ("hint" . ,(or (getf item :hint) :null))))
+                                                           items)
+                                                   'vector))
+                                      ("estimatedTokens" . ,total)
+                                      ("estimatedCost" . ,total-cost)
                                       ("model" . ,(if *current-model* (model-config-name *current-model*) :null))))))))
-
-
 (define-command quit (args)
                 "Exit the application."
                 (declare (ignore args))
@@ -523,101 +230,129 @@ Optionally provide additional guidance about what went wrong."
                       ;; Let toplevel UNWIND-PROTECT handle cleanup; it is more robust and
                       ;; already handles errors. Avoid double-stopping watchers here.
                       (uiop:quit))))
-(defun dump-settings ()
-  (format t "Current settings:~%")
-  (format t "  Model: ~A~%" (if *current-model* (model-config-name *current-model*) "None"))
-  (format t "  Cheap Model: ~A~%" *cheap-model*)
-  (format t "  Docs Meta Model: ~A~%" *docs-meta-model*)
-  (format t "  Embedding Model: ~A~%" *embedding-model*)
-  (when *current-model*
-    (format t "  Model details:~%")
-    (format t "    Provider: ~A~%" (model-config-provider *current-model*))
-    (format t "    Model name: ~A~%" (model-config-model-name *current-model*))
-    (format t "    Edit format: ~A~%" (model-config-edit-format *current-model*))
-    (format t "    Use repo map: ~A~%" (model-config-use-repo-map *current-model*))
-    (format t "    Max tokens: ~A input / ~A output~%"
-            (model-config-max-input-tokens *current-model*)
-            (model-config-max-output-tokens *current-model*))
-    (format t "    Cache control: ~A~%" (model-config-cache-control *current-model*))
-    (format t "    Supports: ~{~A~^, ~}~%" (model-config-supports *current-model*)))
-  (format t "  Repo Root ~A~%" *repo-root*)
-  (format t "  Git autocommit: ~A~%" (if *git-autocommit* "Enabled" "Disabled"))
-  (format t "  Multiline mode: ~A~%" (if *multiline-mode* "Enabled" "Disabled"))
-  (format t "  Chat history limit: ~A characters~%" *chat-history-limit*)
-  (format t "  Files in context: ~A~%" (length *files*))
-  (format t "  Images in context: ~A~%" (length *images*))
-  (format t "  Guide exclude tags: ~A~%" *guide-exclude-tags*)
-  (format t "  Transcript file: ~A~%" *transcript-file*)
-  (format t "  Current session: ~A~%" (or *current-session-name* "(none)"))
-  (format t "  Session auto-save: ~A~%" (if *auto-save-session* "Enabled" "Disabled"))
-  (format t "  System Prompt: ~A~%" (system-prompt))
-  (format t " Dot System Prompt ~A~%" (dot-system-prompt))
-  (format t "  Repository root: ~A~%" (if *repo-root* (namestring *repo-root*) "Not set"))
-  (format t "  Proxy auto-start: ~A~%" (if *proxy-auto-start* "Enabled" "Disabled"))
-  (format t "  Proxy upstream: ~A~%" (or *proxy-upstream-url* "(default)")))
 
-(defun dump-dot-system-prompt ()
-  (format t "Dot System Prompt:~%")
-  (format t "  ~A~%" (dot-system-prompt)))
+
+(define-command exit (args)
+                "Exit the application. Alias for /quit."
+                (declare (ignore args))
+                (if *lisp-rpc-mode*
+                    (progn
+                      (rpc-exit "quit")
+                      (setf *lisp-rpc-mode* nil))
+                    (progn
+                      (format t "Exiting hactar...~%")
+                      (uiop:quit))))
 
 (define-command state (args)
   "View and inspect Hactar state variables."
-  (let ((var-name (first args)))
+  (let* ((modified-only-p (member "--modified" args :test #'string=))
+         (clean-args (remove "--modified" args :test #'string=))
+         (var-name (first clean-args)))
     (if var-name
         (let* ((search-name (string-downcase (string-trim '(#\*) var-name)))
                (info (gethash (format nil "*~A*" search-name) *state-registry*))
                (info-exact (gethash (string-downcase var-name) *state-registry*))
                (found (or info-exact info)))
-          (if found
-              (format t "~A~%" (format-state-xml found))
-              (format t "</notfound>~%")))
+          (if (and found (or (not modified-only-p) (state-modified-p found)))
+               (format t "~A~%" (format-state-xml found))
+               (format t "</notfound>~%")))
         (if *in-editor*
             (progn
               (format t "<state>~%")
               (maphash (lambda (k info)
                          (declare (ignore k))
-                         (format t "~A~%" (format-state-xml info)))
+                         (when (or (not modified-only-p) (state-modified-p info))
+                           (format t "~A~%" (format-state-xml info))))
                        *state-registry*)
               (format t "</state>~%"))
             (let* ((items (loop for k being the hash-keys of *state-registry*
-                                for info being the hash-values of *state-registry*
-                                collect `((:item . ,k)
-                                          (:preview . ,(format nil "Type: ~A~%~A" (getf info :type) (or (getf info :doc) ""))))))
-                   (selected-item (when (fboundp 'fuzzy-select)
-                                    (fuzzy-select items))))
+                                 for info being the hash-values of *state-registry*
+                                 when (or (not modified-only-p) (state-modified-p info))
+                                 collect `((:item . ,k)
+                                           (:preview . ,(format nil "Type: ~A~%~A" (getf info :type) (or (getf info :doc) ""))))))
+                    (selected-item (when (fboundp 'fuzzy-select)
+                                     (fuzzy-select items))))
               (if selected-item
-                  (let ((info (gethash (cdr (assoc :item selected-item)) *state-registry*)))
-                    (format t "Variable: ~A~%" (getf info :name))
+                  (let* ((info (gethash (cdr (assoc :item selected-item)) *state-registry*))
+                         (sym (getf info :name)))
+                    (format t "Variable: ~A~%" sym)
+                    (format t "Value: ~A~%" (if (and sym (boundp sym)) (symbol-value sym) "nil"))
                     (format t "Type: ~A~%" (getf info :type))
                     (format t "Doc: ~A~%" (or (getf info :doc) "None")))
                   (format t "Selection cancelled.~%"))))))
+  :json (lambda (args)
+          (let* ((modified-only-p (member "--modified" args :test #'string=))
+                 (clean-args (remove "--modified" args :test #'string=))
+                 (var-name (first (remove-if (lambda (arg) (str:starts-with-p "-" arg)) clean-args)))
+                 (found (when var-name
+                          (let* ((search-name (string-downcase (string-trim '(#\*) var-name)))
+                                 (info (gethash (format nil "*~A*" search-name) *state-registry*))
+                                 (info-exact (gethash (string-downcase var-name) *state-registry*)))
+                            (or info-exact info)))))
+            (if found
+                (if (or (not modified-only-p) (state-modified-p found))
+                    (to-json `(("name" . ,(symbol-name (getf found :name)))
+                               ("type" . ,(getf found :type))
+                               ("doc" . ,(or (getf found :doc) ""))
+                               ("value" . ,(let ((sym (getf found :name)))
+                                             (if (boundp sym)
+                                                 (let ((v (symbol-value sym)))
+                                                   (cond
+                                                     ((eq v t) t)
+                                                     ((eq v nil) :false)
+                                                     ((or (stringp v) (numberp v)) v)
+                                                     (t (princ-to-string v))))
+                                                 :null)))))
+                    (to-json nil))
+                (let ((vars '()))
+                  (maphash (lambda (k v)
+                             (declare (ignore k))
+                             (when (or (not modified-only-p) (state-modified-p v))
+                               (push `(("name" . ,(symbol-name (getf v :name)))
+                                       ("type" . ,(getf v :type))
+                                       ("doc" . ,(or (getf v :doc) ""))
+                                       ("value" . ,(let ((sym (getf v :name)))
+                                                     (if (boundp sym)
+                                                         (let ((val (symbol-value sym)))
+                                                           (cond
+                                                             ((eq val t) t)
+                                                             ((eq val nil) :false)
+                                                             ((or (stringp val) (numberp val)) val)
+                                                             (t (princ-to-string val))))
+                                                         :null))))
+                                     vars)))
+                           *state-registry*)
+                  (to-json (coerce vars 'vector))))))
+  :yaml (lambda (args)
+          (let* ((modified-only-p (member "--modified" args :test #'string=))
+                 (clean-args (remove "--modified" args :test #'string=))
+                 (var-name (first (remove-if (lambda (arg) (str:starts-with-p "-" arg)) clean-args)))
+                 (found (when var-name
+                          (let* ((search-name (string-downcase (string-trim '(#\*) var-name)))
+                                 (info (gethash (format nil "*~A*" search-name) *state-registry*))
+                                 (info-exact (gethash (string-downcase var-name) *state-registry*)))
+                            (or info-exact info)))))
+            (with-output-to-string (s)
+              (if found
+                  (when (or (not modified-only-p) (state-modified-p found))
+                    (let ((sym (getf found :name)))
+                      (format s "name: ~A~%type: ~A~%doc: ~A~%value: ~A~%"
+                              (symbol-name sym)
+                              (getf found :type)
+                              (or (getf found :doc) "")
+                              (if (boundp sym) (symbol-value sym) "null"))))
+                  (maphash (lambda (k v)
+                             (declare (ignore k))
+                             (when (or (not modified-only-p) (state-modified-p v))
+                               (let ((sym (getf v :name)))
+                                 (format s "- name: ~A~%  type: ~A~%  doc: ~A~%  value: ~A~%"
+                                         (symbol-name sym)
+                                         (getf v :type)
+                                         (or (getf v :doc) "")
+                                         (if (boundp sym) (symbol-value sym) "null")))))
+                           *state-registry*)))))
   :acp t)
 
-(define-command settings (args)
-                "Print out the current settings."
-                (declare (ignore args))
-                (dump-settings)
-                :acp (lambda (cmd-args)
-                       (declare (ignore cmd-args))
-                       `(("text" . ,(with-output-to-string (*standard-output*) (dump-settings)))
-                         ("data" . (("model" . ,(if *current-model* (model-config-name *current-model*) :null))
-                                    ("cheapModel" . ,(or *cheap-model* :null))
-                                    ("docsMetaModel" . ,(or *docs-meta-model* :null))
-                                    ("embeddingModel" . ,(or *embedding-model* :null))
-                                    ("repoRoot" . ,(if *repo-root* (namestring *repo-root*) :null))
-                                    ("gitAutocommit" . ,(if *git-autocommit* t :false))
-                                    ("multilineMode" . ,(if *multiline-mode* t :false))
-                                    ("chatHistoryLimit" . ,*chat-history-limit*)
-                                    ("filesInContext" . ,(length *files*))
-                                    ("imagesInContext" . ,(length *images*))
-                                    ("currentSession" . ,(or *current-session-name* :null))
-                                    ("sessionAutoSave" . ,(if *auto-save-session* t :false)))))))
-
-(define-command dump-api-keys (args)
-                "Print out the API keys for each platform."
-                (declare (ignore args))
-                (format t "~A" (llm:dump-api-keys))
-                :acp t)
 
 (define-command reload (args)
 		"Reload hactar. Clear chat history, empty context, and reload the config."
@@ -633,12 +368,6 @@ Optionally provide additional guidance about what went wrong."
                        (clear-session-overrides)
                        (reload-config)
                        `(("text" . "Reload complete. Chat history cleared, context emptied, config reloaded."))))
-
-(define-command dump (args)
-		"Dump settings, context, and debug info"
-		(declare (ignore args))
-		(dump-settings)
-                :acp t)
 
 (define-command reset (args)
                 "Drop all files and clear the chat history." (declare (ignore args))
@@ -679,16 +408,7 @@ Optionally provide additional guidance about what went wrong."
                        `(("text" . ,(format nil "hactar version ~A" *hactar-version*))
                          ("data" . (("version" . ,*hactar-version*))))))
 
-(define-command autocommit (args)
-                "Toggle git autocommit on/off."
-                (declare (ignore args))
-                (setf *git-autocommit* (not *git-autocommit*))
-                (format t "Git autocommit is now ~A.~%" (if *git-autocommit* "enabled" "disabled"))
-                :acp (lambda (cmd-args)
-                       (declare (ignore cmd-args))
-                       (setf *git-autocommit* (not *git-autocommit*))
-                       `(("text" . ,(format nil "Git autocommit is now ~A." (if *git-autocommit* "enabled" "disabled")))
-                         ("data" . (("autocommit" . ,(if *git-autocommit* t :false)))))))
+
 
 (define-command cost (args)
                 "Estimate the cost of sending the current chat history as input."
@@ -700,98 +420,191 @@ Optionally provide additional guidance about what went wrong."
                                                      (length (cdr (assoc :content msg))))))
                          (estimated-tokens (round total-chars 4))
                          (input-cost (model-config-input-cost-per-token *current-model*))
-                         (estimated-cost (* estimated-tokens input-cost)))
+                         (estimated-cost (calculate-model-cost *current-model* :input-tokens estimated-tokens)))
                     (format t "Current Model: ~A~%" (model-config-name *current-model*))
-                    (format t "Estimated Input Tokens (Current History): ~A~%" estimated-tokens)
-                    (format t "Input Cost per Token: $~8F~%" input-cost)
-                    (format t "Estimated Cost for this Input: $~8F~%" estimated-cost))
-                  (format t "No model selected. Cannot estimate cost.~%"))
-                :acp (lambda (cmd-args)
-                       (declare (ignore cmd-args))
-                       (if *current-model*
-                           (let* ((messages (prepare-messages ""))
-                                  (total-chars (reduce #'+ messages
-                                                       :key (lambda (msg)
-                                                              (length (cdr (assoc :content msg))))))
-                                  (estimated-tokens (round total-chars 4))
-                                  (input-cost (model-config-input-cost-per-token *current-model*))
-                                  (estimated-cost (* estimated-tokens input-cost)))
+                     (format t "Estimated Input Tokens (Current History): ~A~%" estimated-tokens)
+                     (format t "Input Cost per Token: $~8F~%" input-cost)
+                     (format t "Estimated Cost for this Input: $~8F~%" estimated-cost))
+                   (format t "No model selected. Cannot estimate cost.~%"))
+                 :acp (lambda (cmd-args)
+                        (declare (ignore cmd-args))
+                        (if *current-model*
+                            (let* ((messages (prepare-messages ""))
+                                   (total-chars (reduce #'+ messages
+                                                        :key (lambda (msg)
+                                                               (length (cdr (assoc :content msg))))))
+                                   (estimated-tokens (round total-chars 4))
+                                   (input-cost (model-config-input-cost-per-token *current-model*))
+                                   (estimated-cost (calculate-model-cost *current-model* :input-tokens estimated-tokens)))
                              `(("text" . ,(format nil "Model: ~A, Tokens: ~A, Cost: $~8F"
-                                                  (model-config-name *current-model*)
-                                                  estimated-tokens estimated-cost))
+                                                   (model-config-name *current-model*)
+                                                   estimated-tokens estimated-cost))
                                ("data" . (("model" . ,(model-config-name *current-model*))
                                           ("estimatedTokens" . ,estimated-tokens)
                                           ("inputCostPerToken" . ,input-cost)
                                           ("estimatedCost" . ,estimated-cost)))))
-                           `(("text" . "No model selected. Cannot estimate cost.")))))
+                            `(("text" . "No model selected. Cannot estimate cost.")))))
 
-(define-command transcript (args)
-  "View or manage the chat transcript."
-  (cond
-    ((null args)
-     (if (probe-file *transcript-file*)
-         (uiop:run-program (list "less" *transcript-file*)
-                           :output :interactive
-                           :error-output :interactive
-                           :input :interactive)
-         (format t "No transcript file found.~%")))
-    ((string= (first args) "clear")
-     (with-open-file (stream *transcript-file*
-                             :direction :output
-                             :if-exists :supersede
-                             :if-does-not-exist :create)
-       (format stream ""))
-     (format t "Transcript cleared.~%"))
-    ((string= (first args) "save")
-     (if (second args)
-         (progn
-           (uiop:run-program (list "cp" *transcript-file* (second args))
-                             :output :interactive
-                             :error-output :interactive)
-           (format t "Transcript saved to ~A~%" (second args)))
-         (format t "Please specify a filename.~%"))))
+(define-command history (args)
+  "View or manage the chat history. Supports format flags: --json (-j, json), --lisp (-l, lisp), --yaml (-y, yaml), --toml (-t, toml)."
+  (let* ((format (cond
+                   ((or (member "--json" args :test #'string-equal)
+                        (member "-j" args :test #'string-equal)
+                        (member "json" args :test #'string-equal))
+                    :json)
+                   ((or (member "--lisp" args :test #'string-equal)
+                        (member "-l" args :test #'string-equal)
+                        (member "lisp" args :test #'string-equal))
+                    :lisp)
+                   ((or (member "--yaml" args :test #'string-equal)
+                        (member "-y" args :test #'string-equal)
+                        (member "yaml" args :test #'string-equal))
+                    :yaml)
+                   ((or (member "--toml" args :test #'string-equal)
+                        (member "-t" args :test #'string-equal)
+                        (member "toml" args :test #'string-equal))
+                    :toml)))
+         (clean-args (remove-if (lambda (x)
+                                  (member x '("--json" "-j" "json" "--lisp" "-l" "lisp"
+                                              "--yaml" "-y" "yaml" "--toml" "-t" "toml")
+                                          :test #'string-equal))
+                                args))
+         (iface (gethash :history *interfaces*))
+         (path (and iface (interface-abs-path iface))))
+    (cond
+      ((null clean-args)
+       (cond
+         ((eq format :json)
+          (format t "~A~%" (cl-json:encode-json-to-string *chat-history*)))
+         ((eq format :lisp)
+          (format t ";;; Chat history~%(in-package :hactar)~%~%(setf *chat-history* '~S)~%" *chat-history*))
+         ((eq format :yaml)
+          (format t "~A" (serialize-history-to-yaml *chat-history*)))
+         ((eq format :toml)
+          (format t "~A" (serialize-to-toml *chat-history*)))
+         (t
+          (if (and path (probe-file path))
+              (uiop:run-program (list "less" (namestring path))
+                                :output :interactive
+                                :error-output :interactive
+                                :input :interactive)
+              (format t "No history file found.~%")))))
+      ((string= (first clean-args) "clear")
+       (clear-chat-history)
+       (format t "History cleared.~%"))
+      ((string= (first clean-args) "save")
+       (if (second clean-args)
+           (cond
+             ((eq format :json)
+              (with-open-file (stream (second clean-args) :direction :output :if-exists :supersede :if-does-not-exist :create :external-format :utf-8)
+                (cl-json:encode-json *chat-history* stream))
+              (format t "History saved as JSON to ~A~%" (second clean-args)))
+             ((eq format :lisp)
+              (with-open-file (stream (second clean-args) :direction :output :if-exists :supersede :if-does-not-exist :create :external-format :utf-8)
+                (format stream ";;; Chat history~%(in-package :hactar)~%~%(setf *chat-history* '~S)~%" *chat-history*))
+              (format t "History saved as Lisp to ~A~%" (second clean-args)))
+             ((eq format :yaml)
+              (with-open-file (stream (second clean-args) :direction :output :if-exists :supersede :if-does-not-exist :create :external-format :utf-8)
+                (write-string (serialize-history-to-yaml *chat-history*) stream))
+              (format t "History saved as YAML to ~A~%" (second clean-args)))
+             ((eq format :toml)
+              (with-open-file (stream (second clean-args) :direction :output :if-exists :supersede :if-does-not-exist :create :external-format :utf-8)
+                (write-string (serialize-to-toml *chat-history*) stream))
+              (format t "History saved as TOML to ~A~%" (second clean-args)))
+             (t
+              (if (and path (probe-file path))
+                  (progn
+                    (uiop:run-program (list "cp" (namestring path) (second clean-args))
+                                      :output :interactive
+                                      :error-output :interactive)
+                    (format t "History saved to ~A~%" (second clean-args)))
+                  (format t "No history file found to save.~%"))))
+           (format t "Please specify a filename.~%")))))
   :acp (lambda (cmd-args)
-         (cond
-           ((null cmd-args)
-            (if (probe-file *transcript-file*)
-                `(("text" . ,(uiop:read-file-string *transcript-file*))
-                  ("data" . (("file" . ,*transcript-file*))))
-                `(("text" . "No transcript file found."))))
-           ((string= (first cmd-args) "clear")
-            (with-open-file (stream *transcript-file*
-                                    :direction :output
-                                    :if-exists :supersede
-                                    :if-does-not-exist :create)
-              (format stream ""))
-            `(("text" . "Transcript cleared.")))
-           ((string= (first cmd-args) "save")
-            (if (second cmd-args)
-                (progn
-                  (uiop:run-program (list "cp" *transcript-file* (second cmd-args))
-                                    :output :string :error-output :string :ignore-error-status t)
-                  `(("text" . ,(format nil "Transcript saved to ~A" (second cmd-args)))))
-                `(("text" . "Please specify a filename."))))
-           (t `(("text" . ,(format nil "Unknown transcript subcommand: ~A" (first cmd-args))))))))
-
-(defun find-model-by-name (name)
-  "Find a model configuration by name."
-  (find name *available-models* :key #'model-config-name :test #'string=))
-
-(defun set-current-model (model-name)
-  "Set the current model by name."
-  (let ((model (find-model-by-name model-name)))
-    (if model
-      (let ((old-model *current-model*))
-        (setf *current-model* model)
-        (nhooks:run-hook *model-changed-hook* model old-model)
-        (unless *silent*
-          (if *lisp-rpc-mode*
-              (rpc-model-changed model-name)
-              (format t "Switched to model: ~A~%" model-name))))
-      (unless *silent*
-        (if *lisp-rpc-mode*
-            (rpc-model-not-found model-name)
-            (format t "Model not found: ~A~%" model-name))))))
+         (let* ((format (cond
+                          ((or (member "--json" cmd-args :test #'string-equal)
+                               (member "-j" cmd-args :test #'string-equal)
+                               (member "json" cmd-args :test #'string-equal))
+                           :json)
+                          ((or (member "--lisp" cmd-args :test #'string-equal)
+                               (member "-l" cmd-args :test #'string-equal)
+                               (member "lisp" cmd-args :test #'string-equal))
+                           :lisp)
+                          ((or (member "--yaml" cmd-args :test #'string-equal)
+                               (member "-y" cmd-args :test #'string-equal)
+                               (member "yaml" cmd-args :test #'string-equal))
+                           :yaml)
+                          ((or (member "--toml" cmd-args :test #'string-equal)
+                               (member "-t" cmd-args :test #'string-equal)
+                               (member "toml" cmd-args :test #'string-equal))
+                           :toml)))
+                (clean-args (remove-if (lambda (x)
+                                         (member x '("--json" "-j" "json" "--lisp" "-l" "lisp"
+                                                     "--yaml" "-y" "yaml" "--toml" "-t" "toml")
+                                                 :test #'string-equal))
+                                       cmd-args))
+                (iface (gethash :history *interfaces*))
+                (path (and iface (interface-abs-path iface))))
+           (cond
+             ((null clean-args)
+              (cond
+                ((eq format :json)
+                 `(("text" . ,(cl-json:encode-json-to-string *chat-history*))
+                   ("data" . (("history" . ,*chat-history*)))))
+                ((eq format :lisp)
+                 `(("text" . ,(format nil ";;; Chat history~%(in-package :hactar)~%~%(setf *chat-history* '~S)~%" *chat-history*))
+                   ("data" . (("history" . ,*chat-history*)))))
+                ((eq format :yaml)
+                 `(("text" . ,(serialize-history-to-yaml *chat-history*))
+                   ("data" . (("history" . ,*chat-history*)))))
+                ((eq format :toml)
+                 `(("text" . ,(serialize-to-toml *chat-history*))
+                   ("data" . (("history" . ,*chat-history*)))))
+                (t
+                 (if (and path (probe-file path))
+                     `(("text" . ,(uiop:read-file-string path))
+                       ("data" . (("file" . ,(namestring path)))))
+                     `(("text" . "No history file found."))))) )
+             ((string= (first clean-args) "clear")
+              (clear-chat-history)
+              `(("text" . "History cleared.")))
+             ((string= (first clean-args) "save")
+              (if (second clean-args)
+                  (cond
+                    ((eq format :json)
+                     (with-open-file (stream (second clean-args) :direction :output :if-exists :supersede :if-does-not-exist :create :external-format :utf-8)
+                       (cl-json:encode-json *chat-history* stream))
+                     `(("text" . ,(format nil "History saved as JSON to ~A" (second clean-args)))))
+                    ((eq format :lisp)
+                     (with-open-file (stream (second clean-args) :direction :output :if-exists :supersede :if-does-not-exist :create :external-format :utf-8)
+                       (format stream ";;; Chat history~%(in-package :hactar)~%~%(setf *chat-history* '~S)~%" *chat-history*))
+                     `(("text" . ,(format nil "History saved as Lisp to ~A" (second clean-args)))))
+                    ((eq format :yaml)
+                     (with-open-file (stream (second clean-args) :direction :output :if-exists :supersede :if-does-not-exist :create :external-format :utf-8)
+                       (write-string (serialize-history-to-yaml *chat-history*) stream))
+                     `(("text" . ,(format nil "History saved as YAML to ~A" (second clean-args)))))
+                    ((eq format :toml)
+                     (with-open-file (stream (second clean-args) :direction :output :if-exists :supersede :if-does-not-exist :create :external-format :utf-8)
+                       (write-string (serialize-to-toml *chat-history*) stream))
+                     `(("text" . ,(format nil "History saved as TOML to ~A" (second clean-args)))))
+                    (t
+                     (if (and path (probe-file path))
+                         (progn
+                           (uiop:run-program (list "cp" (namestring path) (second clean-args))
+                                             :output :string :error-output :string :ignore-error-status t)
+                           `(("text" . ,(format nil "History saved to ~A" (second clean-args)))))
+                         `(("text" . "No history file found to save.")))))
+                  `(("text" . "Please specify a filename."))))
+             (t `(("text" . ,(format nil "Unknown history subcommand: ~A" (first clean-args))))))))
+  :json (lambda (args)
+          (declare (ignore args))
+          (cl-json:encode-json-to-string *chat-history*))
+  :yaml (lambda (args)
+          (declare (ignore args))
+          (serialize-history-to-yaml *chat-history*))
+  :toml (lambda (args)
+          (declare (ignore args))
+          (serialize-to-toml *chat-history*)))
 
 (defvar *waiting-for-llm* nil
   "T when we are waiting for an LLM response.")
@@ -816,7 +629,7 @@ Optionally provide additional guidance about what went wrong."
   (if *lisp-rpc-mode*
       (rpc-status "compressing-history")
       (format t "~&Compressing chat history...~%"))
-  (let* ((summary-prompt-text (handler-case (uiop:read-file-string (get-prompt-path "summary.org"))
+  (let* ((summary-prompt-text (handler-case (get-prompt 'summary "summary.org")
                                 (error (e)
                                   (format t "~&Error reading summary prompt: ~A~%" e)
                                   (return-from perform-history-compression nil))))
@@ -840,7 +653,7 @@ Optionally provide additional guidance about what went wrong."
             (if (and summary-text (> (length summary-text) 0))
               (progn
                 (setf *chat-history* `(((role . "user") (:content . ,summary-text))))
-                (save-transcript)
+                (nhooks:run-hook *history-changed-hook*)
                 (if *lisp-rpc-mode*
                     (rpc-history-compressed)
                     (format t "~&History compressed successfully.~%")))
@@ -861,17 +674,8 @@ Optionally provide additional guidance about what went wrong."
       (when (> current-tokens threshold)
         (perform-history-compression)))))
 
-(defun save-transcript ()
-  "Save the entire chat history to the transcript file as a single JSON array using UTF-8."
-  (with-open-file (stream *transcript-file*
-                          :direction :output
-                          :if-exists :supersede
-                          :if-does-not-exist :create
-                          :external-format :utf-8)
-    (cl-json:encode-json *chat-history* stream)))
-
 (defun add-to-chat-history (role content &key tool-calls tool_call_id name)
-  "Add a message to the chat history and save the updated transcript."
+  "Add a message to the chat history and save the updated history interface."
   (let ((message `((:role . ,role) (:content . ,(or content "")))))
     (when tool-calls (setf message (append message `((:tool_calls . ,tool-calls)))))
     (when tool_call_id (setf message (append message `((:tool_call_id . ,tool_call_id)))))
@@ -879,12 +683,12 @@ Optionally provide additional guidance about what went wrong."
 
     (setf *chat-history* (push-end message *chat-history*))
     (compress-chat-history-if-needed)
-    (save-transcript)))
+    (nhooks:run-hook *history-changed-hook*)))
 
 (defun clear-chat-history ()
   "Clear the chat history."
   (setf *chat-history* '())
-  (save-transcript))
+  (nhooks:run-hook *history-changed-hook*))
 
 (defun drop-files ()
   "Drop files from context"
@@ -895,27 +699,14 @@ Optionally provide additional guidance about what went wrong."
   (drop-files))
 
 (defun load-chat-history ()
-  "Load chat history from transcript file (JSON format) if it exists."
-  (when (probe-file *transcript-file*)
-    (with-open-file (stream *transcript-file* :direction :input :if-does-not-exist nil)
-		    (when stream
-		      (let* ((messages '()))
-			(handler-case
-			    (let* (
-				   (file-content (make-string (file-length stream)))
-				   (_ (read-sequence file-content stream))
-				   (json-obj (cl-json:decode-json-from-string file-content)))
-			      (declare (ignore _)) ;; Assuming the JSON structure is an array of messages
-			      (dolist (message json-obj)
-				(let ((role (cdr (assoc :role message)))
-				      (content (cdr (assoc :content message))))
-				  (push `((:role . ,role)
-					  (:content . ,content))
-					messages))))
-			  (error (e)
-				 (format t "~&Warning: Error parsing transcript file: ~A~%" e)))
-			;; Reverse the history to maintain chronological order
-			(setf *chat-history* (nreverse messages)))))))
+  "Load chat history from the history interface file if it exists."
+  (let* ((iface (gethash :history *interfaces*))
+         (path (and iface (interface-abs-path iface))))
+    (when (and path (probe-file path))
+      (handler-case
+          (load path)
+        (error (e)
+          (format t "~&Warning: Error loading history file: ~A~%" e))))))
 
 ;;* LLM interaction
 (defun get-llm-response (prompt &key (stream t) custom-system-prompt (add-to-history t) dot-command-p is-continuation model)
@@ -936,193 +727,196 @@ Optionally provide additional guidance about what went wrong."
             (format nil "Error: Model '~A' not found." model)
             (format nil "Error: No model selected. Use /model to select a model."))))
     (setf *waiting-for-llm* t)
-  (setf *current-stream-reader* nil)
-  (when *in-repl*
-    (rl:deprep-terminal)
-    (disable-terminal-echo))
-  (let* ((messages-for-api (prepare-messages prompt))
-	 (provider-name (model-config-provider *current-model*))
-	 (provider-type (intern (string-upcase provider-name) :keyword))
-	 (system-prompt (cond
-                          (custom-system-prompt custom-system-prompt)
-                          (dot-command-p (dot-system-prompt))
-                          (t (system-prompt))))
-	 (full-response-text (make-string-output-stream))
-	 (reader-instance nil)
-	 (supports-vision (member "vision" (model-config-supports *current-model*) :test #'string=))
-	 (images-to-send nil))
-
-    (when (and supports-vision *images*)
-      (format t "~&Preparing images for vision model...~%")
-      (setf images-to-send
-	    (loop for img-plist in *images*
-		  for path = (getf img-plist :path)
-		  for text = (getf img-plist :text)
-		  collect (multiple-value-bind (base64-data mime-type)
-			      (resize-and-encode-image path)
-			    (when base64-data
-			      `((:base64-data . ,base64-data)
-				(:mime-type . ,mime-type)
-				(:text . ,(or text prompt)))))))) ; Use image text or main prompt if no specific text
-    ;; Filter out any images that failed processing
-    (setf images-to-send (remove-if #'null images-to-send))
-
-    (when (and *images* (not supports-vision))
-      (format t "~&Warning: Images are in context, but the current model (~A) does not support vision. Images will be ignored.~%"
-	      (model-config-name *current-model*)))
-
-    #+sbcl
-    (let ((previous-sigint-handler nil))
-      (setf previous-sigint-handler
-            (sb-sys:enable-interrupt
-             sb-unix:sigint
-             (lambda (signal info context)
-               (declare (ignore signal info context))
-               (setf *waiting-for-llm* nil)
-               (when (and *current-stream-reader*
-                          (not (llm:llm-stream-reader-closed-p *current-stream-reader*)))
-                 (ignore-errors (llm:close-reader *current-stream-reader*)))
-               (error 'hactar-interrupt))))
-      (unwind-protect
-           (handler-case
-               (progn
-                 (multiple-value-bind (response-result initial-messages)
-                     (apply #'llm:complete
-                            provider-type
-                            messages-for-api
-                            :model (model-config-model-name *current-model*)
-                            :max-tokens (model-config-max-output-tokens *current-model*)
-                            :max-context (model-config-max-input-tokens *current-model*)
-                            :system-prompt system-prompt
-                            :extra-headers (normalize-http-extra-headers
-                                            (when (model-config-extra-params *current-model*)
-                                              (gethash "extra_headers" (model-config-extra-params *current-model*))))
-                            :stream stream
-                            ;; Conditionally add :images argument
-                            (when images-to-send `(:images ,images-to-send)))
-
-                   (declare (ignore initial-messages))
-
-                   (if stream
-                       (progn
-                         (setf reader-instance response-result)
-                         (setf *current-stream-reader* reader-instance)
-                         (unless (typep reader-instance 'llm:llm-stream-reader)
-                           (error "LLM complete did not return a stream reader when stream=t"))
-
-                         (unless *lisp-rpc-mode*
-                           (format t "Assistant: ")
-                           (force-output))
-
-                         (loop for chunk = (llm:read-next-chunk reader-instance)
-                               while chunk
-                               do (progn
-                                    (unless *lisp-rpc-mode*
-                                      (stream-chunk chunk))
-                                    (write-string chunk full-response-text)))
-                         (unless *lisp-rpc-mode*
-                           (format t "~%")))
-                       (write-string response-result full-response-text))
-
-                   (let ((assistant-response (get-output-stream-string full-response-text)))
-                     (maybe-log-llm-response assistant-response)
-                     (when *lisp-rpc-mode*
-                       (rpc-response assistant-response))
-                     (when add-to-history
-                       (add-to-chat-history "user" prompt)
-                       (add-to-chat-history "assistant" assistant-response)
-                       (nhooks:run-hook *process-history-hook* *chat-history*))
-                     assistant-response)))
-             (hactar-interrupt ()
-			        ;; User cancelled with C-c during LLM request - close stream and return quietly
-			       (when (and reader-instance (not (llm:llm-stream-reader-closed-p reader-instance)))
-				 (ignore-errors (llm:close-reader reader-instance)))
-			       (if *lisp-rpc-mode*
-				   (rpc-cancelled)
-				 (format t "~&Cancelled.~%"))
-			       (force-output)
-			       nil)
-             (error (e)
-               (if *lisp-rpc-mode*
-                   (rpc-error (format nil "~A" e))
-                   (format t "~&Error during LLM interaction: ~A~%" e))
-               (when (and reader-instance (not (llm:llm-stream-reader-closed-p reader-instance)))
-                 (llm:close-reader reader-instance))
-               nil))
-        (if previous-sigint-handler
-            (sb-sys:enable-interrupt sb-unix:sigint previous-sigint-handler)
-            (sb-sys:enable-interrupt sb-unix:sigint :default))))
-    #-sbcl
+    (setf *current-stream-reader* nil)
+    (when *in-repl*
+      (rl:deprep-terminal)
+      (disable-terminal-echo))
     (unwind-protect
-         (handler-case
-             (progn
-               (multiple-value-bind (response-result initial-messages)
-                   (apply #'llm:complete
-                          provider-type
-                          messages-for-api
-                          :model (model-config-model-name *current-model*)
-                          :max-tokens (model-config-max-output-tokens *current-model*)
-                          :max-context (model-config-max-input-tokens *current-model*)
-                          :system-prompt system-prompt
-                          :extra-headers (normalize-http-extra-headers
-                                          (when (model-config-extra-params *current-model*)
-                                            (gethash "extra_headers" (model-config-extra-params *current-model*))))
-                          :stream stream
-                          (when images-to-send `(:images ,images-to-send)))
+         (let* ((messages-for-api (prepare-messages prompt))
+                (provider-name (model-config-provider *current-model*))
+                (provider-type (intern (string-upcase provider-name) :keyword))
+                (system-prompt (cond
+                                 (custom-system-prompt custom-system-prompt)
+                                 (dot-command-p (dot-system-prompt))
+                                 (t (system-prompt))))
+                (full-response-text (make-string-output-stream))
+                (reader-instance nil)
+                (supports-vision (member "vision" (model-config-supports *current-model*) :test #'string=))
+                (images-to-send nil))
 
-                 (declare (ignore initial-messages))
+           (when (and supports-vision *images*)
+             (format t "~&Preparing images for vision model...~%")
+             (setf images-to-send
+                   (loop for img-plist in *images*
+                         for path = (getf img-plist :path)
+                         for text = (getf img-plist :text)
+                         collect (multiple-value-bind (base64-data mime-type)
+                                     (resize-and-encode-image path)
+                                   (when base64-data
+                                     `((:base64-data . ,base64-data)
+                                       (:mime-type . ,mime-type)
+                                       (:text . ,(or text prompt)))))))) ; Use image text or main prompt if no specific text
+           ;; Filter out any images that failed processing
+           (setf images-to-send (remove-if #'null images-to-send))
 
-                 (if stream
-                     (progn
-                       (setf reader-instance response-result)
-                       (setf *current-stream-reader* reader-instance)
-                       (unless (typep reader-instance 'llm:llm-stream-reader)
-                         (error "LLM complete did not return a stream reader when stream=t"))
+           (when (and *images* (not supports-vision))
+             (format t "~&Warning: Images are in context, but the current model (~A) does not support vision. Images will be ignored.~%"
+                     (model-config-name *current-model*)))
 
-                       (unless *lisp-rpc-mode*
-                         (format t "Assistant: ")
-                         (force-output))
+           #+sbcl
+           (let ((previous-sigint-handler nil))
+             (setf previous-sigint-handler
+                   (sb-sys:enable-interrupt
+                    sb-unix:sigint
+                    (lambda (signal info context)
+                      (declare (ignore signal info context))
+                      (setf *waiting-for-llm* nil)
+                      (when (and *current-stream-reader*
+                                 (not (llm:llm-stream-reader-closed-p *current-stream-reader*)))
+                        (ignore-errors (llm:close-reader *current-stream-reader*)))
+                      (error 'hactar-interrupt))))
+             (unwind-protect
+                  (handler-case
+                      (progn
+                        (multiple-value-bind (response-result initial-messages)
+                            (apply #'llm:complete
+                                   provider-type
+                                   messages-for-api
+                                   :model (model-config-model-name *current-model*)
+                                   :max-tokens (model-config-max-output-tokens *current-model*)
+                                   :max-context (model-config-max-input-tokens *current-model*)
+                                   :system-prompt system-prompt
+                                   :extra-headers (normalize-http-extra-headers
+                                                   (when (model-config-extra-params *current-model*)
+                                                     (gethash "extra_headers" (model-config-extra-params *current-model*))))
+                                   :stream stream
+                                   ;; Conditionally add :images argument
+                                   (when images-to-send `(:images ,images-to-send)))
 
-                       (loop for chunk = (llm:read-next-chunk reader-instance)
-                             while chunk
-                             do (progn
-                                  (unless *lisp-rpc-mode*
-                                    (stream-chunk chunk))
-                                  (write-string chunk full-response-text)))
-                       (unless *lisp-rpc-mode*
-                         (format t "~%")))
-                     (write-string response-result full-response-text))
+                          (declare (ignore initial-messages))
 
-                 (let ((assistant-response (get-output-stream-string full-response-text)))
-                   (maybe-log-llm-response assistant-response)
-                   (when *lisp-rpc-mode*
-                     (rpc-response assistant-response))
-                   (when add-to-history
-                     (add-to-chat-history "user" prompt)
-                     (add-to-chat-history "assistant" assistant-response)
-                     (nhooks:run-hook *process-history-hook* *chat-history*))
-                   assistant-response)))
-           (hactar-interrupt ()
-             (when (and reader-instance (not (llm:llm-stream-reader-closed-p reader-instance)))
-               (ignore-errors (llm:close-reader reader-instance)))
-             (if *lisp-rpc-mode*
-                 (rpc-cancelled)
-                 (format t "~&Cancelled.~%"))
-             (force-output)
-             nil)
-           (error (e)
-             (if *lisp-rpc-mode*
-                 (rpc-error (format nil "~A" e))
-                 (format t "~&Error during LLM interaction: ~A~%" e))
-             (when (and reader-instance (not (llm:llm-stream-reader-closed-p reader-instance)))
-               (llm:close-reader reader-instance))
-             nil)))
+                          (if stream
+                              (progn
+                                (setf reader-instance response-result)
+                                (setf *current-stream-reader* reader-instance)
+                                (unless (typep reader-instance 'llm:llm-stream-reader)
+                                  (error "LLM complete did not return a stream reader when stream=t"))
+
+                                (unless *lisp-rpc-mode*
+                                  (format t "Assistant: ")
+                                  (force-output))
+
+                                (loop for chunk = (llm:read-next-chunk reader-instance)
+                                      while chunk
+                                      do (progn
+                                           (unless *lisp-rpc-mode*
+                                             (stream-chunk chunk))
+                                           (write-string chunk full-response-text)))
+                                (unless *lisp-rpc-mode*
+                                  (format t "~%")))
+                              (write-string response-result full-response-text))
+
+                          (let ((assistant-response (get-output-stream-string full-response-text)))
+                            (maybe-log-llm-response assistant-response)
+                            (when *lisp-rpc-mode*
+                              (rpc-response assistant-response))
+                            (when add-to-history
+                              (setf *last-user-prompt* prompt)
+                              (add-to-chat-history "user" prompt)
+                              (add-to-chat-history "assistant" assistant-response)
+                              (nhooks:run-hook *process-history-hook* *chat-history*))
+                            assistant-response)))
+                    (hactar-interrupt ()
+                                      ;; User cancelled with C-c during LLM request - close stream and return quietly
+                                      (when (and reader-instance (not (llm:llm-stream-reader-closed-p reader-instance)))
+                                        (ignore-errors (llm:close-reader reader-instance)))
+                                      (if *lisp-rpc-mode*
+                                          (rpc-cancelled)
+                                          (format t "~&Cancelled.~%"))
+                                      (force-output)
+                                      nil)
+                    (error (e)
+                           (if *lisp-rpc-mode*
+                               (rpc-error (format nil "~A" e))
+                               (format t "~&Error during LLM interaction: ~A~%" e))
+                           (when (and reader-instance (not (llm:llm-stream-reader-closed-p reader-instance)))
+                             (llm:close-reader reader-instance))
+                           nil))
+               (if previous-sigint-handler
+                   (sb-sys:enable-interrupt sb-unix:sigint previous-sigint-handler)
+                   (sb-sys:enable-interrupt sb-unix:sigint :default))))
+           #-sbcl
+           (unwind-protect
+                (handler-case
+                    (progn
+                      (multiple-value-bind (response-result initial-messages)
+                          (apply #'llm:complete
+                                 provider-type
+                                 messages-for-api
+                                 :model (model-config-model-name *current-model*)
+                                 :max-tokens (model-config-max-output-tokens *current-model*)
+                                 :max-context (model-config-max-input-tokens *current-model*)
+                                 :system-prompt system-prompt
+                                 :extra-headers (normalize-http-extra-headers
+                                                 (when (model-config-extra-params *current-model*)
+                                                   (gethash "extra_headers" (model-config-extra-params *current-model*))))
+                                 :stream stream
+                                 (when images-to-send `(:images ,images-to-send)))
+
+                        (declare (ignore initial-messages))
+
+                        (if stream
+                            (progn
+                              (setf reader-instance response-result)
+                              (setf *current-stream-reader* reader-instance)
+                              (unless (typep reader-instance 'llm:llm-stream-reader)
+                                (error "LLM complete did not return a stream reader when stream=t"))
+
+                              (unless *lisp-rpc-mode*
+                                (format t "Assistant: ")
+                                (force-output))
+
+                              (loop for chunk = (llm:read-next-chunk reader-instance)
+                                    while chunk
+                                    do (progn
+                                         (unless *lisp-rpc-mode*
+                                           (stream-chunk chunk))
+                                         (write-string chunk full-response-text)))
+                              (unless *lisp-rpc-mode*
+                                (format t "~%")))
+                            (write-string response-result full-response-text))
+
+                        (let ((assistant-response (get-output-stream-string full-response-text)))
+                          (maybe-log-llm-response assistant-response)
+                          (when *lisp-rpc-mode*
+                            (rpc-response assistant-response))
+                          (when add-to-history
+                            (add-to-chat-history "user" prompt)
+                            (add-to-chat-history "assistant" assistant-response)
+                            (nhooks:run-hook *process-history-hook* *chat-history*))
+                          assistant-response)))
+                  (hactar-interrupt ()
+                                    (when (and reader-instance (not (llm:llm-stream-reader-closed-p reader-instance)))
+                                      (ignore-errors (llm:close-reader reader-instance)))
+                                    (if *lisp-rpc-mode*
+                                        (rpc-cancelled)
+                                        (format t "~&Cancelled.~%"))
+                                    (force-output)
+                                    nil)
+                  (error (e)
+                         (if *lisp-rpc-mode*
+                             (rpc-error (format nil "~A" e))
+                             (format t "~&Error during LLM interaction: ~A~%" e))
+                         (when (and reader-instance (not (llm:llm-stream-reader-closed-p reader-instance)))
+                           (llm:close-reader reader-instance))
+                         nil))))
       (setf *waiting-for-llm* nil)
       (setf *current-stream-reader* nil)
       (when *in-repl*
         (enable-terminal-echo)
         (flush-terminal-input)
         (rl:prep-terminal t)))))
+
 (defun stream-chunk (chunk)
   "Handle displaying streaming response chunks."
   (when chunk
@@ -1205,6 +999,28 @@ This is installed via HANDLER-BIND in the REPL and must accept exactly one argum
          (format t "~&Interrupted. Type /quit to exit.~%"))
      (error 'hactar-interrupt))))
 
+(defmacro with-command-interrupt-protection (() &body body)
+  "Wrap BODY with direct handler-case for the implementation-specific interrupt
+   conditions (e.g. sb-sys:interactive-interrupt on SBCL). This catches Ctrl+C
+   *before* it reaches the outer handler-bind in the REPL, which cannot dispatch
+   to the inner handler-case (per CL spec, handler-bind handlers that signal
+   search above themselves). Without this, Ctrl+C during interactive commands
+   like /state drops into the SBCL debugger."
+  `(handler-case
+       (progn ,@body)
+     (#+sbcl sb-sys:interactive-interrupt
+      #+ccl  ccl:interrupt-signal-condition
+      #+clisp system::simple-interrupt-condition
+      #+ecl ext:interactive-interrupt
+      #+allegro excl:interrupt-signal
+      ()
+      (if *lisp-rpc-mode*
+          (rpc-interrupted)
+          (format t "~&Interrupted.~%"))
+      (values))
+     (hactar-interrupt ()
+      (values))))
+
 ;;** REPL
 (defun readline-do-nothing (count key)
   "A cl-readline command function that does nothing.
@@ -1244,11 +1060,11 @@ This is installed via HANDLER-BIND in the REPL and must accept exactly one argum
                (loop
                  (handler-case
                      (let* ((prompt (cond
-                                      (*lisp-rpc-mode*
-                                       (rpc-ready)
-                                       "")
-                                      (in-hactar-tag-mode "... ")
-                                      (t "hactar> ")))
+                                     (*lisp-rpc-mode*
+                                      (rpc-ready)
+                                      "")
+                                     (in-hactar-tag-mode "... ")
+                                     (t "hactar> ")))
                             (input (rl:readline :prompt prompt
                                                 :add-history (not in-hactar-tag-mode) ; Only add history for initial lines or single lines
                                                 :novelty-check #'novelty-check)))
@@ -1256,9 +1072,10 @@ This is installed via HANDLER-BIND in the REPL and must accept exactly one argum
                        (unless input
                          (if *lisp-rpc-mode*
                              (rpc-exit "eof")
-                             (format t "~&Exiting due to EOF.~%"))
+                           (format t "~&Exiting due to EOF.~%"))
                          (return))
-
+		       ;; tag mode is when we are doing multiline input
+		       ;; TODO: maybe remove this? or reduce the complexity somehow?. this code seems messy
                        (if in-hactar-tag-mode
                            (if (string= (string-trim '(#\Space #\Tab #\Newline #\Return) input) "hactar}")
                                (let ((full-input (get-output-stream-string hactar-tag-buffer)))
@@ -1266,53 +1083,55 @@ This is installed via HANDLER-BIND in the REPL and must accept exactly one argum
                                  (setf hactar-tag-buffer (make-string-output-stream))
                                  (when (string/= (string-trim '(#\Space #\Tab #\Newline #\Return) full-input) "")
                                    (multiple-value-bind (cmd args) (parse-command full-input)
-                                     (cond
-                                       (cmd
-                                        (if *lisp-rpc-mode*
-                                            (let ((output (with-output-to-string (*standard-output*)
-                                                            (execute-command cmd args))))
-                                              (when (and output (> (length output) 0))
-                                                (rpc-command-output output cmd)))
-                                            (execute-command cmd args)))
-                                       ((and *lisp-mode-enabled* (lisp-mode-intercept full-input)) nil)
-                                       (t
-                                        (if *lisp-rpc-mode*
-                                            (rpc-status "waiting" :model (if *current-model* (model-config-name *current-model*) nil))
-                                            (progn
-                                              (format t "~&⏳ Waiting for ~A...~%" (if *current-model* (model-config-name *current-model*) "LLM"))
-                                              (force-output)))
-                                        (get-llm-response full-input))))))
-                               (progn
-                                 (write-string input hactar-tag-buffer)
-                                 (write-char #\Newline hactar-tag-buffer)))
-                           (let ((trimmed-input (string-trim '(#\Space #\Tab) input))
-                                 (hactar-tag-start "{hactar"))
-                             (cond
-                               ((str:starts-with? hactar-tag-start trimmed-input)
-                                (setf in-hactar-tag-mode t)
-                                (let ((rest-of-line (subseq trimmed-input (length hactar-tag-start))))
-                                  (when (string/= (string-trim '(#\Space #\Tab #\Newline #\Return) rest-of-line) "")
-                                    (write-string (string-trim '(#\Space #\Tab) rest-of-line) hactar-tag-buffer)
-                                    (write-char #\Newline hactar-tag-buffer))))
-                               (t
-                                (multiple-value-bind (cmd args) (parse-command input)
-                                  (cond
-                                    (cmd
-                                     (if *lisp-rpc-mode*
-                                         (let ((output (with-output-to-string (*standard-output*)
-                                                         (execute-command cmd args))))
-                                           (when (and output (> (length output) 0))
-                                             (rpc-command-output output cmd)))
-                                         (execute-command cmd args)))
-                                    ((string= (string-trim '(#\Space #\Tab #\Newline #\Return) input) "") nil)
-                                    ((and *lisp-mode-enabled* (lisp-mode-intercept input)) nil)
-                                    (t
-                                     (if *lisp-rpc-mode*
-                                         (rpc-status "waiting" :model (if *current-model* (model-config-name *current-model*) nil))
-                                         (progn
-                                           (format t "~&⏳ Waiting for ~A...~%" (if *current-model* (model-config-name *current-model*) "LLM"))
-                                           (force-output)))
-                                     (get-llm-response input)))))))))
+							(cond
+							 (cmd
+							  (with-command-interrupt-protection ()
+											     (if *lisp-rpc-mode*
+												 (let ((output (with-output-to-string (*standard-output*)
+																      (execute-command cmd args))))
+												   (when (and output (> (length output) 0))
+												     (rpc-command-output output cmd)))
+											       (execute-command cmd args))))
+							 ((and (or *response-mode* *lisp-mode-enabled* *lisp-response-mode-enabled* *json-response-mode-enabled*) (response-mode-intercept full-input)) nil)
+							 (t
+							  (if *lisp-rpc-mode*
+							      (rpc-status "waiting" :model (if *current-model* (model-config-name *current-model*) nil))
+							    (progn
+							      (format t "~&⏳ Waiting for ~A...~%" (if *current-model* (model-config-name *current-model*) "LLM"))
+							      (force-output)))
+							  (get-llm-response full-input))))))
+                             (progn
+                               (write-string input hactar-tag-buffer)
+                               (write-char #\Newline hactar-tag-buffer)))
+                         (let ((trimmed-input (string-trim '(#\Space #\Tab) input))
+                               (hactar-tag-start "{hactar"))
+                           (cond
+                            ((str:starts-with? hactar-tag-start trimmed-input)
+                             (setf in-hactar-tag-mode t)
+                             (let ((rest-of-line (subseq trimmed-input (length hactar-tag-start))))
+                               (when (string/= (string-trim '(#\Space #\Tab #\Newline #\Return) rest-of-line) "")
+                                 (write-string (string-trim '(#\Space #\Tab) rest-of-line) hactar-tag-buffer)
+                                 (write-char #\Newline hactar-tag-buffer))))
+                            (t
+                             (multiple-value-bind (cmd args) (parse-command input)
+						  (cond
+						   (cmd
+						    (with-command-interrupt-protection ()
+										       (if *lisp-rpc-mode*
+											   (let ((output (with-output-to-string (*standard-output*)
+																(execute-command cmd args))))
+											     (when (and output (> (length output) 0))
+											       (rpc-command-output output cmd)))
+											 (execute-command cmd args))))
+						   ((string= (string-trim '(#\Space #\Tab #\Newline #\Return) input) "") nil)
+						   ((and (or *response-mode* *lisp-mode-enabled* *lisp-response-mode-enabled* *json-response-mode-enabled*) (response-mode-intercept input)) nil)
+						   (t
+						    (if *lisp-rpc-mode*
+							(rpc-status "waiting" :model (if *current-model* (model-config-name *current-model*) nil))
+						      (progn
+							(format t "~&⏳ Waiting for ~A...~%" (if *current-model* (model-config-name *current-model*) "LLM"))
+							(force-output)))
+						    (get-llm-response input)))))))))
                    (hactar-interrupt ()
                      nil)))
           (ignore-errors (rl:write-history (namestring history-file)))))))))
@@ -1352,6 +1171,7 @@ This is installed via HANDLER-BIND in the REPL and must accept exactly one argum
       (setf *name* (car (last (pathname-directory *repo-root*)))))
 
     (load-user-customizations)
+    (load-hypertext-files)
 
     (setf *file-watcher-stopped* nil)
     (start-file-watcher *repo-root*)
@@ -1362,6 +1182,15 @@ This is installed via HANDLER-BIND in the REPL and must accept exactly one argum
       (context-expose-upsert-project-details)
       (context-expose-upsert-files-section)
       (unless *silent* (format t "Context file initialized: ~A~%" (uiop:native-namestring context-path))))
+
+    ;; Refactor Plan §6.1: materialize two-way file interfaces under ./.hactar/<id>/
+    (handler-case
+        (when (fboundp 'materialize-all-interfaces)
+          (funcall 'materialize-all-interfaces)
+          (unless *silent*
+            (format t "Interfaces materialized: ~A~%"
+                    (uiop:native-namestring (funcall 'instance-dir)))))
+      (error (e) (debug-log "Failed to materialize interfaces:" e)))
 
     (when *auto-lint*
       (let ((agent-def (gethash (intern "LINT" :hactar) *agent-definitions*)))
@@ -1388,7 +1217,7 @@ This is installed via HANDLER-BIND in the REPL and must accept exactly one argum
     ;; Start proxy if auto-start is enabled
     (when *proxy-auto-start*
       (with-suppressed-output-if-rpc
-        (start-proxy))
+        (start-proxy :silent t))
       (when *lisp-rpc-mode*
         (rpc-log :info "LLM Proxy started" :port *http-port*))
       (unless *silent*
@@ -1407,7 +1236,7 @@ This is installed via HANDLER-BIND in the REPL and must accept exactly one argum
       (format t "Usage: /session.new <path>~%"))
   :acp (lambda (cmd-args)
          (if cmd-args
-	     
+
              (if (hactar-session-new (first cmd-args))
                  `(("text" . ,(format nil "Session initialized for ~A" *repo-root*)))
                  `(("text" . "Failed to initialize session.")))
@@ -1429,15 +1258,16 @@ This is installed via HANDLER-BIND in the REPL and must accept exactly one argum
   "Print comprehensive help for Hactar using the unified flag/route registries.
 CMD argument is ignored (kept for backward compatibility)."
   (declare (ignore cmd))
-  (format t "hactar - Hactar AI Pair Programmer~%~%")
-  (format t "Version: ~A~%" *hactar-version*)
-  (format t "Authors: K-2052~%")
-  (format t "License: MIT~%~%")
+  (format t "~A~%" (colorize "hactar - Hactar AI Pair Programmer" :bold))
+  (format t "~%")
+  (format t "~A ~A~%" (colorize "Version:" :dim) (colorize *hactar-version* :cyan))
+  (format t "~A ~A~%" (colorize "Authors:" :dim) "K-2052")
+  (format t "~A ~A~%~%" (colorize "License:" :dim) "MIT")
 
-  (format t "USAGE:~%")
+  (format t "~A~%" (colorize "USAGE:" :bold-cyan))
   (format t "  hactar [OPTIONS] [SUBCOMMAND|URI] [ARGS...]~%~%")
 
-  (format t "OPTIONS:~%")
+  (format t "~A~%" (colorize "OPTIONS:" :bold-cyan))
   (let ((flags (list-registered-flags)))
     (dolist (flag (sort flags #'string<
                         :key (lambda (f) (or (first (flag-long-names f))
@@ -1445,53 +1275,55 @@ CMD argument is ignored (kept for backward compatibility)."
                                              ""))))
       (format t "  ")
       (when (flag-short-names flag)
-        (format t "~A, " (first (flag-short-names flag))))
+        (format t "~A~A " (colorize (first (flag-short-names flag)) :yellow) (colorize "," :dim)))
       (when (flag-long-names flag)
-        (format t "~A" (first (flag-long-names flag))))
+        (format t "~A" (colorize (first (flag-long-names flag)) :yellow)))
       (when (flag-takes-value flag)
-        (format t " <value>"))
-      (format t "~%      ~A~%~%" (flag-description flag))))
+        (format t " ~A" (colorize "<value>" :dim)))
+      (format t "~%      ~A~%~%" (colorize (flag-description flag) :dim))))
 
-  (format t "SUBCOMMANDS:~%")
+  (format t "~A~%" (colorize "SUBCOMMANDS:" :bold-cyan))
   (let ((sorted-subcommands (sort (alexandria:hash-table-keys *sub-commands*) #'string<)))
     (dolist (subcmd-name sorted-subcommands)
-      (let* ((subcmd-info (gethash subcmd-name *sub-commands*))
-             (description (second subcmd-info))
-             (cli-options (third subcmd-info)))
-        (format t "  ~A~%" subcmd-name)
-        (format t "      ~A~%" description)
-        (when cli-options
-          (format t "      Options:~%")
-          (dolist (opt cli-options)
-            (let ((opt-short (getf opt :short))
-                  (opt-long (getf opt :long))
-                  (opt-desc (getf opt :description)))
-              (format t "        ")
-              (when opt-short (format t "-~A" opt-short))
-              (when (and opt-short opt-long) (format t ", "))
-              (when opt-long (format t "--~A" opt-long))
-              (format t " : ~A~%" opt-desc))))
-        (let ((web-cmd (gethash subcmd-name *web-commands*)))
-          (when web-cmd
-            (dolist (route (web-command-routes web-cmd))
-              (format t "    ~A - ~A~%"
-                      (first (web-route-pattern route))
-                      (web-route-description route)))))
-        (format t "~%"))))
+      (unless (gethash (format nil "/~A" subcmd-name) *hidden-commands*)
+        (let* ((subcmd-info (gethash subcmd-name *sub-commands*))
+               (description (second subcmd-info))
+               (cli-options (third subcmd-info)))
+          (format t "  ~A~%" (colorize subcmd-name :bold-green))
+          (format t "      ~A~%" (colorize description :dim))
+          (when cli-options
+            (format t "      ~A~%" (colorize "Options:" :cyan))
+            (dolist (opt cli-options)
+              (let ((opt-short (getf opt :short))
+                    (opt-long (getf opt :long))
+                    (opt-desc (getf opt :description)))
+                (format t "        ")
+                (when opt-short (format t "~A" (colorize (format nil "-~A" opt-short) :yellow)))
+                (when (and opt-short opt-long) (format t "~A " (colorize "," :dim)))
+                (when opt-long (format t "~A" (colorize (format nil "--~A" opt-long) :yellow)))
+                (format t " ~A~%" (colorize (format nil ": ~A" opt-desc) :dim)))))
+          (let ((web-cmd (gethash subcmd-name *web-commands*)))
+            (when web-cmd
+              (dolist (route (web-command-routes web-cmd))
+                (format t "    ~A ~A ~A~%"
+                        (colorize (first (web-route-pattern route)) :magenta)
+                        (colorize "-" :dim)
+                        (colorize (web-route-description route) :dim)))))
+          (format t "~%")))))
 
-  (format t "URIs (Infinite CLI):~%")
-  (format t "  Any unmatched argument is routed via the unified router.~%")
-  (format t "  Wiki queries are routed automatically:~%")
-  (format t "    hactar redwood.docs/auth.types~%")
-  (format t "    hactar wiki:redwood.docs/auth.example~%~%")
+  (format t "~A~%" (colorize "URIs (Infinite CLI):" :bold-cyan))
+  (format t "  ~A~%" (colorize "Any unmatched argument is routed via the unified router." :dim))
+  (format t "  ~A~%" (colorize "Wiki queries are routed automatically:" :dim))
+  (format t "    ~A~%" (colorize "hactar redwood.docs/auth.types" :white))
+  (format t "    ~A~%~%" (colorize "hactar wiki:redwood.docs/auth.example" :white))
 
-  (format t "EXAMPLES:~%")
-  (format t "  hactar~%")
-  (format t "  hactar --model anthropic/claude-sonnet-4.6~%")
-  (format t "  hactar -q \"Explain this code\"~%")
-  (format t "  hactar -e \"list all files modified today\"~%")
-  (format t "  hactar hactar.init~%")
-  (format t "  hactar --agentshell~%"))
+  (format t "~A~%" (colorize "EXAMPLES:" :bold-cyan))
+  (format t "  ~A~%" (colorize "hactar" :white))
+  (format t "  ~A~%" (colorize "hactar --model anthropic/claude-sonnet-4.6" :white))
+  (format t "  ~A~%" (colorize "hactar -q \"Explain this code\"" :white))
+  (format t "  ~A~%" (colorize "hactar -e \"list all files modified today\"" :white))
+  (format t "  ~A~%" (colorize "hactar hactar.init" :white))
+  (format t "  ~A~%" (colorize "hactar --agentshell" :white)))
 
 (defvar *cli-opts* (make-hash-table :test 'eq)
   "Parsed CLI options, populated by defflag handlers during PARSE-CLI-INPUT.")
@@ -1508,33 +1340,60 @@ CMD argument is ignored (kept for backward compatibility)."
   (clrhash *flags*)
   (defflag :model ("--model" "-m") (v)
     :description "LLM model to use (e.g., ollama/qwen3:14b)"
+    :examples ("--model ollama/qwen3:14b" "-m anthropic/claude-sonnet-4.6")
     (setf (cli-opt :model) v))
   (defflag :provider ("--provider") (v)
     :description "Provider to use with model aliases (anthropic, openrouter, ...)"
+    :examples ("--provider openrouter" "--provider anthropic")
     (setf (cli-opt :provider) v))
-  (defflag :name ("--name") (v)
+  (defflag :name ("--project-name") (v)
     :description "Project name (defaults to current directory name)"
     (setf (cli-opt :name) v))
-  (defflag :path ("--path") (v)
+  (defflag :instance-name ("--name") (v)
+    :description "Name of the instance (places files under .hactar/$instance-name)"
+    (setf (cli-opt :instance-name) v))
+  (defflag :path ("--project-path") (v)
     :description "Project path"
     (setf (cli-opt :path) v))
-  (defflag :author ("--author") (v)
+  (defflag :author ("--project-author") (v)
     :description "Author name"
     (setf (cli-opt :author) v))
-  (defflag :config-path ("--config-path" "-c") (v)
+  (defflag :config-path ("--config-path" "--config" "-c") (v)
     :description "Path to the models configuration file (models.yaml)"
     (setf (cli-opt :config-path) v))
   (defflag :embedding-model ("--embedding-model") (v)
     :description "Model to use for generating embeddings"
+    :validator (lambda (value)
+                 (when (or (string= value "")
+                           (search "/" value))
+                   (error "embedding model must be an Ollama model name without provider prefix"))
+                 value)
+    :error-level :warning
+    :initializer (lambda ()
+                   (let ((embedding-model-from-opt (cli-opt :embedding-model)))
+                     (when embedding-model-from-opt
+                       (if (or (string= embedding-model-from-opt "")
+                               (search "/" embedding-model-from-opt))
+                           (log-warning "Embedding model ~S is invalid. Embedding model is Ollama only; do not prefix the model." embedding-model-from-opt)
+                           (progn
+                             (setf *embedding-model* embedding-model-from-opt)
+                             (let ((found (or (find-model-by-name embedding-model-from-opt)
+                                              (find-model-by-name (format nil "ollama/~A" embedding-model-from-opt)))))
+                               (unless found
+                                 (log-warning "Embedding model ~S does not exist in the models configuration." embedding-model-from-opt))))))))
     (setf (cli-opt :embedding-model) v))
-  (defflag :slynk-port ("--slynk-port" "-p") (v)
+  (defflag :slynk-port ("--slynk-port" "-P") (v)
     :description "Port for the Slynk server"
     (setf (cli-opt :slynk-port) (parse-integer v :junk-allowed t)))
   (defflag :disable-analyzers ("--disable-analyzers") (v)
     :description "Space-separated list of analyzers to disable"
+    :examples ("--disable-analyzers \"ai-comment-edit ai-comment-question\""
+               "--disable-analyzers react-router-dependency")
     (setf (cli-opt :disable-analyzers) v))
   (defflag :enable-analyzers ("--enable-analyzers") (v)
     :description "Space-separated list of analyzers to enable"
+    :examples ("--enable-analyzers \"ai-comment-edit ai-comment-question\""
+               "--enable-analyzers react-router-dependency")
     (setf (cli-opt :enable-analyzers) v))
   (defflag :http-port ("--http-port") (v)
     :description "Port for the HTTP API server"
@@ -1543,23 +1402,52 @@ CMD argument is ignored (kept for backward compatibility)."
     :description "Use Claude Sonnet 4.6 model"
     (setf (cli-opt :sonnet) t))
   (defflag :gemini ("--gemini") ()
-    :description "Use Gemini 3 Pro Preview model"
-    (setf (cli-opt :gemini) t))
+    :description "Use Gemini 3.5. Flash"
+    (setf (cli-opt :gemini) t)
+    (setf (cli-opt :provider) "gemini"))
   (defflag :gpt ("--gpt") ()
     :description "Use GPT 5.4 model"
     (setf (cli-opt :gpt) t))
   (defflag :opus ("--opus") ()
-    :description "Use Claude Opus 4.6 model"
+    :description "Use Claude Opus 4.8 model"
     (setf (cli-opt :opus) t))
   (defflag :gemini-free ("--gemini-free") ()
-    :description "Use free Gemini Pro Experimental via OpenRouter"
+    :description "Use free Gemini 2.5r"
     (setf (cli-opt :gemini-free) t))
   (defflag :deepseek ("--deepseek") ()
-    :description "Use Deepseek Chat via OpenRouter"
+    :description "Use DeepSeek V4 Pro model"
+    (setf (cli-opt :deepseek) t)
+    (setf (cli-opt :provider) "deepseek"))
+  (defflag :openrouter ("--openrouter") ()
+    :description "Use OpenRouter as the provider"
+    (setf (cli-opt :provider) "openrouter"))
+  (defflag :copilot ("--copilot") ()
+    :description "Use Copilot as the provider"
+    (setf (cli-opt :provider) "copilot"))
+  (defflag :anthropic ("--anthropic") ()
+    :description "Use Anthropic as the provider"
+    (setf (cli-opt :provider) "anthropic"))
+  (defflag :openai ("--openai") ()
+    :description "Use OpenAI as the provider"
+    (setf (cli-opt :provider) "openai"))
+  (defflag :deepseek-flash ("--deepseek-flash") ()
+    :description "Use DeepSeek V4 Flash model"
+    (setf (cli-opt :deepseek-flash) t))
+  (defflag :deep ("--deep") ()
+    :description "Shortcut for --deepseek"
     (setf (cli-opt :deepseek) t))
-  (defflag :deepseek-free ("--deepseek-free") ()
-    :description "Use free Deepseek Base via OpenRouter"
-    (setf (cli-opt :deepseek-free) t))
+  (defflag :deep-flash ("--deep-flash") ()
+    :description "Shortcut for --deepseek-flash"
+    (setf (cli-opt :deepseek-flash) t))
+  (defflag :kimi ("--kimi") ()
+    :description "Use Kimi model"
+    (setf (cli-opt :kimi) t))
+  (defflag :glm ("--glm") ()
+    :description "Use GLM 5.7 model"
+    (setf (cli-opt :glm) t))
+  (defflag :tiny ("--tiny") ()
+    :description "Use the tiny model (default: ollama/gemma4:e2b)"
+    (setf (cli-opt :tiny) t))
   (defflag :query ("--query" "-q") (v)
     :description "Send a query to the LLM, print the result, and exit"
     (setf (cli-opt :immediate-query) v))
@@ -1572,11 +1460,15 @@ CMD argument is ignored (kept for backward compatibility)."
   (defflag :assistant ("--assistant") ()
     :description "Enable assistant mode"
     (setf (cli-opt :assistant) t))
-  (defflag :output ("--output") (v)
+  (defflag :output ("--assistant-output") (v)
     :description "Output file (for --assistant)"
     (setf (cli-opt :assistant-output-file) v))
   (defflag :audio ("--audio") ()
     :description "Enable TTS audio output (assistant mode)"
+    :initializer (lambda ()
+                   (when (cli-opt :assistant-audio-enabled)
+                     (setf *assistant-audio-enabled* t)
+                     (unless *silent* (format t "Assistant TTS audio output enabled.~%"))))
     (setf (cli-opt :assistant-audio-enabled) t))
   (defflag :live-dangerously ("--live-dangerously") ()
     :description "Allow agents to run without a safe environment"
@@ -1593,12 +1485,15 @@ CMD argument is ignored (kept for backward compatibility)."
   (defflag :auto-all ("--auto-all") ()
     :description "Enable all automation"
     (setf (cli-opt :auto-all) t))
-  (defflag :watch ("--watch") ()
-    :description "Enable AI comment handling on file changes (AI!/AI?)"
-    (setf (cli-opt :watch) t))
-  (defflag :lisp-mode-flag ("--lisp-mode") ()
-    :description "Enable Lisp-only mode (LLM returns executable Lisp)"
-    (setf (cli-opt :lisp-mode) t))
+  (defflag :lisp-response-mode ("--lisp-response-mode") ()
+    :description "Enable Lisp-only response mode (LLM returns executable Lisp)"
+    (setf (cli-opt :lisp-response-mode) t))
+  (defflag :json-response-mode ("--json-response-mode") ()
+    :description "Enable JSON response mode (LLM returns JSON)"
+    (setf (cli-opt :json-response-mode) t))
+  (defflag :response-mode ("--response-mode") (v)
+    :description "Conform LLM response to format: xml, json, yaml, markdown, or org-mode"
+    (setf (cli-opt :response-mode) v))
   (defflag :in-editor ("--in-editor") ()
     :description "Running inside an editor (Emacs, Vim, etc.)"
     (setf (cli-opt :in-editor) t))
@@ -1625,6 +1520,24 @@ CMD argument is ignored (kept for backward compatibility)."
     (setf (cli-opt :tui) t))
   (defflag :theme ("--theme") (v)
     :description "TUI color theme name or path"
+    :validator (lambda (value)
+                 (unless (or (find-theme-by-name value)
+                             (probe-file value))
+                   (error "theme not found: ~A" value))
+                 value)
+    :error-level :warning
+    :initializer (lambda ()
+                   (let ((theme-from-opt (cli-opt :theme)))
+                     (when theme-from-opt
+                       (setf *tui-theme-name* theme-from-opt))
+                     (when *tui-theme-name*
+                       (let ((theme (find-theme-by-name *tui-theme-name*)))
+                         (if theme
+                             (progn
+                               (setf *tui-theme* theme)
+                               (unless *silent*
+                                 (format t "Theme: ~A~%" (tui-theme-name theme))))
+                             (log-warning "Theme ~S is invalid or missing" *tui-theme-name*))))))
     (setf (cli-opt :theme) v))
   (defflag :http ("--http") ()
     :description "Start the HTTP API server on startup"
@@ -1635,9 +1548,9 @@ CMD argument is ignored (kept for backward compatibility)."
   (defflag :proxy ("--proxy") ()
     :description "Start the OpenRouter-compatible LLM proxy on startup"
     (setf (cli-opt :proxy) t))
-  (defflag :proxy-upstream ("--proxy-upstream") (v)
+  (defflag :proxy-upstream-url ("--proxy-upstream-url" "--proxy-upstream") (v)
     :description "Upstream LLM API URL for the proxy"
-    (setf (cli-opt :proxy-upstream) v))
+    (setf (cli-opt :proxy-upstream-url) v))
   (defflag :help ("--help" "-h") ()
     :description "Show help"
     (setf (cli-opt :help) t))
@@ -1649,7 +1562,7 @@ CMD argument is ignored (kept for backward compatibility)."
 (defun handle-execute-flag (query run-immediately-p)
   "Handles --execute and --execute-immediately flags."
   (when (and *current-model* query (not (string= query "")))
-    (let* ((system-prompt-text (uiop:read-file-string (get-prompt-path "generate-shell-command.mustache")))
+    (let* ((system-prompt-text (get-prompt 'generate-shell-command "generate-shell-command.mustache"))
            (llm-response (get-llm-response query
                                            :custom-system-prompt system-prompt-text
                                            :stream nil
@@ -1684,10 +1597,65 @@ CMD argument is ignored (kept for backward compatibility)."
   (unless (and query (not (string= query ""))) (format t "Error: Query for execution cannot be empty.~%"))
   (uiop:quit 1))
 
+(defun setup-cli-model-environment ()
+  "Initialize the configuration and model environment for CLI subcommands."
+  (let* ((model-from-opt (cli-opt :model))
+         (config-path (cli-opt :config-path))
+         (provider-from-opt (cli-opt :provider))
+         (use-sonnet (cli-opt :sonnet))
+         (use-gemini (cli-opt :gemini))
+         (use-gpt (cli-opt :gpt))
+         (use-opus (cli-opt :opus))
+         (use-gemini-free (cli-opt :gemini-free))
+         (use-deepseek (cli-opt :deepseek))
+         (use-deepseek-flash (cli-opt :deepseek-flash))
+         (use-kimi (cli-opt :kimi))
+         (use-glm (cli-opt :glm))
+         (use-tiny (cli-opt :tiny))
+         (model model-from-opt))
+
+    (when use-sonnet (setf model (format nil "~A/claude-sonnet-4.6" (or provider-from-opt "anthropic"))))
+    (when use-gemini (setf model (format nil "~A//gemini-3.5-flash" (or provider-from-opt "gemini"))))
+    (when use-gpt (setf model (format nil "~A/gpt-5.4" (or provider-from-opt "openai"))))
+    (when use-opus (setf model (format nil "~A/claude-opus-4.8" (or provider-from-opt "anthropic"))))
+    (when use-gemini-free (setf model "openrouter/google/gemini-2.5-pro-exp-03-25:free"))
+    (when use-deepseek (setf model (format nil "~A/deepseek-v4-pro:cloud" (or provider-from-opt "ollama"))))
+    (when use-deepseek-flash (setf model (format nil "~A/deepseek-v4-flash:cloud" (or provider-from-opt "ollama"))))
+    (when use-kimi (setf model (format nil "~A/kimi-k2.6:cloud" (or provider-from-opt "ollama"))))
+    (when use-glm (setf model (format nil "~A/glm-5.7:cloud" (or provider-from-opt "ollama"))))
+    (when use-tiny (setf model "ollama/gemma4:e2b"))
+
+    (ensure-directories-exist (directory-namestring (get-models-config-path)))
+    (ensure-directories-exist (merge-pathnames "hactar/" (get-xdg-config-dir)))
+
+    (when config-path
+      (unless (probe-file config-path)
+        (format *error-output* "Error: Configuration file specified via --config-path does not exist: ~A~%" config-path)
+        (uiop:quit 1))
+      (handler-case
+          (with-open-file (stream config-path)
+            (let* ((file-content (uiop:read-file-string stream))
+                   (config (cl-yaml:parse file-content)))
+              (unless config
+                (error "Configuration file is empty or invalid structure"))))
+        ((or error yaml.error:parsing-error) (e)
+          (format *error-output* "Error: Failed to load config from ~A: ~A~%" config-path e)
+          (uiop:quit 1))))
+
+    (load-models-config (or config-path (get-models-config-path)))
+    (set-current-model (or model
+                           (uiop:getenv "HACTAR_MODEL")
+                           *default-llm*))
+
+    (setf *completion-model* *current-model*)
+
+    (run-flag-initializers)))
+
 (defun toplevel/handler (free-args)
   "The core startup logic for Hactar, executing based on parsed flags."
   (let* ((model-from-opt (cli-opt :model))
          (name-from-opt (cli-opt :name))
+         (instance-name-from-opt (cli-opt :instance-name))
          (author-from-opt (cli-opt :author))
          (config-path (cli-opt :config-path))
          (embedding-model-from-opt (cli-opt :embedding-model))
@@ -1702,7 +1670,10 @@ CMD argument is ignored (kept for backward compatibility)."
          (use-opus (cli-opt :opus))
          (use-gemini-free (cli-opt :gemini-free))
          (use-deepseek (cli-opt :deepseek))
-         (use-deepseek-free (cli-opt :deepseek-free))
+         (use-deepseek-flash (cli-opt :deepseek-flash))
+         (use-kimi (cli-opt :kimi))
+         (use-glm (cli-opt :glm))
+         (use-tiny (cli-opt :tiny))
          (immediate-query (cli-opt :immediate-query))
          (execute-query (cli-opt :execute))
          (execute-immediately-query (cli-opt :execute-immediately))
@@ -1716,7 +1687,9 @@ CMD argument is ignored (kept for backward compatibility)."
          (auto-typecheck (cli-opt :auto-typecheck))
          (auto-all (cli-opt :auto-all))
          (watch-flag (cli-opt :watch))
-         (lisp-mode-flag (cli-opt :lisp-mode))
+         (lisp-response-mode-flag (cli-opt :lisp-response-mode))
+         (json-response-mode-flag (cli-opt :json-response-mode))
+         (response-mode-opt (cli-opt :response-mode))
          (acp-flag (cli-opt :acp))
          (mcp-flag (cli-opt :mcp))
          (lisp-rpc-flag (cli-opt :lisp-rpc))
@@ -1727,7 +1700,7 @@ CMD argument is ignored (kept for backward compatibility)."
          (http-flag (cli-opt :http))
          (slynk-flag (cli-opt :slynk))
          (proxy-flag (cli-opt :proxy))
-         (proxy-upstream-opt (cli-opt :proxy-upstream))
+         (proxy-upstream-opt (cli-opt :proxy-upstream-url))
          (in-editor-flag (or (cli-opt :in-editor)
                              (let ((env-val (uiop:getenv "HACTAR_IN_EDITOR")))
                                (and env-val (not (string= env-val ""))
@@ -1735,11 +1708,13 @@ CMD argument is ignored (kept for backward compatibility)."
          (path (or (cli-opt :path)
                    (let ((args-str (format nil "~{~A~^ ~}" free-args)))
                      (multiple-value-bind (match regs)
-                         (cl-ppcre:scan-to-strings "--path\\s+([^\\s]+)" args-str)
+                         (cl-ppcre:scan-to-strings "--project-path\\s+([^\\s]+)" args-str)
                        (declare (ignore match))
                        (when (and regs (> (length regs) 0))
                          (aref regs 0))))))
          (model model-from-opt))
+
+    (declare (ignorable use-sonnet use-gemini use-gpt use-opus use-gemini-free use-deepseek use-deepseek-flash use-kimi use-glm use-tiny model provider-from-opt config-path model-from-opt))
 
     (when slynk-port (setf *slynk-port* slynk-port))
     (when http-port (setf *http-port* http-port))
@@ -1760,40 +1735,27 @@ CMD argument is ignored (kept for backward compatibility)."
     (when auto-test (setf *auto-test* t))
     (when auto-typecheck (setf *auto-typecheck* t))
 
+    (when (or (member "--execute" (uiop:command-line-arguments) :test #'string=)
+              (member "-e" (uiop:command-line-arguments) :test #'string=))
+      (unless (and execute-query (not (string= execute-query "")))
+        (format *error-output* "Error: --execute requires a query argument.~%")
+        (uiop:quit 1)))
+    (when (member "--execute-immediately" (uiop:command-line-arguments) :test #'string=)
+      (unless (and execute-immediately-query (not (string= execute-immediately-query "")))
+        (format *error-output* "Error: --execute-immediately requires a query argument.~%")
+        (uiop:quit 1)))
+
     (when (or immediate-query execute-query execute-immediately-query free-args acp-flag mcp-flag agentshell-flag lisp-rpc-flag)
       (setf *silent* t))          ; Enable silent mode for non-interactive modes
 
-    (when use-sonnet (setf model (format nil "~A/claude-sonnet-4.6" (or provider-from-opt "anthropic"))))
-    (when use-gemini (setf model (format nil "~A/gemini-3-pro-preview" (or provider-from-opt "gemini"))))
-    (when use-gpt (setf model (format nil "~A/gpt-5.4" (or provider-from-opt "openai"))))
-    (when use-opus (setf model (format nil "~A/claude-opus-4.6" (or provider-from-opt "anthropic"))))
-    (when use-gemini-free (setf model "openrouter/google/gemini-2.5-pro-exp-03-25:free"))
-    (when use-deepseek (setf model "openrouter/deepseek/deepseek-chat-v3-0324"))
-    (when use-deepseek-free (setf model "openrouter/deepseek/deepseek-v3-base:free"))
+    (setup-cli-model-environment)
 
-    (ensure-directories-exist (directory-namestring (get-models-config-path)))
-    (ensure-directories-exist (merge-pathnames "hactar/" (get-xdg-config-dir)))
-
-    (load-models-config (or config-path (get-models-config-path)))
-    (set-current-model (or model
-                           (uiop:getenv "HACTAR_MODEL")
-                           "ollama/glm-5.1:cloud"))
-    (when embedding-model-from-opt
-      (setf *embedding-model* embedding-model-from-opt))
-    (setf *completion-model* *current-model*)
-
-    ;; Apply theme if specified via CLI or config
-    (when theme-from-opt
-      (setf *tui-theme-name* theme-from-opt))
-    (when *tui-theme-name*
-      (let ((theme (find-theme-by-name *tui-theme-name*)))
-        (when theme
-          (setf *tui-theme* theme)
-          (unless *silent*
-            (format t "Theme: ~A~%" (tui-theme-name theme))))))
 
     (when name-from-opt
       (setf *name* name-from-opt))
+
+    (when instance-name-from-opt
+      (setf *instance-id* instance-name-from-opt))
 
     (when author-from-opt
       (setf *author* author-from-opt))
@@ -1829,11 +1791,26 @@ CMD argument is ignored (kept for backward compatibility)."
       (set-analyzer-enabled 'ai-comment-question t)
       (unless *silent* (format t "  AI comment handling enabled (AI!/AI?).~%")))
 
-    (when lisp-mode-flag
+    (when lisp-response-mode-flag
       (setf *lisp-mode-enabled* t)
-      (unless *silent* (format t "  Lisp-only mode enabled.~%")))
+      (setf *lisp-response-mode-enabled* t)
+      (setf *response-mode* :lisp)
+      (unless *silent* (format t "  Lisp-only response mode enabled.~%")))
 
-    (when lisp-rpc-flag
+    (when json-response-mode-flag
+      (setf *json-response-mode-enabled* t)
+      (setf *response-mode* :json)
+      (unless *silent* (format t "  JSON response mode enabled.~%")))
+
+    (when response-mode-opt
+      (let ((mode (intern (string-upcase response-mode-opt) :keyword)))
+        (setf *response-mode* mode)
+        (setf *lisp-mode-enabled* (eq mode :lisp))
+        (setf *lisp-response-mode-enabled* (eq mode :lisp))
+        (setf *json-response-mode-enabled* (eq mode :json))
+        (unless *silent* (format t "  Response conformance mode '~A' enabled.~%" response-mode-opt))))
+
+    (when (or lisp-rpc-flag *lisp-mode-enabled* *lisp-response-mode-enabled*)
       (setf *lisp-rpc-mode* t)
       (unless *silent* (format t "  Lisp-RPC mode enabled. LLM will return Lisp forms.~%")))
 
@@ -1860,12 +1837,9 @@ CMD argument is ignored (kept for backward compatibility)."
     (when assistant-mode
       (setf *assistant-mode-active* t)
       (setf *assistant-output-file* assistant-output)
-      (setf *assistant-audio-enabled* assistant-audio)
       (unless *silent* (format t "~&Entering Assistant Mode...~%"))
       (when *assistant-output-file*
-        (unless *silent* (format t "Assistant extractions will be written to: ~A~%" *assistant-output-file*)))
-      (when *assistant-audio-enabled*
-        (unless *silent* (format t "Assistant TTS audio output enabled.~%"))))
+        (unless *silent* (format t "Assistant extractions will be written to: ~A~%" *assistant-output-file*))))
 
     (cond
       (mcp-flag
@@ -1897,21 +1871,7 @@ CMD argument is ignored (kept for backward compatibility)."
          ;; Enter the blocking main loop (no REPL)
          (unwind-protect
               (lisp-rpc-main-loop)
-           (ignore-errors (session/auto-save))
-           (delete-slynk-port-file)
-           (when *editor-log-file*
-             (ignore-errors (delete-file *editor-log-file*)))
-           (ignore-errors (stop-http-server))
-           (unless *file-watcher-stopped*
-             (setf *file-watcher-stopped* t)
-             (handler-case (stop-file-watcher)
-               (serious-condition (e) (format *error-output* "~&Cleanup error: ~A~%" e))))
-           (handler-case
-               (maphash (lambda (k v) (declare (ignore k))
-                          (handler-case (stop-watcher v)
-                            (serious-condition (e) (format *error-output* "~&Cleanup error: ~A~%" e))))
-                        *active-watchers*)
-             (serious-condition (e) (format *error-output* "~&Cleanup error: ~A~%" e))))))
+           (global-cleanup))))
       (tui-flag
        (progn
          (load-chat-history)
@@ -1919,56 +1879,24 @@ CMD argument is ignored (kept for backward compatibility)."
            (init-litmode))
          (unwind-protect
               (run-tui)
-           (ignore-errors (session/auto-save))
-           (delete-slynk-port-file)
-           (when *editor-log-file*
-             (ignore-errors (delete-file *editor-log-file*)))
-           (ignore-errors (stop-http-server))
-           (unless *file-watcher-stopped*
-             (setf *file-watcher-stopped* t)
-             (handler-case (stop-file-watcher)
-               (serious-condition (e) (format *error-output* "~&Cleanup error: ~A~%" e))))
-           (handler-case
-               (maphash (lambda (k v) (declare (ignore k))
-                          (handler-case (stop-watcher v)
-                            (serious-condition (e) (format *error-output* "~&Cleanup error: ~A~%" e))))
-                        *active-watchers*)
-             (serious-condition (e) (format *error-output* "~&Cleanup error: ~A~%" e))))))
+           (global-cleanup))))
       (t
        (progn
-       (load-chat-history)
-       (when lit-flag
-         (init-litmode))
+         (load-chat-history)
+         (when lit-flag
+           (init-litmode))
 
-       ;; rl:initialize is now called earlier, before variable-bind
-       (rl:bind-keyseq "\\C-l"
-                       (lambda (count key)
-                         (declare (ignore count key))
-                         (format t "~c[2J~c[H" #\Escape #\Escape)
-                         (rl:redisplay)))
-       (unwind-protect
-            (repl)
-         (ignore-errors (session/auto-save))
-         (delete-slynk-port-file)
-         (when *assistant-last-screenshot-path*
-           (ignore-errors (delete-file *assistant-last-screenshot-path*)))
-         (when *assistant-last-audio-file*
-           (ignore-errors (delete-file *assistant-last-audio-file*)))
-         (when *editor-log-file*
-           (ignore-errors (delete-file *editor-log-file*)))
-         (ignore-errors (stop-http-server))
-         (unless *file-watcher-stopped*
-           (setf *file-watcher-stopped* t)
-           (handler-case (stop-file-watcher)
-             (serious-condition (e) (format *error-output* "~&Cleanup error (stop-file-watcher): ~A~%" e))))
-         (handler-case
-           (maphash (lambda (k v)
-                      (handler-case (stop-watcher v)
-                        (serious-condition (e) (format *error-output* "~&Cleanup error (stop-watcher ~A): ~A~%" k e))))
-                    *active-watchers*)
-           (serious-condition (e) (format *error-output* "~&Cleanup error (maphash watchers): ~A~%" e)))
-         (handler-case (rl:deprep-terminal)
-           (serious-condition (e) (format *error-output* "~&Cleanup error (deprep-terminal): ~A~%" e)))))))))
+         ;; rl:initialize is now called earlier, before variable-bind
+         (rl:bind-keyseq "\\C-l"
+                         (lambda (count key)
+                           (declare (ignore count key))
+                           (format t "~c[2J~c[H" #\Escape #\Escape)
+                           (rl:redisplay)))
+         (unwind-protect
+              (repl)
+           (global-cleanup)
+           (handler-case (rl:deprep-terminal)
+             (serious-condition (e) (format *error-output* "~&Cleanup error (deprep-terminal): ~A~%" e)))))))))
 
 (defun hactar-init ()
   "Initialize Hactar by cloning the repo and copying default prompts and models.yaml."
@@ -1987,81 +1915,107 @@ CMD argument is ignored (kept for backward compatibility)."
         (progn
           (if (uiop:directory-exists-p (uiop:ensure-directory-pathname repo-dir))
               (multiple-value-bind (out err code)
-                  (uiop:run-program (list "git" "-C" repo-dir-native "rev-parse" "--is-inside-work-tree")
-                                    :output :string :error-output :string :ignore-error-status t)
-                (declare (ignore out err))
-                (if (zerop code)
-                    (progn
-                      (format t "Updating Hactar repo at ~A...~%" repo-dir-native)
-                      (multiple-value-bind (o e c)
-                          (uiop:run-program (list "git" "-C" repo-dir-native "pull" "--ff-only")
-                                            :output :string :error-output :string :ignore-error-status t)
-                        (declare (ignore o))
-                        (unless (zerop c)
-                          (setf ok t)
-                          (log-warning "Failed to update repo (~A)" e))))
-                    (progn
-                      (setf ok t)
-                      (log-warning "Target directory exists but is not a git repo: ~A" repo-dir-native))))
-              (progn
-                (ensure-directories-exist (uiop:pathname-directory-pathname (uiop:ensure-directory-pathname repo-dir)))
-                (format t "Cloning Hactar repo from ~A to ~A...~%" repo-url repo-dir-native)
-                (multiple-value-bind (out err code)
-                    (uiop:run-program (list "git" "clone" repo-url repo-dir-native)
-                                      :output :string :error-output :string :ignore-error-status t)
-                  (declare (ignore out))
-                  (if (zerop code)
-                      (log-good "Cloned Hactar repo to ~A" repo-dir-native)
-                      (progn
-                        (setf ok t)
-                        (log-warning "Failed to clone Hactar repo: ~A" err)))))))
+				   (uiop:run-program (list "git" "-C" repo-dir-native "rev-parse" "--is-inside-work-tree")
+						     :output :string :error-output :string :ignore-error-status t)
+				   (declare (ignore out err))
+				   (if (zerop code)
+				       (progn
+					 (format t "Updating Hactar repo at ~A...~%" repo-dir-native)
+					 (multiple-value-bind (o e c)
+							      (uiop:run-program (list "git" "-C" repo-dir-native "pull" "--ff-only")
+										:output :string :error-output :string :ignore-error-status t)
+							      (declare (ignore o))
+							      (unless (zerop c)
+								(setf ok t)
+								(log-warning "Failed to update repo (~A)" e))))
+				     (progn
+				       (setf ok t)
+				       (log-warning "Target directory exists but is not a git repo: ~A" repo-dir-native))))
+            (progn
+              (ensure-directories-exist (uiop:pathname-directory-pathname (uiop:ensure-directory-pathname repo-dir)))
+              (format t "Cloning Hactar repo from ~A to ~A...~%" repo-url repo-dir-native)
+              (multiple-value-bind (out err code)
+				   (uiop:run-program (list "git" "clone" repo-url repo-dir-native)
+						     :output :string :error-output :string :ignore-error-status t)
+				   (declare (ignore out))
+				   (if (zerop code)
+				       (log-good "Cloned Hactar repo to ~A" repo-dir-native)
+				     (progn
+				       (setf ok t)
+				       (log-warning "Failed to clone Hactar repo: ~A" err)))))))
       (error (e)
-        (setf ok t)
-        (log-warning "Error cloning/updating Hactar repo: ~A" e)))
+             (setf ok t)
+             (log-warning "Error cloning/updating Hactar repo: ~A" e)))
 
     (when ok
       (handler-case
           (progn
             (ensure-directories-exist (uiop:ensure-directory-pathname data-dir))
             (multiple-value-bind (out err code)
-                (uiop:run-program (list "cp" "-r"
-                                        (uiop:native-namestring (uiop:ensure-directory-pathname prompts-src))
-                                        (uiop:native-namestring (uiop:ensure-directory-pathname data-dir)))
-                                  :output :string :error-output :string :ignore-error-status t)
-              (declare (ignore out))
-              (if (zerop code)
-                  (log-good "Copied prompts to ~A" (uiop:native-namestring (uiop:ensure-directory-pathname prompts-dst)))
-                  (progn
-                    (setf ok nil)
-                    (log-warning "Failed to copy prompts: ~A" err)))))
+				 (uiop:run-program (list "cp" "-r"
+							 (uiop:native-namestring (uiop:ensure-directory-pathname prompts-src))
+							 (uiop:native-namestring (uiop:ensure-directory-pathname data-dir)))
+						   :output :string :error-output :string :ignore-error-status t)
+				 (declare (ignore out))
+				 (if (zerop code)
+				     (log-good "Copied prompts to ~A" (uiop:native-namestring (uiop:ensure-directory-pathname prompts-dst)))
+				   (progn
+				     (setf ok nil)
+				     (log-warning "Failed to copy prompts: ~A" err)))))
         (error (e)
-          (setf ok nil)
-          (log-warning "Error copying prompts: ~A" e))))
+               (setf ok nil)
+               (log-warning "Error copying prompts: ~A" e))))
 
     (when ok
       (handler-case
           (progn
             (ensure-directories-exist (uiop:ensure-directory-pathname (uiop:pathname-directory-pathname (%to-pathname models-dst))))
             (multiple-value-bind (out err code)
-                (uiop:run-program (list "cp"
-                                        (uiop:native-namestring models-src)
-                                        (uiop:native-namestring (%to-pathname models-dst)))
-                                  :output :string :error-output :string :ignore-error-status t)
-              (declare (ignore out))
-              (if (zerop code)
-                  (log-good "Copied models.yaml to ~A" (uiop:native-namestring (%to-pathname models-dst)))
-                  (progn
-                    (setf ok nil)
-                    (log-warning "Failed to copy models.yaml: ~A" err)))))
+				 (uiop:run-program (list "cp"
+							 (uiop:native-namestring models-src)
+							 (uiop:native-namestring (%to-pathname models-dst)))
+						   :output :string :error-output :string :ignore-error-status t)
+				 (declare (ignore out))
+				 (if (zerop code)
+				     (log-good "Copied models.yaml to ~A" (uiop:native-namestring (%to-pathname models-dst)))
+				   (progn
+				     (setf ok nil)
+				     (log-warning "Failed to copy models.yaml: ~A" err)))))
         (error (e)
-          (setf ok nil)
-          (log-warning "Error copying models.yaml: ~A" e))))
+               (setf ok nil)
+               (log-warning "Error copying models.yaml: ~A" e))))
 
-    (when ok
-      (unless (hactar-migrations:run-migrations)
-	(format *error-output* "Failed to run database migrations. Aborting.~%")
-	(uiop:quit 1)))
     ok))
+
+(define-sub-command query (args)
+  "Send a query to the LLM, print the result, and exit."
+  (let ((query (format nil "~{~A~^ ~}" args)))
+    (unless (and query (not (string= query "")))
+      (format *error-output* "Error: query requires a query argument.~%")
+      (uiop:quit 1))
+    (unless *current-model*
+      (format *error-output* "Error: No model selected. Use /model to select a model.~%")
+      (uiop:quit 1))
+    (let ((response (get-llm-response query :stream nil :add-to-history nil)))
+      (if response
+          (progn
+            (format t "~A~%" response)
+            (uiop:quit 0))
+          (progn
+            (format *error-output* "Error: No response from LLM.~%")
+            (uiop:quit 1))))))
+
+(define-sub-command execute (args)
+  "Generate a shell command from a query. Copies it to clipboard by default; runs immediately with -i or --immediately."
+  (let* ((run-immediately-p (or (member "-i" args :test #'string=)
+                                (member "--immediately" args :test #'string=)
+                                (member "--execute-immediately" args :test #'string=)))
+         (clean-args (remove-if (lambda (x) (member x '("-i" "--immediately" "--execute-immediately") :test #'string=)) args))
+         (query (format nil "~{~A~^ ~}" clean-args)))
+    (unless (and query (not (string= query "")))
+      (format *error-output* "Error: execute requires a query argument.~%")
+      (uiop:quit 1))
+    (handle-execute-flag query run-immediately-p)))
 
 (define-sub-command hactar.init (args)
   "Initialize Hactar: clone repo and install default prompts and models."
@@ -2080,8 +2034,166 @@ CMD argument is ignored (kept for backward compatibility)."
 		       (help--print nil)))
 		    (uiop:quit 0))
 
-;;* Main
+(defun flag-help--print (flag)
+  "Print help details for a single flag."
+  (let ((names (append (flag-long-names flag) (flag-short-names flag))))
+    (format t "Flag: ~A~%" (flag-name flag))
+    (when names
+      (format t "  Aliases: ~{~A~^, ~}~%" names))
+    (format t "  Takes Value: ~A~%" (if (flag-takes-value flag) "Yes" "No"))
+    (format t "  Description: ~A~%" (or (flag-description flag) "No description available."))
+    (format t "  Examples:~%")
+    (if (flag-examples flag)
+        (dolist (ex (flag-examples flag))
+          (format t "    ~A~%" ex))
+        (let ((primary-name (or (first (flag-long-names flag))
+                                (first (flag-short-names flag)))))
+          (if (flag-takes-value flag)
+              (format t "    hactar ~A <value>~%" primary-name)
+              (format t "    hactar ~A~%" primary-name))))))
 
+
+(define-sub-command help.flag (args)
+  "Print the help details for a flag. Use --spec or --spec-lisp for machine-readable output."
+  (let* ((spec-p (or (member "--spec" args :test #'string=)
+                     (member "-s" args :test #'string=)))
+         (spec-lisp-p (member "--spec-lisp" args :test #'string=))
+         (clean-args (remove-if (lambda (x) (member x '("--spec" "-s" "--spec-lisp") :test #'string=)) args))
+         (flag-query (first clean-args)))
+    (unless flag-query
+      (format t "Error: No flag specified.~%")
+      (format t "Usage: hactar help.flag <flag-name> [--spec] [--spec-lisp]~%")
+      (uiop:quit 1))
+    (let ((flag (find-flag-by-string flag-query)))
+      (unless flag
+        (format t "Error: Flag '~A' not found.~%" flag-query)
+        (uiop:quit 1))
+      (cond
+        (spec-lisp-p
+         (format t "~S~%" (build-flag-spec flag)))
+        (spec-p
+         (format t "<json>~%~A~%</json>~%" (to-json (build-flag-spec flag))))
+        (t
+         (flag-help--print flag)))
+      (uiop:quit 0))))
+
+(defun find-symbol-by-name (name-str)
+  "Find a symbol by name string, supporting package prefixes."
+  (let* ((name-str (string-trim '(#\Space #\Tab) name-str))
+         (colon-pos (position #\: name-str)))
+    (if colon-pos
+        (let* ((pkg-part (subseq name-str 0 colon-pos))
+               (sym-part (subseq name-str (if (and (< (1+ colon-pos) (length name-str))
+                                                   (char= (char name-str (1+ colon-pos)) #\:))
+                                              (+ 2 colon-pos)
+                                              (1+ colon-pos))))
+               (pkg (find-package (string-upcase pkg-part))))
+          (when pkg
+            (find-symbol (string-upcase sym-part) pkg)))
+        (or (find-symbol (string-upcase name-str) :hactar)
+            (find-symbol (string-upcase name-str) :cl)
+            (find-symbol (string-upcase name-str) :keyword)))))
+
+(define-sub-command state (args)
+  "Echo the value of a global variable to stdout. Usage: hactar state <variable-name>"
+  (let ((var-name (first args)))
+    (unless var-name
+      (format t "Error: No variable specified.~%")
+      (format t "Usage: hactar state <variable-name>~%")
+      (uiop:quit 1))
+    (let ((sym (find-symbol-by-name var-name)))
+      (if (and sym (boundp sym))
+          (format t "~A~%" (symbol-value sym))
+          (progn
+            (format t "Error: Variable '~A' is unbound or not found.~%" var-name)
+            (uiop:quit 1)))
+      (uiop:quit 0))))
+
+(define-command retry (args)
+  "Resend the last prompt with confirmation."
+  (declare (ignore args))
+  (if *last-user-prompt*
+      (progn
+        (format t "Resend last prompt: \"~A\"? [y/n]: " *last-user-prompt*)
+        (force-output)
+        (let ((response (string-trim '(#\Space #\Tab #\Newline #\Return)
+                                     (read-line *standard-input* nil ""))))
+          (if (or (string-equal response "y") (string-equal response "yes"))
+              (progn
+                (format t "~&⏳ Retrying prompt...~%")
+                (force-output)
+                (get-llm-response *last-user-prompt*))
+              (format t "Cancelled.~%"))))))
+
+(define-command render-markdown (args)
+  "Render a markdown file with Glow-inspired ANSI styling."
+  (if (null args)
+      (format t "Usage: /render <filename>~%")
+      (let ((filename (first args)))
+        (if (probe-file filename)
+            (handler-case
+                (let ((content (uiop:read-file-string filename)))
+                  (format t "~A~%" (render-md-ansi content)))
+              (error (e)
+                (format t "Error reading file ~A: ~A~%" filename e)))
+            (format t "File not found: ~A~%" filename))))
+  :completions (lambda (text args)
+                 (declare (ignore args))
+                 (let* ((prefix (if (string= text "") "./" text))
+                        (dir-part (or (directory-namestring prefix) ""))
+                        (name-part (file-namestring prefix))
+                        (base-dir (if (and dir-part (not (string= dir-part "")))
+                                      (probe-file dir-part)
+                                      (uiop:getcwd))))
+                   (when (and base-dir (probe-file base-dir))
+                     (loop for entry in (directory (merge-pathnames (make-pathname :name :wild :type :wild :defaults base-dir) base-dir))
+                           for namestr = (uiop:native-namestring entry)
+                           for rel = (enough-namestring namestr (uiop:native-namestring (uiop:getcwd)))
+                           when (str:starts-with-p name-part (file-namestring rel) :ignore-case t)
+                           collect (if (uiop:directory-pathname-p entry)
+                                       (if (str:ends-with-p "/" rel) rel (format nil "~A/" rel))
+                                       rel)))))
+  :acp (lambda (cmd-args)
+         (if (null cmd-args)
+             `(("text" . "Usage: /render <filename>"))
+             (let ((filename (first cmd-args)))
+               (if (probe-file filename)
+                   (handler-case
+                       (let ((content (uiop:read-file-string filename)))
+                         `(("text" . ,(render-md-ansi content))))
+                     (error (e)
+                       `(("text" . ,(format nil "Error reading file ~A: ~A" filename e)))))
+                   `(("text" . ,(format nil "File not found: ~A" filename)))))))
+  :slash t
+  :sub t)
+
+
+(defun global-cleanup ()
+  "Clean up all temporary/port/context files upon exiting the application."
+  (ignore-errors (session/auto-save))
+  (ignore-errors (delete-slynk-port-file))
+  (ignore-errors (context-expose-delete-file))
+  (ignore-errors (stop-http-server))
+  (when *repo-root*
+    (let ((port-file (merge-pathnames ".hactar.port" *repo-root*)))
+      (when (probe-file port-file)
+        (ignore-errors (delete-file port-file)))))
+  (when *editor-log-file*
+    (ignore-errors (delete-file *editor-log-file*)))
+  (when *assistant-last-screenshot-path*
+    (ignore-errors (delete-file *assistant-last-screenshot-path*)))
+  (when *assistant-last-audio-file*
+    (ignore-errors (delete-file *assistant-last-audio-file*)))
+  (unless *file-watcher-stopped*
+    (setf *file-watcher-stopped* t)
+    (ignore-errors (stop-file-watcher)))
+  (ignore-errors
+    (maphash (lambda (k v) (declare (ignore k))
+               (ignore-errors (stop-watcher v)))
+             *active-watchers*)))
+
+
+;;* Main
 (defun main (&optional provided-args)
   "Main entry point for the Hactar application executable.
 
@@ -2103,12 +2215,24 @@ Free arguments are dispatched as:
            (sub-info (and first-arg (gethash first-arg *sub-commands*))))
       (cond
         (sub-info
-         (let* ((cmd-args (rest free-args))
-                (fmt-str (extract-format-string cmd-args))
-                (fmt (when fmt-str (parse-format-keyword fmt-str)))
-                (slash-cmd (format nil "/~A" first-arg)))
+         (let* ((cmd-args (rest free-args)))
+           (cond
+             ((member "--spec-lisp" cmd-args :test #'string=)
+              (format t "~S~%" (build-subcommand-group-spec first-arg))
+              (uiop:quit 0))
+             ((member "--spec" cmd-args :test #'string=)
+              (format t "<json>~%~A~%</json>~%" (to-json (build-subcommand-group-spec first-arg)))
+              (uiop:quit 0)))
+           (let* ((fmt-str (extract-format-string cmd-args))
+                  (fmt (when fmt-str (parse-format-keyword fmt-str)))
+                  (slash-cmd (format nil "/~A" first-arg)))
            (when (cli-opt :help)
              (setf cmd-args (append cmd-args (list "--help"))))
+           (unless (or (string= first-arg "hactar.init")
+                       (member "-h" cmd-args :test #'string=)
+                       (member "--help" cmd-args :test #'string=)
+                       (cli-opt :help))
+             (setup-cli-model-environment))
            (cond
              ((and fmt-str (null fmt))
               (format *error-output*
@@ -2121,7 +2245,7 @@ Free arguments are dispatched as:
              (fmt
               (execute-format-command slash-cmd fmt cmd-args))
              (t
-              (funcall (first sub-info) cmd-args))))
+              (funcall (first sub-info) cmd-args)))))
          (uiop:quit 0))
         ((cli-opt :help)
          (help--print nil)
@@ -2130,6 +2254,7 @@ Free arguments are dispatched as:
         ((and first-arg
               (or (search "/" first-arg)
                   (str:starts-with? "wiki:" first-arg)
+                  (cl-ppcre:scan "^[a-zA-Z0-9_.-]+:" first-arg)
                   (search ".docs" first-arg)))
          (let ((result (execute-route first-arg)))
            (when result (format t "~A~%" result)))

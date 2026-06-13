@@ -334,7 +334,7 @@ Example:
             (error "ACP client request timed out: ~A" method))
           (let ((msg (acp-read-message)))
             (cond
-              ((null msg) 
+              ((null msg)
                (remhash id-str *acp-pending-requests*)
                (error "ACP: stdin closed while waiting for response"))
               ((eq msg :parse-error)
@@ -413,7 +413,7 @@ Example:
            (loop for model in *available-models*
                  collect `(("value" . ,(model-config-name model))
                            ("name" . ,(model-config-name model))
-                           ("description" . ,(format nil "~A (~A)" 
+                           ("description" . ,(format nil "~A (~A)"
                                                      (model-config-model-name model)
                                                      (model-config-provider model))))))
          (current-model-name (if *current-model* (model-config-name *current-model*) "none"))
@@ -859,7 +859,7 @@ Example:
   (when (and *acp-session-id* *files*)
     (dolist (file *files*)
       (acp-send-agent-message-chunk "")  ; Ensure the chunk stream is active
-      ;; Resource links are typically sent as part of tool call content or as 
+      ;; Resource links are typically sent as part of tool call content or as
       ;; embedded context in session updates. We include them as agent messages.
       )))
 
@@ -883,21 +883,21 @@ Example:
           do (cond
                ((string= block-type "text")
                 (push (cdr (assoc "text" block :test #'string=)) text-parts))
-               
+
                ((string= block-type "resource")
                 (let* ((resource (cdr (assoc "resource" block :test #'string=)))
                        (uri (cdr (assoc "uri" resource :test #'string=)))
                        (text (cdr (assoc "text" resource :test #'string=)))
                        (mime (cdr (assoc "mimeType" resource :test #'string=))))
                   (when text
-                    (push (format nil "~%[Resource: ~A (~A)]~%~A" 
+                    (push (format nil "~%[Resource: ~A (~A)]~%~A"
                                   (or uri "unknown") (or mime "") text)
                           text-parts))
                   (when (and uri (str:starts-with? "file://" uri))
                     (let ((file-path (subseq uri 7)))
                       (when (probe-file file-path)
                         (add-file-to-context (uiop:native-namestring file-path)))))))
-               
+
                ((string= block-type "resource_link")
                 (let* ((uri (cdr (assoc "uri" block :test #'string=)))
                        (name (cdr (assoc "name" block :test #'string=))))
@@ -906,7 +906,7 @@ Example:
                       (when (probe-file file-path)
                         (add-file-to-context (uiop:native-namestring file-path))
                         (push (format nil "[Added file: ~A]" (or name file-path)) text-parts))))))
-               
+
                ((string= block-type "image")
                 (let ((data (cdr (assoc "data" block :test #'string=)))
                       (mime (cdr (assoc "mimeType" block :test #'string=))))
@@ -927,7 +927,7 @@ Example:
     (declare (ignore client-info))
     (setf *acp-client-capabilities* client-caps)
     (setf *acp-initialized* t)
-    
+
     (let ((response-version (if (and protocol-version (<= protocol-version 1)) 1 1))
           (caps-tree (acp-agent-capabilities-tree)))
       (acp-write-message
@@ -956,13 +956,13 @@ Example:
   (let ((cwd (cdr (assoc "cwd" params :test #'string=))))
     (when cwd
       (handler-case
-          (setf *repo-root* (find-git-repo-root 
-                             (uiop:ensure-directory-pathname 
+          (setf *repo-root* (find-git-repo-root
+                             (uiop:ensure-directory-pathname
                               (uiop:parse-native-namestring cwd))))
         (error ()
-          (setf *repo-root* (uiop:ensure-directory-pathname 
+          (setf *repo-root* (uiop:ensure-directory-pathname
                              (uiop:parse-native-namestring cwd))))))
-    
+
     (setf *acp-session-id* (format nil "sess_~A" (uuid:make-v4-uuid)))
     (clear-chat-history)
     (setf *files* nil)
@@ -976,10 +976,10 @@ Example:
                  (ignore-errors (uiop:terminate-process (acp-terminal-info-process v)))))
              *acp-terminals*)
     (clrhash *acp-terminals*)
-    
+
     (when *repo-root*
       (hactar-session-new (namestring *repo-root*)))
-    
+
     (let* ((model-options
              (loop for model in *available-models*
                    collect `(("value" . ,(model-config-name model))
@@ -1013,12 +1013,12 @@ Example:
                 ("type" . "select")
                 ("currentValue" . ,current-model-name)
                 ("options" . ,(coerce model-options 'vector))))))
-      
+
       (acp-write-message
        (acp-make-response id
                           `(("sessionId" . ,*acp-session-id*)
                             ("configOptions" . ,config-options)))))
-    
+
     (acp-send-available-commands)
     (dolist (file *files*)
       (acp-send-session-update
@@ -1030,19 +1030,19 @@ Example:
   (acp-log "Params: ~A~%" params)
   (let* ((prompt-blocks (cdr (assoc "prompt" params :test #'string=)))
          (*acp-cancelled* nil))
-    
+
     (unless prompt-blocks
-      (acp-write-message 
+      (acp-write-message
        (acp-make-error-response id +jsonrpc-invalid-params+ "Missing prompt"))
       (return-from acp-handle-session-prompt))
-    
-    (multiple-value-bind (user-text images) 
+
+    (multiple-value-bind (user-text images)
         (acp-parse-content-blocks prompt-blocks)
-      
+
       (when (string= (string-trim '(#\Space #\Tab #\Newline #\Return) user-text) "")
         (acp-write-message (acp-make-response id `(("stopReason" . "end_turn"))))
         (return-from acp-handle-session-prompt))
-      
+
       (multiple-value-bind (cmd args) (parse-command user-text)
         (when cmd
           (if (acp-command-p cmd)
@@ -1064,15 +1064,15 @@ Example:
                   (acp-send-agent-message-chunk output))))
           (acp-write-message (acp-make-response id `(("stopReason" . "end_turn"))))
           (return-from acp-handle-session-prompt)))
-      
+
       (handler-case
           (acp-process-prompt id user-text images)
         (hactar-interrupt ()
           (acp-write-message (acp-make-response id `(("stopReason" . "cancelled")))))
         (error (e)
           (acp-log "Error processing prompt: ~A" e)
-          (acp-write-message 
-           (acp-make-error-response id +jsonrpc-internal-error+ 
+          (acp-write-message
+           (acp-make-error-response id +jsonrpc-internal-error+
                                     (format nil "~A" e))))))))
 
 (defun acp-process-prompt (request-id user-text images)
@@ -1081,16 +1081,16 @@ Example:
     (acp-send-agent-message-chunk "Error: No model selected.")
     (acp-write-message (acp-make-response request-id `(("stopReason" . "end_turn"))))
     (return-from acp-process-prompt))
-  
+
   (let* ((messages-for-api (prepare-messages user-text))
          (provider-name (model-config-provider *current-model*))
          (provider-type (intern (string-upcase provider-name) :keyword))
          (sys-prompt (system-prompt))
          (full-response-text (make-string-output-stream))
          (reader-instance nil))
-    
+
     (setf *waiting-for-llm* t)
-    
+
     (unwind-protect
          (handler-case
              (progn
@@ -1105,29 +1105,29 @@ Example:
                           :stream t
                           (when images `(:images ,images)))
                  (declare (ignore initial-messages))
-                 
+
                  (setf reader-instance response-result)
                  (setf *current-stream-reader* reader-instance)
-                 
+
                  (unless (typep reader-instance 'llm:llm-stream-reader)
                    (error "LLM complete did not return a stream reader"))
-                 
+
                  (loop for chunk = (llm:read-next-chunk reader-instance)
                        while (and chunk (not *acp-cancelled*))
                        do (progn
                             (acp-send-agent-message-chunk chunk)
                             (write-string chunk full-response-text)))
-                 
+
                  (let* ((assistant-response (get-output-stream-string full-response-text))
                         (finish-reason nil))
                    (add-to-chat-history "user" user-text)
                    (add-to-chat-history "assistant" assistant-response)
-                   
+
                    (when (and *tool-use-enabled* *tools-in-system-prompt*)
                      (let ((tool-calls (parse-xml-tool-calls assistant-response)))
                        (when tool-calls
                          (acp-execute-tool-calls tool-calls))))
-                   
+
                    (let ((stop-reason
                            (cond
                              (*acp-cancelled* "cancelled")
@@ -1141,26 +1141,26 @@ Example:
                               "refusal")
                              ((string= assistant-response "") "end_turn")
                              (t "end_turn"))))
-                     (acp-write-message 
-                      (acp-make-response request-id 
+                     (acp-write-message
+                      (acp-make-response request-id
                                          `(("stopReason" . ,stop-reason))))))))
-           
+
            (hactar-interrupt ()
-             (when (and reader-instance 
+             (when (and reader-instance
                         (not (llm:llm-stream-reader-closed-p reader-instance)))
                (ignore-errors (llm:close-reader reader-instance)))
-             (acp-write-message 
+             (acp-write-message
               (acp-make-response request-id `(("stopReason" . "cancelled")))))
-           
+
            (error (e)
-             (when (and reader-instance 
+             (when (and reader-instance
                         (not (llm:llm-stream-reader-closed-p reader-instance)))
                (ignore-errors (llm:close-reader reader-instance)))
              (acp-log "LLM error: ~A" e)
-             (acp-write-message 
-              (acp-make-error-response request-id +jsonrpc-internal-error+ 
+             (acp-write-message
+              (acp-make-error-response request-id +jsonrpc-internal-error+
                                        (format nil "~A" e)))))
-      
+
       (setf *waiting-for-llm* nil)
       (setf *current-stream-reader* nil))))
 
@@ -1180,23 +1180,23 @@ Example:
                        ((string= tool-name "execute_command") "execute")
                        (t "other"))
                      "other")))
-      
+
       (let ((locations
               (when *repo-root*
                 (let ((path-val (or (cdr (assoc :path args))
                                     (cdr (assoc "path" args :test #'string=)))))
                   (when path-val
                     (vector `(("path" . ,(acp-absolute-path path-val)))))))))
-        
+
         (acp-send-tool-call tool-call-id
                             (format nil "~A" tool-name)
                             kind "pending"
                             :raw-input args
                             :locations locations)
-      
+
       (let ((args-plist (loop for (key . val) in args
                               append (list key val))))
-        
+
         (let ((decision (resolve-permission tool-name args-plist)))
           (case decision
             (:deny
@@ -1214,7 +1214,7 @@ Example:
                                                                              ("text" . "Permission denied by user"))))))
                  (return))))
             (:allow nil)))
-        
+
         (let ((old-content nil)
               (file-path-for-diff nil))
           (when (or (string= tool-name "write_to_file") (string= tool-name "replace_in_file"))
@@ -1225,9 +1225,9 @@ Example:
                 (let ((full-path (merge-pathnames path-val *repo-root*)))
                   (when (probe-file full-path)
                     (setf old-content (ignore-errors (uiop:read-file-string full-path))))))))
-          
+
           (acp-send-tool-call-update tool-call-id "in_progress")
-          
+
           (handler-case
               (let ((result (funcall (tool-definition-function tool) args-plist)))
                 ;; Build content blocks for the result
@@ -1256,10 +1256,10 @@ Example:
                                                     ("text" . ,(or result "")))))))))
                   (acp-send-tool-call-update tool-call-id "completed" :content content-blocks))
                 (when result
-                  (acp-send-agent-message-chunk 
+                  (acp-send-agent-message-chunk
                    (format nil "~%Tool ~A result: ~A~%" tool-name result))))
             (error (e)
-              (acp-send-tool-call-update 
+              (acp-send-tool-call-update
                tool-call-id "failed"
                :content (vector `(("type" . "content")
                                   ("content" . (("type" . "text")
@@ -1284,7 +1284,7 @@ Example:
        ;; Mode changes could affect system prompt, rules, etc.
        ;; For now just acknowledge
        (acp-log "Mode set to: ~A" value)))
-    
+
     (let* ((model-options
              (loop for model in *available-models*
                    collect `(("value" . ,(model-config-name model))
@@ -1295,7 +1295,7 @@ Example:
            (current-model-name (if *current-model* (model-config-name *current-model*) "none")))
       (acp-write-message
        (acp-make-response id
-                          `(("configOptions" . 
+                          `(("configOptions" .
                              ,(vector
                                `(("id" . "mode")
                                  ("name" . "Session Mode")
@@ -1336,7 +1336,7 @@ Example:
          (params (or (cdr (assoc "params" msg :test #'string=)) nil))
          (result (cdr (assoc "result" msg :test #'string=)))
          (error-obj (cdr (assoc "error" msg :test #'string=))))
-    
+
     (cond
       ((and id (null method) (or result error-obj))
        (let ((id-key (if (stringp id) id (format nil "~A" id))))
@@ -1344,7 +1344,7 @@ Example:
            (when pending
              (setf (first pending) (or result error-obj))
              (setf (second pending) t)))))
-      
+
       ((and id method)
        (cond
          ((string= method "initialize")
@@ -1373,14 +1373,14 @@ Example:
                 (acp-write-message
                  (acp-make-error-response id +jsonrpc-method-not-found+
                                           (format nil "Method not found: ~A" method))))))))
-      
+
       ((and method (null id))
        (cond
          ((string= method "session/cancel")
           (acp-handle-session-cancel params))
          (t
           (acp-log "Unknown notification: ~A" method))))
-      
+
       (t
        (acp-log "Unrecognized message: ~S" msg)))))
 
@@ -1449,10 +1449,10 @@ Example:
         (*acp-request-counter* 0)
         (*acp-cancelled* nil)
         (*acp-terminals* (make-hash-table :test 'equal)))
-    
+
     (load-models-config (get-models-config-path))
     (set-current-model (or (uiop:getenv "HACTAR_MODEL") "ollama/qwen3:14b"))
-    
+
     (acp-install-hooks)
     (acp-main-loop)))
 

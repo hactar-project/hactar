@@ -5,8 +5,7 @@
 
 (in-suite to-org-tests)
 
-;;* Test Helpers
-
+;;* Helpers
 (defvar *test-to-org-root* nil
   "Temporary directory for to-org tests.")
 
@@ -59,11 +58,11 @@
           (hactar::*stack* '("common-lisp"))
           (hactar::*silent* t))
      (unwind-protect
-          (progn ,@body)
+          (uiop:with-current-directory (*test-to-org-root*)
+            ,@body)
        (cleanup-test-to-org))))
 
-;;* Sanitize ID Tests
-
+;;* Sanitize ID
 (test to-org-sanitize-id-simple
   "Test sanitize-id with a simple path."
   (let ((id (hactar::sanitize-id "src/main.lisp")))
@@ -84,8 +83,7 @@
   (let ((id (hactar::sanitize-id "Makefile")))
     (is (string= "code-makefile" id))))
 
-;;* File Ignore Tests
-
+;;* Ignore
 (test to-org-ignore-patterns-default
   "Test that default ignore patterns are present."
   (let ((patterns (hactar::to-org-ignore-patterns)))
@@ -151,8 +149,7 @@
       (is-true src-group)
       (is (= 2 (length (cdr src-group)))))))
 
-;;* File Collection Tests
-
+;;* Collection
 (test to-org-collect-project-files
   "Test collecting files from a test project."
   (with-test-to-org-project
@@ -267,8 +264,7 @@
     (is (search ":scratch:noctx:" scratch))
     (is (search ":ID: scratch-zone" scratch))))
 
-;;* Full to-org Integration Tests
-
+;;* Documents
 (test to-org-full-generation
   "Test complete to-org generation."
   (with-test-to-org-project
@@ -415,3 +411,29 @@ nested block
     ;; .gitkeep is tiny and should be collected but result in minimal output
     (let ((output-path (hactar::to-org :force t)))
       (is-true output-path))))
+
+(test to-org-outside-git-repo
+  "to-org can run against a plain directory when given :path."
+  (let* ((root (merge-pathnames
+                (format nil "hactar-to-org-nongit-~A/" (uuid:make-v4-uuid))
+                (uiop:temporary-directory))))
+    (unwind-protect
+         (progn
+           (ensure-directories-exist root)
+           (with-open-file (s (merge-pathnames "main.lisp" root)
+                              :direction :output
+                              :if-exists :supersede
+                              :if-does-not-exist :create
+                              :external-format :utf-8)
+             (write-string "(defun hello () :ok)" s))
+           (let ((hactar::*repo-root* nil)
+                 (hactar::*name* "nongit-project")
+                 (hactar::*language* "lisp")
+                 (hactar::*stack* '("common-lisp"))
+                 (hactar::*silent* t))
+             (let ((output-path (hactar::to-org :path root :force t)))
+               (is-true output-path)
+               (is-true (probe-file output-path))
+               (is (search "defun hello" (uiop:read-file-string output-path))))))
+      (when (uiop:directory-exists-p root)
+        (uiop:delete-directory-tree root :validate t :if-does-not-exist :ignore)))))

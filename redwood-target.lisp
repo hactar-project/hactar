@@ -31,7 +31,7 @@
      ,@(loop for rule in rules
              append (css-expand-rule rule))))
 
-;;* Default Configs 
+;;* Default Configs
 (defun redwood-emit-default-package-json ()
   "Emit a default package.json if not already present."
   (unless (member "package.json" (vfs-all-paths *current-vfs*) :test #'string=)
@@ -91,7 +91,7 @@
          (method-sym (intern (concatenate 'string "." (symbol-name method)) :hactar)))
     `(chain (@ env ,binding-sym) (,method-sym ,@args))))
 
-;;* Helpers 
+;;* Helpers
 (defun jsx-element-p (symbol)
   "Check if a symbol should be emitted as a JSX element."
   (when (symbolp symbol)
@@ -99,7 +99,7 @@
       (and (> (length name) 0)
            (or (lower-case-p (char name 0))
                (char= (char name 0) #\*))))))
-;;* Emitters 
+;;* Emitters
 (defemit :redwood pragma (text)
   (compiler-emit (format nil "\"~A\"" text)))
 
@@ -439,7 +439,7 @@ Uses a default import when DEFAULT is true or SOURCE is configured for default i
          (import (init-client) :from "rwsdk/client")
          (init-client)))))
 
-;;* Checkers 
+;;* Checkers
 (defcheck :redwood jsx-anchor-valid-href
   "Check that anchor (a) elements have a valid href attribute."
   (when (and (listp form)

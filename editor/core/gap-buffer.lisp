@@ -35,14 +35,14 @@
   "A gap buffer for efficient text editing.
    The buffer is divided into three parts:
    [before-gap content][gap][after-gap content]
-   
+
    Slots:
    - data: The underlying character array
    - gap-start: Index where the gap begins (also the logical 'point')
    - gap-end: Index where the gap ends
    - length: Logical length of content (excluding gap)"
-  (data (make-array +initial-gap-size+ 
-                    :element-type 'character 
+  (data (make-array +initial-gap-size+
+                    :element-type 'character
                     :adjustable t)
         :type (array character (*)))
   (gap-start 0 :type fixnum)
@@ -108,7 +108,7 @@
                :end2 current-size)
       ;; Update buffer
       (setf (gap-buffer-data gb) new-data)
-      (setf (gap-buffer-gap-end gb) 
+      (setf (gap-buffer-gap-end gb)
             (+ (gap-buffer-gap-start gb) new-gap-size)))))
 
 (defun move-gap-to (gb pos)

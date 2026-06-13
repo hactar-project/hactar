@@ -107,11 +107,8 @@
       (derive-lint-command-from-stack)))
 
 (defun get-lint-prompt (command output user-instructions)
-  "Load a lint-fix prompt template and render it with details."
-  (let* ((template-string (handler-case
-                              (uiop:read-file-string (get-prompt-path "lint-fix.mustache"))
-                            (error (e)
-                              (declare (ignore e))
+  "Return the lint command from config or a derived default."
+  (let* ((template-string (or (get-prompt 'lint-fix "lint-fix.mustache")
                               "Analyze the following lint/build errors from running '{{command}}'.
 Propose precise code fixes as SEARCH/REPLACE blocks only. Do not include any other text.
 
@@ -122,7 +119,7 @@ Errors:
 {{#instructions}}
 Additional instructions:
 {{instructions}}
-{{/instructions}}")))
+{{/instructions}}"))
          (rendered (mustache:render* template-string
                                      `((:command . ,command)
                                        (:output . ,output)
@@ -172,10 +169,7 @@ Additional instructions:
 
 (defun get-typecheck-prompt (command output user-instructions)
   "Load a typecheck-fix prompt template and render it with details."
-  (let* ((template-string (handler-case
-                              (uiop:read-file-string (get-prompt-path "typecheck-fix.mustache"))
-                            (error (e)
-                              (declare (ignore e))
+  (let* ((template-string (or (get-prompt 'typecheck-fix "typecheck-fix.mustache")
                               "Analyze the following typecheck/build errors from running '{{command}}'.
 Propose precise code fixes as SEARCH/REPLACE blocks only. Do not include any other text.
 
@@ -186,7 +180,7 @@ Errors:
 {{#instructions}}
 Additional instructions:
 {{instructions}}
-{{/instructions}}")))
+{{/instructions}}"))
          (rendered (mustache:render* template-string
                                      `((:command . ,command)
                                        (:output . ,output)
@@ -235,10 +229,7 @@ Additional instructions:
 
 (defun get-test-agent-prompt (command output user-instructions)
   "Load a test-fix prompt template and render it with details."
-  (let* ((template-string (handler-case
-                              (uiop:read-file-string (get-prompt-path "test-fix.mustache"))
-                            (error (e)
-                              (declare (ignore e))
+  (let* ((template-string (or (get-prompt 'test-fix "test-fix.mustache")
                               "Analyze the following test failures from running '{{command}}'.
 Propose precise code fixes as SEARCH/REPLACE blocks only. Do not include any other text.
 
@@ -249,7 +240,7 @@ Errors:
 {{#instructions}}
 Additional instructions:
 {{instructions}}
-{{/instructions}}")))
+{{/instructions}}"))
          (rendered (mustache:render* template-string
                                      `((:command . ,command)
                                        (:output . ,output)
@@ -312,7 +303,7 @@ Additional instructions:
          (return t)) ; Success
         (t
          (let* ((combined-output (format nil "STDOUT:~%~A~%STDERR:~%~A" output error-output))
-                (prompt-template (uiop:read-file-string (get-prompt-path prompt-name)))
+                (prompt-template (get-prompt prompt-name prompt-name))
                 (prompt (mustache:render* prompt-template `((:output . ,combined-output)))))
            (format t "Agent [~A]: Command failed (exit code ~A). Asking LLM for fixes...~%"
                    (agent-definition-name (agent-instance-definition agent-instance))
@@ -437,7 +428,7 @@ Additional instructions:
         (if agent-def
             (start-agent agent-def agent-args)
             (format t "Agent '~A' not found.~%" agent-name-str)))
-      ;; Original fzf logic for interactive selection
+      ;; Interactive selection logic
       (let* ((definitions (alexandria:hash-table-values *agent-definitions*))
              (items (loop for d in definitions
                           when (or (null (agent-definition-stack d))

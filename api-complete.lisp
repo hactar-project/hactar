@@ -37,7 +37,7 @@
                       (format t "Please provide text to complete.~%")
                       (handler-case
                           (let* ((mustache:*escape-tokens* nil)
-				 (prompt-template (uiop:read-file-string (get-prompt-path "complete-text.mustache")))
+				 (prompt-template (get-prompt 'complete-text "complete-text.mustache"))
                                  (prompt (mustache:render* prompt-template `((:text . ,input-text))))
                                  (provider-type (intern (string-upcase (model-config-provider *completion-model*)) :keyword))
                                  (completion (llm:complete provider-type

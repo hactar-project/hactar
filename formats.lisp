@@ -1,11 +1,11 @@
-;; Format handling for define-command.
+;; Format handling for commands
 (in-package :hactar)
 
 (defvar *format-wrapper-style* :xml-tags
   "How to wrap formatted output. One of :xml-tags, :org-mode, :markdown, :none.")
 
 (defparameter *supported-formats*
-  '(:json :xml :yaml :markdown :org-mode :repl :tui)
+  '(:json :xml :yaml :markdown :org-mode :toml)
   "Format keywords recognised by the universal --format flag and
    by define-command's format-handler registration.")
 
@@ -58,7 +58,8 @@
     ("--xml" . "xml") ("-xml" . "xml")
     ("--yaml" . "yaml") ("-yml" . "yaml")
     ("--org" . "org-mode") ("-org" . "org-mode")
-    ("--org-mode" . "org-mode"))
+    ("--org-mode" . "org-mode")
+    ("--toml" . "toml") ("-toml" . "toml"))
   "Mapping of shorthand CLI flags to format keywords.")
 
 (defun extract-format-string (args)
@@ -80,11 +81,79 @@
              (t (incf i)))
         finally (return nil)))
 
+(defun write-toml-value (val stream)
+  (cond
+    ((eq val t) (format stream "true"))
+    ((eq val nil) (format stream "false"))
+    ((eq val :true) (format stream "true"))
+    ((eq val :false) (format stream "false"))
+    ((stringp val) (format stream "~S" val))
+    ((numberp val) (format stream "~A" val))
+    ((symbolp val) (format stream "~S" (string-downcase (symbol-name val))))
+    ((and (vectorp val) (every (lambda (x) (or (stringp x) (numberp x) (typep x 'boolean) (eq x :true) (eq x :false))) val))
+     (format stream "[~{~A~^, ~}]"
+             (mapcar (lambda (x) (cond ((stringp x) (format nil "~S" x))
+                                       ((or (eq x t) (eq x :true)) "true")
+                                       ((or (eq x nil) (eq x :false)) "false")
+                                       (t x)))
+                     (coerce val 'list))))
+    ((and (listp val) (every (lambda (x) (or (stringp x) (numberp x) (typep x 'boolean) (eq x :true) (eq x :false))) val))
+     (format stream "[~{~A~^, ~}]"
+             (mapcar (lambda (x) (cond ((stringp x) (format nil "~S" x))
+                                       ((or (eq x t) (eq x :true)) "true")
+                                       ((or (eq x nil) (eq x :false)) "false")
+                                       (t x)))
+                     val)))
+    (t (format stream "~S" (princ-to-string val)))))
+
+(defun serialize-to-toml (val &optional (stream nil))
+  (with-output-to-string (s)
+    (let ((out (or stream s)))
+      (cond
+        ((and (or (vectorp val) (listp val))
+              (every (lambda (x) (and (listp x) (consp (car x))))
+                     (if (vectorp val) (coerce val 'list) val)))
+         (let ((items (if (vectorp val) (coerce val 'list) val)))
+           (dolist (item items)
+             (format out "[[items]]~%")
+             (loop for (k . v) in item
+                   for key-str = (if (symbolp k) (string-downcase (symbol-name k)) (princ-to-string k))
+                   do (format out "~A = " key-str)
+                      (write-toml-value v out)
+                      (terpri out))
+             (terpri out))))
+        ((and (listp val) (consp (car val)))
+         (loop for (k . v) in val
+               for key-str = (if (symbolp k) (string-downcase (symbol-name k)) (princ-to-string k))
+               do (cond
+                    ((and (or (vectorp v) (listp v))
+                          (every (lambda (x) (and (listp x) (consp (car x))))
+                                 (if (vectorp v) (coerce v 'list) v)))
+                     (let ((items (if (vectorp v) (coerce v 'list) v)))
+                       (dolist (item items)
+                         (format out "[[~A]]~%" key-str)
+                         (loop for (sub-k . sub-v) in item
+                               for sub-key-str = (if (symbolp sub-k) (string-downcase (symbol-name sub-k)) (princ-to-string sub-k))
+                               do (format out "  ~A = " sub-key-str)
+                                  (write-toml-value sub-v out)
+                                  (terpri out)))))
+                    (t
+                     (format out "~A = " key-str)
+                     (write-toml-value v out)
+                     (terpri out)))))))))
+
 (defun execute-format-command (cmd-name format args)
   "Invoke the registered FORMAT handler for CMD-NAME with ARGS, then
    wrap and print the result using *format-wrapper-style*."
   (let* ((handler (get-format-handler cmd-name format))
-         (result (funcall handler args)))
+         (result (if handler
+                     (funcall handler args)
+                     (when (eq format :toml)
+                       (let ((json-handler (get-format-handler cmd-name :json)))
+                         (when json-handler
+                           (let* ((json-str (funcall json-handler args))
+                                  (parsed (cl-json:decode-json-from-string json-str)))
+                             (serialize-to-toml parsed))))))))
     (when result
       (let ((content (if (stringp result) result (princ-to-string result))))
         (write-string (wrap-formatted-output content format))

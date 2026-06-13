@@ -1,3 +1,4 @@
+;; linter for the hactar transipler
 (in-package :hactar)
 
 (defstruct check-result
@@ -63,8 +64,6 @@
        forms))
     (nreverse results)))
 
-;; Source position tracking
-
 (defstruct source-hint
   "Source location hint for a check result."
   (file "" :type string)
@@ -72,8 +71,6 @@
   (start-char 0 :type fixnum)
   (end-line 0 :type fixnum)
   (end-char 0 :type fixnum))
-
-;; Target detection from file extension
 
 (defun detect-target-from-extension (path)
   "Detect the compilation target keyword from a file's extension."
@@ -85,8 +82,6 @@
       ((string-equal ext "js")  :javascript)
       ((string-equal ext "css") :css)
       (t :javascript))))
-
-;; Diagnostic formatting
 
 (defun format-check-results-xml (results &optional (stream *standard-output*))
   "Format check results as XML diagnostics."
@@ -131,7 +126,6 @@
     (terpri stream)))
 
 ;;* Core Checking functions
-
 (defun offset-to-line-col (source offset)
   "Convert a character OFFSET in SOURCE to (line . col), both 0-based."
   (let ((line 0) (col 0))
@@ -208,7 +202,7 @@ Formats: xml (default), json"
       (dolist (file-path files)
         (let ((full-path (if (uiop:absolute-pathname-p file-path)
                              file-path
-                             (merge-pathnames file-path *repo-root*))))
+                             (merge-pathnames file-path (or *repo-root* (uiop:getcwd))))))
           (unless (probe-file full-path)
             (format t "File not found: ~A~%" full-path)
             (return-from check-file nil))
@@ -239,7 +233,7 @@ Formats: xml (default), json"
                 (dolist (file-path files)
                   (let ((full-path (if (uiop:absolute-pathname-p file-path)
                                        file-path
-                                       (merge-pathnames file-path *repo-root*))))
+                                       (merge-pathnames file-path (or *repo-root* (uiop:getcwd))))))
                     (cond
                       ((not (probe-file full-path))
                        (setf missing full-path))

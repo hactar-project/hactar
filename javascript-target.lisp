@@ -3,7 +3,7 @@
 (deftarget :javascript
   :file-extension "js")
 
-;;* Emission Helpers 
+;;* Emission Helpers
 (defun emit-name (symbol)
   "Emit a symbol as a JS identifier. Converts kebab-case to camelCase, strips earmuffs.
    Preserves dots in symbol names."
@@ -101,7 +101,7 @@
                 (consp (cadr form))
                 (js-statement-p (cadr form))))))
 
-;;* Emitters 
+;;* Emitters
 (defemit :javascript defun (name args &body body)
   (let ((clean-body (if (and (keywordp (first body)) (eq (first body) :return))
                         (cddr body)

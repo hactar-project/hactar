@@ -64,7 +64,7 @@
   children)     ; For compound entries
 
 (defclass buffer ()
-  ((name :accessor buffer-name 
+  ((name :accessor buffer-name
          :initarg :name
          :type string
          :documentation "The name of this buffer")
@@ -308,7 +308,7 @@
 (defun buffer-region-string (buffer)
   "Return the text in the active region of BUFFER."
   (when (buffer-region-active-p buffer)
-    (buffer-substring buffer 
+    (buffer-substring buffer
                       (buffer-region-beginning buffer)
                       (buffer-region-end buffer))))
 
@@ -349,7 +349,7 @@
            (gb-move-point-to content (undo-entry-position entry))
            (gb-insert-string content (undo-entry-content entry)))))
       ;; Restore point
-      (gb-move-point-to (buffer-content buffer) 
+      (gb-move-point-to (buffer-content buffer)
                         (undo-entry-point-before entry))
       t)))
 
@@ -373,8 +373,8 @@
 ;;; File Operations
 (defun find-file-buffer (file-path)
   "Find or create a buffer visiting FILE-PATH."
-  (or (find file-path *buffer-list* 
-            :key #'buffer-file-path 
+  (or (find file-path *buffer-list*
+            :key #'buffer-file-path
             :test #'equal)
       (let* ((name (file-namestring file-path))
              (buffer (make-buffer name :file-path file-path)))

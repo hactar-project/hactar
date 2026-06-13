@@ -158,3 +158,32 @@
   (let ((flags (hactar::list-registered-flags)))
     (is (= 1 (length flags)))
     (is (eq :f1 (hactar::flag-name (first flags))))))
+
+(test defflag-initializer-test
+  "defflag registers an initializer function which is triggered by run-flag-initializers."
+  (clrhash hactar::*flags*)
+  (let ((flag (hactar::register-flag :init-test '("--init-test") nil nil "test" (lambda ()) nil nil :error
+                                     (lambda () (setf (hactar::cli-opt :init-tested) "yay")))))
+    (is (not (null flag)))
+    (is (not (null (hactar::flag-initializer flag))))
+    (hactar::run-flag-initializers)
+    (is (string= "yay" (hactar::cli-opt :init-tested)))))
+
+(test subcommand-flag-warning-suppression-test
+  "Valid subcommand flags do not trigger unknown flag warnings, but invalid ones do."
+  (let ((hactar::*sub-commands* (make-hash-table :test 'equal)))
+    ;; Register a mock subcommand with options
+    (setf (gethash "mock-sub" hactar::*sub-commands*)
+          (list 'mock-fn
+                "Mock doc"
+                '((:long "path" :short "p" :description "Path")
+                  (:long "starter" :short "s" :description "Starter"))
+                nil))
+    ;; Test valid subcommand flags
+    (let ((out (with-output-to-string (*standard-output*)
+                 (hactar::parse-cli-input '("mock-sub" "--path" "dir" "-s" "react")))))
+      (is (string= out "")))
+    ;; Test invalid subcommand flags
+    (let ((out (with-output-to-string (*standard-output*)
+                 (hactar::parse-cli-input '("mock-sub" "--invalid-flag")))))
+      (is (not (null (search "Unknown flag: --invalid-flag" out)))))))

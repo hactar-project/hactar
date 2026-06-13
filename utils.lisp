@@ -1,5 +1,13 @@
 (in-package :hactar)
 
+(defmacro with-suppressed-output-if-rpc (&body body)
+  "In lisp-rpc-mode, suppress stdout/stderr during BODY to avoid polluting the s-expression protocol stream."
+  `(if *lisp-rpc-mode*
+       (let ((*standard-output* (make-broadcast-stream))
+             (*error-output*   (make-broadcast-stream)))
+         ,@body)
+       (progn ,@body)))
+
 ;;* Editor log
 (defun editor-log-path ()
   "Compute the pathname for the editor log file .hactar.{pid}.log under repo root."
@@ -213,6 +221,10 @@ Accepted inputs:
                  (let ((mapped (assoc key short-map :test #'string=)))
                    (when mapped (setf key (cdr mapped))))
 
+                 ;; If previous flag had no value, record it as boolean (t)
+                 (when (and current-key (not (gethash current-key args-data)))
+                   (push t (gethash current-key args-data)))
+
                  (setf current-key key)
 
                  (when val
@@ -229,6 +241,10 @@ Accepted inputs:
 
               (t
                (push token (gethash :args args-data))))))
+
+    ;; If the last flag had no value, record it as boolean (t)
+    (when (and current-key (not (gethash current-key args-data)))
+      (push t (gethash current-key args-data)))
 
     (maphash (lambda (k v)
                (cond
@@ -247,8 +263,8 @@ Accepted inputs:
   "Manually parse free args from uiop:command-line-arguments for a given subcommand.
    This is a workaround because clingon doesn't expose them easily."
   (let* ((all-cli-args (uiop:command-line-arguments))
-         (opts-with-arg '("--model" "-m" "--provider" "--name" "--author" "--config-path" "-c" "--slynk-port" "-p" "--disable-analyzers" "--enable-analyzers" "--http-port" "--query" "-q" "--execute" "-e" "--execute-immediately" "--output" "--path" "-p" "--starter"))
-         (flag-opts '("--sonnet" "--gemini" "--gpt" "--opus" "--gemini-free" "--deepseek" "--deepseek-free" "--assistant" "--audio" "--react" "--sinatra" "--in-editor" "--mcp" "--acp" "--lisp"))
+         (opts-with-arg '("--model" "-m" "--provider" "--name" "--author" "--config-path" "--config" "-c" "--slynk-port" "-p" "--disable-analyzers" "--enable-analyzers" "--http-port" "--query" "-q" "--execute" "-e" "--execute-immediately" "--output" "--path" "-p" "--starter" "--proxy-upstream-url" "--proxy-upstream" "--response-mode"))
+         (flag-opts '("--sonnet" "--gemini" "--gpt" "--opus" "--gemini-free" "--deepseek" "--deepseek-flash" "--deep" "--deep-flash" "--kimi" "--glm" "--assistant" "--audio" "--react" "--sinatra" "--in-editor" "--mcp" "--acp" "--lisp" "--openrouter" "--copilot" "--anthropic" "--openai" "--lisp-response-mode" "--json-response-mode"))
          (command-pos (position command-name all-cli-args :test #'string=))
          (args-to-scan (if command-pos (nthcdr (+ 1 command-pos) all-cli-args) '())))
     (loop with i = 0
@@ -283,13 +299,14 @@ Accepted inputs:
 
 (defun find-executable (name)
   "Check if an executable exists in the system's PATH."
-  (handler-case
-      (let* ((process-info (uiop:launch-program (list "which" name)
-						))
-	     (exit-status (uiop:wait-process process-info)))
-        (zerop exit-status))
-    (error ()
-      nil)))
+  (let* ((path-str (uiop:getenv "PATH"))
+         (paths (and path-str (str:split #\: path-str :omit-nulls t))))
+    (dolist (dir paths)
+      (let* ((dir-path (uiop:ensure-directory-pathname dir))
+             (file-path (merge-pathnames name dir-path)))
+        (when (probe-file file-path)
+          (return-from find-executable t))))
+    nil))
 
 (defun copy-to-clipboard (text)
   "Copies the given text to the system clipboard using wl-copy or xclip."
@@ -476,14 +493,25 @@ Otherwise, treat the literal character 'n' as a newline placeholder (for tests u
       (uiop:parse-native-namestring path)))
 
 (defun get-models-config-path ()
-  "Returns the full path to the models.yaml configuration file."
-  (uiop:subpathname *hactar-config-path* "models.yaml"))
+  "Returns the full path to the models.yaml configuration file (falls back to repo root if present)."
+  (let ((config-file (uiop:subpathname *hactar-config-path* "models.yaml"))
+        (repo-file (and *repo-root* (uiop:subpathname *repo-root* "models.yaml"))))
+    (if (and repo-file (probe-file repo-file))
+        repo-file
+        config-file)))
 
 (defun get-prompt-path (prompt-filename)
-  "Returns the full path to a prompt file within the user's hactar config directory."
-  (uiop:subpathname *hactar-config-path*
-                    (make-pathname :directory '(:relative "prompts")
-                                   :name prompt-filename)))
+  "Returns the full path to a prompt file within the user's hactar config directory or repo root."
+  (let* ((config-path (uiop:subpathname *hactar-config-path*
+                                        (make-pathname :directory '(:relative "prompts")
+                                                       :name prompt-filename)))
+         (repo-path (and *repo-root*
+                         (uiop:subpathname *repo-root*
+                                           (make-pathname :directory '(:relative "prompts")
+                                                          :name prompt-filename)))))
+    (if (and repo-path (probe-file repo-path))
+        repo-path
+        config-path)))
 
 (defun get-mime-type (pathname)
   "Determine the MIME type based on the file extension."
@@ -604,13 +632,41 @@ Otherwise, treat the literal character 'n' as a newline placeholder (for tests u
                                              :error-output :string
                                              :ignore-error-status t)
         (if (zerop exit-code)
-          (str:lines output)
+          (remove-if (lambda (s) (string= s "")) (str:lines output) :key (lambda (s) (string-trim '(#\Space #\Tab #\Newline #\Return) s)))
           (progn
             (format t "~&Error running 'git ls-files': ~A~%" error-output)
             nil)))
     (error (e)
       (format t "~&Error executing git command: ~A~%" e)
      nil)))
+
+(defun list-files-with-fd (repo-root)
+  "List files under REPO-ROOT using fd, returning repo-relative path strings.
+Returns NIL if fd is unavailable or the command fails."
+  (when (find-executable "fd")
+    (handler-case
+        (multiple-value-bind (output error-output exit-code)
+                             (uiop:run-program (list "fd" "--type" "f" "." (namestring repo-root))
+                                               :output :string
+                                               :error-output :string
+                                               :ignore-error-status t)
+          (declare (ignore error-output))
+          (when (zerop exit-code)
+            (remove-if (lambda (s) (string= s ""))
+                       (mapcar (lambda (line)
+                                 (uiop:native-namestring
+                                  (uiop:enough-pathname
+                                   (uiop:parse-native-namestring line)
+                                   repo-root)))
+                               (remove-if (lambda (s) (string= s ""))
+                                          (str:lines output)
+                                          :key (lambda (s)
+                                                 (string-trim '(#\Space #\Tab #\Newline #\Return) s))))
+                       :key (lambda (s)
+                              (string-trim '(#\Space #\Tab #\Newline #\Return) s)))))
+      (error (e)
+        (debug-log "Error executing fd:" e)
+        nil))))
 
 ;;** Git
 (defun find-git-repo-root (start-dir)
@@ -623,6 +679,14 @@ Otherwise, treat the literal character 'n' as a newline placeholder (for tests u
     (if (zerop exit-code)
         (uiop:ensure-directory-pathname (string-trim '(#\Newline #\Return #\Space #\Tab) output))
         (error "Failed to find git repository root. Output: ~A" error-output))))
+
+(defun ensure-repo-root ()
+  "Ensure *repo-root* is set, defaulting to git repo root of the current working directory, or the current working directory itself."
+  (unless *repo-root*
+    (setf *repo-root* (or (ignore-errors (find-git-repo-root (uiop:getcwd)))
+                          (uiop:ensure-directory-pathname (uiop:getcwd)))))
+  *repo-root*)
+
 
 (defun git-repo-present-p (dir)
   "Return T if DIR contains a git repo (i.e., git rev-parse succeeds), else NIL."
@@ -826,7 +890,15 @@ Otherwise, treat the literal character 'n' as a newline placeholder (for tests u
                 (:blue "34")
                 (:magenta "35")
                 (:cyan "36")
-                (:bold "1"))))
+                (:white "37")
+                (:dim "2")
+                (:bold "1")
+                (:bold-red "1;31")
+                (:bold-green "1;32")
+                (:bold-yellow "1;33")
+                (:bold-blue "1;34")
+                (:bold-magenta "1;35")
+                (:bold-cyan "1;36"))))
     (format nil "~C[~Am~A~C[0m" #\Esc code text #\Esc)))
 
 (defun log-good (fmt &rest args)
@@ -840,6 +912,12 @@ Otherwise, treat the literal character 'n' as a newline placeholder (for tests u
   (let ((msg (apply #'format nil fmt args)))
     (format t "~A~%"
             (colorize (format nil "Warning: ~A" msg) :red))))
+
+(defun log-error (fmt &rest args)
+  "Log an error message in red with 'Error' prefix."
+  (let ((msg (apply #'format nil fmt args)))
+    (format t "~A~%"
+            (colorize (format nil "Error: ~A" msg) :red))))
 
 ;;** System checks
 (defun %to-pathname (p)
@@ -888,19 +966,6 @@ Otherwise, treat the literal character 'n' as a newline placeholder (for tests u
         (format t "Error running rg: ~A~%" e)
         nil))))
 
-(defun select-with-fzf-multi (candidates)
-  "Select multiple items from CANDIDATES using fzf -m."
-  (let ((input-str (format nil "~{~A~%~}" candidates)))
-    (multiple-value-bind (output error-output exit-code)
-        (uiop:run-program "fzf -m"
-                          :input (make-string-input-stream input-str)
-                          :output :string
-                          :error-output :interactive
-                          :ignore-error-status t)
-      (declare (ignore error-output))
-      (if (zerop exit-code)
-          (split-lines (string-trim '(#\Newline) output))
-          nil))))
 
 ;;** LLM processing
 (defun chunk-for-llm (file &key size-of-chunk)
@@ -931,7 +996,7 @@ Otherwise, treat the literal character 'n' as a newline placeholder (for tests u
                        :ollama)) ; Fallback
          (model-id (if model (model-config-model-name model) model-name))
          (responses '()))
-    
+
     (unless model
       (format t "Warning: Chunking model '~A' not found. Using default provider :ollama.~%" model-name))
 
@@ -943,7 +1008,7 @@ Otherwise, treat the literal character 'n' as a newline placeholder (for tests u
                                      :system-prompt prompt
                                      :stream nil)))
         (push response responses)))
-    
+
     (str:join (string #\Newline) (nreverse responses))))
 
 (defun process-with-llm (file prompt)
@@ -953,9 +1018,7 @@ Otherwise, treat the literal character 'n' as a newline placeholder (for tests u
 
 (defun process-docs-with-llm (chunks format-opt output-file)
   "Process docs chunks with LLM to convert/summarize."
-  (let* ((prompt-path (get-prompt-path "api-docs.gen.org"))
-         (prompt (if (probe-file prompt-path)
-                     (uiop:read-file-string prompt-path)
+  (let* ((prompt (or (get-prompt 'api-docs.gen "api-docs.gen.org")
                      (format nil "Convert the following documentation markdown to ~A. Only output the converted content, no preamble." format-opt)))
          (processed-content (process-in-chunks chunks prompt)))
     (if output-file
@@ -996,23 +1059,23 @@ Otherwise, treat the literal character 'n' as a newline placeholder (for tests u
 (defun kebab-case (str)
   "Convert a string to kebab-case.
    Inserts hyphens between lowercase-to-uppercase transitions."
-  (string-downcase 
-   (cl-ppcre:regex-replace-all 
-    "([a-z])([A-Z])" 
-    str 
+  (string-downcase
+   (cl-ppcre:regex-replace-all
+    "([a-z])([A-Z])"
+    str
     "\\1-\\2")))
 
 (defun pascal-case (str)
   "Convert a string to PascalCase."
   (apply #'concatenate 'string
-         (mapcar #'string-capitalize 
+         (mapcar #'string-capitalize
                  (cl-ppcre:split "[-_\\s]+" str))))
 
 (defun camel-case (str)
   "Convert a string to camelCase."
   (let ((pascal (pascal-case str)))
     (when (> (length pascal) 0)
-      (concatenate 'string 
+      (concatenate 'string
                    (string-downcase (subseq pascal 0 1))
                    (subseq pascal 1)))))
 
@@ -1404,3 +1467,12 @@ Otherwise, treat the literal character 'n' as a newline placeholder (for tests u
   (if (null remain-patterns)
       (values t nil nil)
       (error "Expected to be the trailing pattern.")))
+
+(defun format-timestamp (universal-time)
+  "Format a universal time for display."
+  (if universal-time
+      (multiple-value-bind (sec min hour day month year)
+          (decode-universal-time universal-time)
+        (format nil "~4,'0D-~2,'0D-~2,'0D ~2,'0D:~2,'0D:~2,'0D"
+                year month day hour min sec))
+      "unknown"))

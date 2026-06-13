@@ -47,9 +47,9 @@
                                  (depth (length parts))
                                  (headline-title (car (last parts)))
                                  (md-file (merge-pathnames (format nil "doc/~A" path) repo-path)))
-                            
+
                             (format t "~&~A ~A~%" (make-string depth :initial-element #\*) headline-title)
-                            
+
                             (if (probe-file md-file)
                                 (let ((content (uiop:read-file-string md-file)))
                                   (format t "~A~%~%" (sinatra--pandoc-to-org content)))

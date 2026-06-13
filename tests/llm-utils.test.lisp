@@ -228,3 +228,65 @@
                                              '(0.5))))
       (hactar::embed "text")
       (is (string= captured-model "nomic-embed-text")))))
+
+;;* cost calculator tests
+
+(test calculate-model-cost-with-struct
+  "calculate-model-cost should correctly calculate cost when passed a model-config struct."
+  (let ((mock-model (hactar::make-model-config :name "test-paid" :provider "openai"
+                                                :model-name "test-paid"
+                                                :input-cost-per-token 0.000002
+                                                :output-cost-per-token 0.000008)))
+    (is (= (hactar::calculate-model-cost mock-model :input-tokens 100 :output-tokens 50)
+           (+ (* 100 0.000002) (* 50 0.000008))))))
+
+(test calculate-model-cost-with-name-string
+  "calculate-model-cost should look up model config by name and calculate cost."
+  (let ((mock-model (hactar::make-model-config :name "my-paid-model" :provider "openai"
+                                                :model-name "gpt-4o"
+                                                :input-cost-per-token 0.0000025
+                                                :output-cost-per-token 0.00001)))
+    (with-dynamic-stubs ((hactar::find-model-by-name (lambda (name)
+                                                       (if (string= name "my-paid-model")
+                                                           mock-model
+                                                           nil))))
+      (is (= (hactar::calculate-model-cost "my-paid-model" :input-tokens 1000 :output-tokens 500)
+             (+ (* 1000 0.0000025) (* 500 0.00001)))))))
+
+(test validate-model-config-cost-defaults
+  "validate-model-config should assign smart defaults: 0.0 for ollama/copilot/free, non-zero for paid."
+  ;; Test Ollama (free)
+  (let* ((ollama-data (make-hash-table :test 'equal))
+         (validated (progn
+                      (setf (gethash "name" ollama-data) "ollama/some-model"
+                            (gethash "model_name" ollama-data) "some-model")
+                      (hactar::validate-model-config ollama-data))))
+    (is (= 0.0 (gethash "input_cost_per_token" validated)))
+    (is (= 0.0 (gethash "output_cost_per_token" validated))))
+
+  ;; Test Copilot (free)
+  (let* ((copilot-data (make-hash-table :test 'equal))
+         (validated (progn
+                      (setf (gethash "name" copilot-data) "copilot/gpt-4o"
+                            (gethash "model_name" copilot-data) "gpt-4o")
+                      (hactar::validate-model-config copilot-data))))
+    (is (= 0.0 (gethash "input_cost_per_token" validated)))
+    (is (= 0.0 (gethash "output_cost_per_token" validated))))
+
+  ;; Test OpenRouter free model
+  (let* ((free-data (make-hash-table :test 'equal))
+         (validated (progn
+                      (setf (gethash "name" free-data) "openrouter/meta-llama/llama-3-8b:free"
+                            (gethash "model_name" free-data) "llama-3-8b")
+                      (hactar::validate-model-config free-data))))
+    (is (= 0.0 (gethash "input_cost_per_token" validated)))
+    (is (= 0.0 (gethash "output_cost_per_token" validated))))
+
+  ;; Test Paid model default (e.g. standard openai/anthropic default when not specified)
+  (let* ((paid-data (make-hash-table :test 'equal))
+         (validated (progn
+                      (setf (gethash "name" paid-data) "openai/custom-gpt"
+                            (gethash "model_name" paid-data) "custom-gpt")
+                      (hactar::validate-model-config paid-data))))
+    (is (= 0.0000011 (gethash "input_cost_per_token" validated)))
+    (is (= 0.0000044 (gethash "output_cost_per_token" validated)))))

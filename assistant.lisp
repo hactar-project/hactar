@@ -89,11 +89,10 @@
   (debug-log "Processing AI! comments in file:" pathname)
   (add-file-to-context pathname)
   (let* ((relative-path (uiop:native-namestring (uiop:enough-pathname pathname *repo-root*)))
-         (prompt-template-path (get-prompt-path "ai-comment-analyzer.mustache"))
-         (prompt-template (handler-case (uiop:read-file-string prompt-template-path)
+         (prompt-template (handler-case (get-prompt 'ai-comment-analyzer "ai-comment-analyzer.mustache")
                             (error (e)
                               (unless *silent*
-                                (format t "Error reading AI comment analyzer prompt '~A': ~A~%" prompt-template-path e))
+                                (format t "Error reading AI comment analyzer prompt: ~A~%" e))
                               (return-from process-ai-comment-file nil))))
          (prompt (mustache:render* prompt-template `((:file . ,relative-path)))))
     (unless *silent*
@@ -225,5 +224,4 @@
                                   (or *assistant-previous-image-description* user-prompt))
             (format t "~&Assistant: Screenshot taken and added to context: ~A~%" (uiop:native-namestring new-screenshot-path)))
           (format t "~&Assistant: Failed to take screenshot. Proceeding without it.~%")))
-    ;; Call get-llm-response, which will now use the potentially updated context (with new screenshot)
     (get-llm-response user-prompt :add-to-history t)))

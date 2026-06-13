@@ -41,22 +41,22 @@
 (test code-value-registry-test
   "Test registering and retrieving code-values."
   (hactar::clear-code-values)
-  
+
   (let ((cv (hactar::make-code-value
              :id "registry-test-1"
              :source-text "test")))
     (hactar::register-code-value cv)
-    
+
     (is (eq cv (hactar::get-code-value "registry-test-1")))
     (is (= 1 (length (hactar::list-code-values))))
-    
+
     ;; Add another
     (let ((cv2 (hactar::make-code-value
                 :id "registry-test-2"
                 :source-text "test2")))
       (hactar::register-code-value cv2)
       (is (= 2 (length (hactar::list-code-values)))))
-    
+
     ;; Clear
     (hactar::clear-code-values)
     (is (= 0 (length (hactar::list-code-values))))
@@ -69,17 +69,17 @@
   (let ((result (hactar::parse-source-specifier "src/file.ts")))
     (is (string= (car result) "src/file.ts"))
     (is (null (cdr result))))
-  
+
   ;; File with line range
   (let ((result (hactar::parse-source-specifier "src/file.ts:10-20")))
     (is (string= (car result) "src/file.ts"))
     (is (equal (cdr result) '(10 . 20))))
-  
+
   ;; Windows path (should not confuse drive letter with line range)
   (let ((result (hactar::parse-source-specifier "C:/path/file.ts")))
     (is (string= (car result) "C:/path/file.ts"))
     (is (null (cdr result))))
-  
+
   ;; Pathname object
   (let ((result (hactar::parse-source-specifier #P"src/file.ts")))
     (is (stringp (car result)))))
@@ -93,13 +93,13 @@
         (hactar::extract-lines content 2 4)
       (is (string= text (format nil "line2~%line3~%line4")))
       (is (equal region '(2 . 4))))
-    
+
     ;; Extract single line
     (multiple-value-bind (text region)
         (hactar::extract-lines content 3 3)
       (is (string= text "line3"))
       (is (equal region '(3 . 3))))
-    
+
     ;; Handle out of bounds
     (multiple-value-bind (text region)
         (hactar::extract-lines content 1 10)
@@ -132,17 +132,17 @@
 (test code-from-string-test
   "Test creating code-value from a string."
   (hactar::clear-code-values)
-  
+
   (let ((cv (hactar::code/from-string "const x = 1;" :language "typescript" :name 'my-code)))
     (is (hactar::code-value-p cv))
     (is (string= (hactar::code-value-source-text cv) "const x = 1;"))
     (is (string= (hactar::code-value-language cv) "typescript"))
     (is (eq (hactar::code-value-origin cv) :generated))
     (is (null (hactar::code-value-source-file cv)))
-    
+
     ;; Should be registered
     (is (eq cv (hactar::get-code-value (hactar::code-value-id cv))))
-    
+
     ;; Should be accessible by name
     (is (eq cv (hactar::get-code-value 'my-code)))))
 
@@ -153,7 +153,7 @@
     (let ((content (format nil "line1~%line2~%line3~%line4~%line5")))
       (with-open-file (s p :direction :output :if-exists :supersede)
         (write-string content s))
-      
+
       (hactar::clear-code-values)
       (let ((hactar::*repo-root* (uiop:pathname-directory-pathname p)))
         ;; Select whole file
@@ -161,13 +161,13 @@
           (is (hactar::code-value-p cv))
           (is (string= (hactar::code-value-source-text cv) content))
           (is (eq (hactar::code-value-origin cv) :selection)))
-        
+
         ;; Select with line range
         (let ((cv (hactar::code/select (format nil "~A:2-4" (uiop:native-namestring p)))))
-          (is (string= (hactar::code-value-source-text cv) 
+          (is (string= (hactar::code-value-source-text cv)
                        (format nil "line2~%line3~%line4")))
           (is (equal (hactar::code-value-source-region cv) '(2 . 4))))
-        
+
         ;; Select with explicit region
         (let ((cv (hactar::code/select (uiop:native-namestring p) :region '(1 . 2))))
           (is (string= (hactar::code-value-source-text cv)
@@ -208,24 +208,24 @@
                       :origin :transform
                       :parent transform1
                       :transformation "second transform")))
-    
+
     ;; Test history chain
     (let ((history (hactar::code/history transform2)))
       (is (= 3 (length history)))
       (is (eq (first history) original))
       (is (eq (second history) transform1))
       (is (eq (third history) transform2)))
-    
+
     ;; Test parent
     (is (eq (hactar::code/parent transform2) transform1))
     (is (eq (hactar::code/parent transform1) original))
     (is (null (hactar::code/parent original)))
-    
+
     ;; Test original
     (is (eq (hactar::code/original transform2) original))
     (is (eq (hactar::code/original transform1) original))
     (is (eq (hactar::code/original original) original))
-    
+
     ;; Test transformation description
     (is (string= (hactar::code/transformation-description transform2) "second transform"))))
 
@@ -238,7 +238,7 @@
     (let ((summary (hactar::code/summary cv)))
       (is (search "test-summary" summary))
       (is (search "Calculate the sum" summary))))
-  
+
   ;; Without intent
   (let ((cv (hactar::make-code-value :id "no-intent")))
     (let ((summary (hactar::code/summary cv)))
@@ -248,34 +248,34 @@
 (test staging-system-test
   "Test staging, unstaging, and listing staged code-values."
   (hactar::clear-code-values)
-  
+
   (let ((cv1 (hactar::make-code-value :id "stage-1" :source-text "code1"))
         (cv2 (hactar::make-code-value :id "stage-2" :source-text "code2")))
-    
+
     ;; Initially empty
     (is (= 0 (hactar::code/staged-count)))
     (is (null (hactar::code/staged)))
-    
+
     ;; Stage cv1
     (hactar::code/stage! cv1)
     (is (= 1 (hactar::code/staged-count)))
     (is (hactar::code-value-staged-p cv1))
     (is (member cv1 (hactar::code/staged) :test #'eq))
-    
+
     ;; Stage cv2
     (hactar::code/stage! cv2)
     (is (= 2 (hactar::code/staged-count)))
-    
+
     ;; Staging same cv again doesn't duplicate
     (hactar::code/stage! cv1)
     (is (= 2 (hactar::code/staged-count)))
-    
+
     ;; Unstage cv1
     (hactar::code/unstage! cv1)
     (is (= 1 (hactar::code/staged-count)))
     (is (not (hactar::code-value-staged-p cv1)))
     (is (not (member cv1 (hactar::code/staged) :test #'eq)))
-    
+
     ;; Clear all
     (hactar::code/clear-staged!)
     (is (= 0 (hactar::code/staged-count)))
@@ -285,7 +285,7 @@
 (test stage-all-test
   "Test staging multiple code-values at once."
   (hactar::clear-code-values)
-  
+
   (let ((cvs (list (hactar::make-code-value :id "all-1" :source-text "1")
                    (hactar::make-code-value :id "all-2" :source-text "2")
                    (hactar::make-code-value :id "all-3" :source-text "3"))))
@@ -320,7 +320,7 @@
     (let ((preview (hactar::code/preview transformed)))
       (is (search "-old code" preview))
       (is (search "+new code" preview))))
-  
+
   ;; No preview for original (no parent)
   (let ((original (hactar::make-code-value :source-text "code")))
     (is (null (hactar::code/preview original)))))
@@ -334,12 +334,12 @@
            :pattern
            (:search "{{code}}"
             :replace "function wrapper() { {{code}} }")))
-  
+
   (let ((t-def (hactar::get-transform 'test-wrap-transform)))
     (is-true t-def)
     (is (string= (hactar::transform-def-description t-def) "Wrap code in a function"))
     (is-true (hactar::transform-def-pattern t-def)))
-  
+
   ;; List transforms
   (is (member "test-wrap-transform" (hactar::list-transforms) :test #'string-equal)))
 
@@ -359,8 +359,8 @@
   "Test applying pattern-based transforms."
   (let ((cv (hactar::make-code-value :source-text "const x = 1;")))
     ;; Simple literal replacement (no variables)
-    (let ((result (hactar::apply-pattern-transform 
-                   cv 
+    (let ((result (hactar::apply-pattern-transform
+                   cv
                    '(:search "const" :replace "let")
                    '())))
       (is (string= result "let x = 1;")))))
@@ -372,13 +372,13 @@
   (eval '(hactar::deftransform simple-replace
            "Replace const with let"
            :pattern (:search "const" :replace "let")))
-  
+
   (let* ((original (hactar::make-code-value
                     :id "transform-orig"
                     :source-text "const x = 1;"
                     :language "javascript"))
          (transformed (hactar::code/transform original 'simple-replace)))
-    
+
     (is (hactar::code-value-p transformed))
     (is (string= (hactar::code-value-source-text transformed) "let x = 1;"))
     (is (eq (hactar::code-value-origin transformed) :transform))
@@ -392,7 +392,7 @@
   (eval '(hactar::deftransform conditional-transform-test
            "Simple replacement"
            :pattern (:search "x" :replace "y")))
-  
+
   ;; Should apply the transform
   (let* ((ts-cv (hactar::make-code-value :source-text "x" :language "typescript"))
          (result (hactar::code/transform ts-cv 'conditional-transform-test)))
@@ -404,19 +404,19 @@
   (uiop:with-temporary-file (:pathname p :keep t)
     (with-open-file (s p :direction :output :if-exists :supersede)
       (write-string "original content" s))
-    
+
     (let ((hactar::*code-value-history* '())
           (cv (hactar::make-code-value
                :id "apply-test"
                :source-file p
                :source-text "new content")))
-      
+
       ;; Apply
       (hactar::code/apply! cv)
       (is (string= (uiop:read-file-string p) "new content"))
       (is (hactar::code-value-applied-p cv))
       (is (not (hactar::code-value-staged-p cv)))
-      
+
       ;; Undo
       (is-true (hactar::code/undo!))
       (is (string= (uiop:read-file-string p) "original content")))))
@@ -450,7 +450,7 @@
            ((:components ()
               "Find components"
               (list "component1" "component2")))))
-  
+
   (let ((analyzer (hactar::get-analyzer 'test-framework)))
     (is-true analyzer)
     (is (string= (hactar::framework-analyzer-description analyzer) "Test framework analyzer"))
@@ -465,13 +465,13 @@
            "Always active"
            :detect t
            :queries ()))
-  
+
   ;; Define one that's never active
   (eval '(hactar::defanalyzer never-active
            "Never active"
            :detect nil
            :queries ()))
-  
+
   (let ((active (hactar::active-analyzers)))
     (is (find "always-active" active :key #'car :test #'string-equal))
     (is (not (find "never-active" active :key #'car :test #'string-equal)))))
@@ -489,8 +489,8 @@
              :id "describe-test"
              :source-text "function add(a, b) { return a + b; }"
              :language "javascript")))
-    
-    (with-dynamic-stubs ((hactar::get-llm-response 
+
+    (with-dynamic-stubs ((hactar::get-llm-response
                           (lambda (prompt &key &allow-other-keys)
                             (declare (ignore prompt))
                             "INTENT: Add two numbers together
@@ -499,7 +499,7 @@ OUTPUTS: sum of a and b
 EFFECTS: none
 INVARIANTS: returns a number")))
       (hactar::code/describe cv)
-      
+
       (is (string= (hactar::code-value-intent cv) "Add two numbers together"))
       (is (equal (hactar::code-value-inputs cv) '("a" "b")))
       (is (equal (hactar::code-value-outputs cv) '("sum of a and b")))
@@ -512,7 +512,7 @@ INVARIANTS: returns a number")))
   (let ((cv (hactar::make-code-value
              :source-text "const x = 1;"
              :language "javascript")))
-    
+
     (with-dynamic-stubs ((hactar::get-llm-response
                           (lambda (prompt &key &allow-other-keys)
                             (declare (ignore prompt))
@@ -527,7 +527,7 @@ INVARIANTS: returns a number")))
              :source-text "test"
              :language "javascript"))
         (describe-called nil))
-    
+
     (with-dynamic-stubs ((hactar::get-llm-response
                           (lambda (prompt &key &allow-other-keys)
                             (declare (ignore prompt))
@@ -549,12 +549,12 @@ INVARIANTS: none")))
   (uiop:with-temporary-file (:pathname p :keep t)
     (with-open-file (s p :direction :output :if-exists :supersede)
       (write-string "const x: number = 1;" s))
-    
+
     (let ((cv (hactar::make-code-value
                :source-file p
                :source-text "const x: number = 1;"
                :language "typescript")))
-      
+
       ;; Mock successful typecheck
       (with-dynamic-stubs ((uiop:run-program
                             (lambda (args &key &allow-other-keys)
@@ -562,7 +562,7 @@ INVARIANTS: none")))
                               (values "" "" 0))))
         (is-true (hactar::code/typechecks? cv))
         (is-true (hactar::code-value-verified-p cv)))
-      
+
       ;; Mock failed typecheck
       (with-dynamic-stubs ((uiop:run-program
                             (lambda (args &key &allow-other-keys)
@@ -574,15 +574,15 @@ INVARIANTS: none")))
 (test code-failures-test
   "Test getting failed verifications from staged."
   (hactar::clear-code-values)
-  
+
   (let ((passed (hactar::make-code-value :id "pass" :source-text "1"))
         (failed (hactar::make-code-value :id "fail" :source-text "2")))
     (setf (hactar::code-value-verified-p passed) t)
     (setf (hactar::code-value-verified-p failed) nil)
-    
+
     (hactar::code/stage! passed)
     (hactar::code/stage! failed)
-    
+
     (let ((failures (hactar::code/failures)))
       (is (= 1 (length failures)))
       (is (eq (first failures) failed)))))

@@ -2,10 +2,7 @@
 ;;; Sessions capture the full state of a hactar instance and persist
 ;;; them as Lisp files that can be loaded to restore state.
 ;;; Session files are stored as human-readable/editable Lisp forms.
-
 (in-package :hactar)
-
-;;* Data Structures
 
 (defstruct hactar-session
   "A saved hactar session state."
@@ -37,7 +34,7 @@
   ;; Arbitrary metadata for extensibility
   (metadata nil :type list))
 
-;;* Session Directory Management
+;;* Files and Dirs
 
 (defun session-project-dir ()
   "Return the project-local sessions directory, ensuring it exists."
@@ -55,7 +52,7 @@
 (defun session-file-path (name &key global)
   "Return the file path for a session by name.
    If GLOBAL is T, use the global sessions directory."
-  (let ((dir (if global (session-global-dir) (session-project-dir))))
+  (let ((dir (if global (session-global-dir) (or (session-project-dir) (session-global-dir)))))
     (when dir
       (merge-pathnames (format nil "~A.session.lisp" name) dir))))
 
@@ -65,8 +62,7 @@
           (list (session-project-dir)
                 (session-global-dir))))
 
-;;* Capture Current State
-
+;;* core
 (defun capture-current-session (name &key description)
   "Capture the current hactar state into a session struct."
   (let ((rules-alist '()))
@@ -97,7 +93,6 @@
      :tool-use-enabled *tool-use-enabled*)))
 
 ;;* Serialize / Deserialize
-
 (defun serialize-session-to-stream (session stream)
   "Write a session to STREAM as readable Lisp forms."
   (let ((*print-readably* nil)
@@ -114,95 +109,91 @@
     ;; Write each field as a self-contained form
     (format stream "(in-package :hactar)~%~%")
 
-    ;; Use a single plist form for the whole session
-    (format stream "(setf *loaded-session-data*~%")
-    (format stream "  '(")
+    ;; Use defsession macro for the whole session
+    (format stream "(defsession ~S~%" (hactar-session-name session))
 
     ;; Name
-    (format stream ":name ~S~%" (hactar-session-name session))
+    (format stream "  :name ~S~%" (hactar-session-name session))
 
     ;; Description
-    (format stream "    :description ~S~%" (hactar-session-description session))
+    (format stream "  :description ~S~%" (hactar-session-description session))
 
     ;; Timestamp
-    (format stream "    :timestamp ~A~%" (hactar-session-timestamp session))
+    (format stream "  :timestamp ~A~%" (hactar-session-timestamp session))
 
     ;; Project info
-    (format stream "    :repo-root ~S~%" (hactar-session-repo-root session))
-    (format stream "    :project-name ~S~%" (hactar-session-project-name session))
+    (format stream "  :repo-root ~S~%" (hactar-session-repo-root session))
+    (format stream "  :project-name ~S~%" (hactar-session-project-name session))
 
     ;; Model
-    (format stream "    :model-name ~S~%" (hactar-session-model-name session))
-    (format stream "    :cheap-model ~S~%" (hactar-session-cheap-model session))
-    (format stream "    :docs-meta-model ~S~%" (hactar-session-docs-meta-model session))
+    (format stream "  :model-name ~S~%" (hactar-session-model-name session))
+    (format stream "  :cheap-model ~S~%" (hactar-session-cheap-model session))
+    (format stream "  :docs-meta-model ~S~%" (hactar-session-docs-meta-model session))
 
     ;; Files
-    (format stream "    :files (~%")
+    (format stream "  :files '(~%")
     (dolist (f (hactar-session-files session))
-      (format stream "      ~S~%" f))
-    (format stream "    )~%")
+      (format stream "    ~S~%" f))
+    (format stream "  )~%")
 
     ;; Images (metadata only)
-    (format stream "    :images (~%")
+    (format stream "  :images '(~%")
     (dolist (img (hactar-session-images session))
-      (format stream "      ~S~%" img))
-    (format stream "    )~%")
+      (format stream "    ~S~%" img))
+    (format stream "  )~%")
 
     ;; Stack
-    (format stream "    :stack ~S~%" (hactar-session-stack session))
+    (format stream "  :stack '~S~%" (hactar-session-stack session))
 
     ;; Active presets
-    (format stream "    :active-presets ~S~%" (hactar-session-active-presets session))
+    (format stream "  :active-presets '~S~%" (hactar-session-active-presets session))
 
     ;; Active rules
-    (format stream "    :active-rules (~%")
+    (format stream "  :active-rules '(~%")
     (dolist (rule (hactar-session-active-rules session))
-      (format stream "      (~S . ~S)~%" (car rule) (cdr rule)))
-    (format stream "    )~%")
+      (format stream "    (~S . ~S)~%" (car rule) (cdr rule)))
+    (format stream "  )~%")
 
     ;; Flags
-    (format stream "    :git-autocommit ~A~%" (if (hactar-session-git-autocommit session) 't 'nil))
-    (format stream "    :tool-use-enabled ~A~%" (if (hactar-session-tool-use-enabled session) 't 'nil))
+    (format stream "  :git-autocommit ~A~%" (if (hactar-session-git-autocommit session) 't 'nil))
+    (format stream "  :tool-use-enabled ~A~%" (if (hactar-session-tool-use-enabled session) 't 'nil))
 
     ;; Chat history
-    (format stream "    :chat-history (~%")
+    (format stream "  :chat-history '(~%")
     (dolist (msg (hactar-session-chat-history session))
-      (format stream "      ~S~%" msg))
-    (format stream "    )~%")
+      (format stream "    ~S~%" msg))
+    (format stream "  )~%")
 
     ;; Docs context
-    (format stream "    :docs-context (~%")
+    (format stream "  :docs-context '(~%")
     (dolist (doc (hactar-session-docs-context session))
-      (format stream "      ~S~%" doc))
-    (format stream "    )~%")
+      (format stream "    ~S~%" doc))
+    (format stream "  )~%")
 
     ;; Errors context
-    (format stream "    :errors-context (~%")
+    (format stream "  :errors-context '(~%")
     (dolist (err (hactar-session-errors-context session))
-      (format stream "      ~S~%" err))
-    (format stream "    )~%")
+      (format stream "    ~S~%" err))
+    (format stream "  )~%")
 
     ;; Metadata
-    (format stream "    :metadata ~S~%" (hactar-session-metadata session))
+    (format stream "  :metadata '~S~%" (hactar-session-metadata session))
 
-    (format stream "  ))~%")))
-
-(defvar *loaded-session-data* nil
-  "Temporary variable used during session file loading.")
+    (format stream "  )~%")))
 
 (defun deserialize-session-from-file (path)
   "Load a session from a Lisp file. Returns a hactar-session struct or NIL."
   (handler-case
       (progn
-        (setf *loaded-session-data* nil)
+        (setf *loaded-state* nil)
         (load path :verbose nil :print nil)
-        (when *loaded-session-data*
-          (let ((data *loaded-session-data*))
-            (setf *loaded-session-data* nil)
+        (when *loaded-state*
+          (let ((data *loaded-state*))
+            (setf *loaded-state* nil)
             (plist-to-session data))))
     (error (e)
       (format t "~&Error loading session file ~A: ~A~%" (uiop:native-namestring path) e)
-      (setf *loaded-session-data* nil)
+      (setf *loaded-state* nil)
       nil)))
 
 (defun plist-to-session (plist)
@@ -229,7 +220,6 @@
    :metadata (getf plist :metadata)))
 
 ;;* Save / Load / Delete
-
 (defun session/save (name &key description global)
   "Save the current state as a named session.
    GLOBAL: if T, save to the global sessions directory."
@@ -282,7 +272,7 @@
 
     (setf *images* (hactar-session-images session))
     (setf *chat-history* (copy-list (hactar-session-chat-history session)))
-    (save-transcript)
+    (nhooks:run-hook *history-changed-hook*)
 
     (dolist (tech (hactar-session-stack session))
       (add-to-stack tech))
@@ -348,7 +338,6 @@
       t)))
 
 ;;* Discovery & Listing
-
 (defun discover-session-files ()
   "Find all session files across search directories.
    Returns list of (name path source) where source is :project or :global."
@@ -462,7 +451,7 @@
           (format t "~&Restoring auto-saved session...~%"))
         (session/load *session-auto-save-name* :quiet *silent*)))))
 
-;;* Utility
+;;* utils
 
 (defun session-format-timestamp (universal-time)
   "Format a universal time for session display."
@@ -473,13 +462,51 @@
                 year month day hour min sec))
       "unknown"))
 
-;;* REPL Commands
-
+;;* Commands
 (define-command session (args)
-  "Manage sessions. Usage: /session [name] - list or load a session."
-  (if args
-      (session/load (first args))
-      (session/list))
+  "Manage sessions. Sessions are backed by Lisp files. Usage: /session [name] - list or load a session."
+  (cond
+    (args (session/load (first args)))
+    (*tui-running*
+     (let* ((entries (discover-session-files))
+            (names (mapcar #'first entries))
+            (selected (when names (fuzzy-select names))))
+       (when selected (session/load selected))))
+    (t (session/list)))
+  :json (lambda (args)
+          (declare (ignore args))
+          (let ((entries (discover-session-files)))
+            (to-json (coerce
+                      (mapcar (lambda (e)
+                                (destructuring-bind (name path source) e
+                                  (let ((session (deserialize-session-from-file path)))
+                                    `(("name" . ,name)
+                                      ("source" . ,(string-downcase (symbol-name source)))
+                                      ("current" . ,(if (string= name *current-session-name*) t :false))
+                                      ("model" . ,(if session (or (hactar-session-model-name session) :null) :null))
+                                      ("files" . ,(if session (length (hactar-session-files session)) 0))
+                                      ("messages" . ,(if session (length (hactar-session-chat-history session)) 0))
+                                      ("timestamp" . ,(if (and session (hactar-session-timestamp session))
+                                                          (session-format-timestamp (hactar-session-timestamp session))
+                                                          :null))))))
+                              entries)
+                      'vector))))
+  :yaml (lambda (args)
+          (declare (ignore args))
+          (with-output-to-string (s)
+            (dolist (e (discover-session-files))
+              (destructuring-bind (name path source) e
+                (let ((session (deserialize-session-from-file path)))
+                  (format s "- name: ~A~%  source: ~A~%  current: ~A~%  model: ~A~%  files: ~D~%  messages: ~D~%  timestamp: ~A~%"
+                          name
+                          (string-downcase (symbol-name source))
+                          (if (string= name *current-session-name*) "true" "false")
+                          (if session (or (hactar-session-model-name session) "null") "null")
+                          (if session (length (hactar-session-files session)) 0)
+                          (if session (length (hactar-session-chat-history session)) 0)
+                          (if (and session (hactar-session-timestamp session))
+                              (session-format-timestamp (hactar-session-timestamp session))
+                              "null")))))))
   :acp (lambda (cmd-args)
          (if cmd-args
              (let ((session (session/load (first cmd-args))))
@@ -546,6 +573,40 @@ Usage: /session.load <name> [--global]"
   "List all available sessions."
   (declare (ignore args))
   (session/list)
+  :json (lambda (args)
+          (declare (ignore args))
+          (let ((entries (discover-session-files)))
+            (to-json (coerce
+                      (mapcar (lambda (e)
+                                (destructuring-bind (name path source) e
+                                  (let ((session (deserialize-session-from-file path)))
+                                    `(("name" . ,name)
+                                      ("source" . ,(string-downcase (symbol-name source)))
+                                      ("current" . ,(if (string= name *current-session-name*) t :false))
+                                      ("model" . ,(if session (or (hactar-session-model-name session) :null) :null))
+                                      ("files" . ,(if session (length (hactar-session-files session)) 0))
+                                      ("messages" . ,(if session (length (hactar-session-chat-history session)) 0))
+                                      ("timestamp" . ,(if (and session (hactar-session-timestamp session))
+                                                          (session-format-timestamp (hactar-session-timestamp session))
+                                                          :null))))))
+                              entries)
+                      'vector))))
+  :yaml (lambda (args)
+          (declare (ignore args))
+          (with-output-to-string (s)
+            (dolist (e (discover-session-files))
+              (destructuring-bind (name path source) e
+                (let ((session (deserialize-session-from-file path)))
+                  (format s "- name: ~A~%  source: ~A~%  current: ~A~%  model: ~A~%  files: ~D~%  messages: ~D~%  timestamp: ~A~%"
+                          name
+                          (string-downcase (symbol-name source))
+                          (if (string= name *current-session-name*) "true" "false")
+                          (if session (or (hactar-session-model-name session) "null") "null")
+                          (if session (length (hactar-session-files session)) 0)
+                          (if session (length (hactar-session-chat-history session)) 0)
+                          (if (and session (hactar-session-timestamp session))
+                              (session-format-timestamp (hactar-session-timestamp session))
+                              "null")))))))
   :acp (lambda (cmd-args)
          (declare (ignore cmd-args))
          (let ((entries (discover-session-files)))
@@ -572,6 +633,51 @@ Usage: /session.show <name>"
   (if args
       (session/show (first args))
       (format t "~&Usage: /session.show <name>~%"))
+  :json (lambda (args)
+          (let ((name (first args)))
+            (if name
+                (let ((session (session/find-and-load name)))
+                  (if session
+                      (to-json `(("name" . ,(hactar-session-name session))
+                                 ("description" . ,(or (hactar-session-description session) :null))
+                                 ("model" . ,(or (hactar-session-model-name session) :null))
+                                 ("files" . ,(coerce (hactar-session-files session) 'vector))
+                                 ("messages" . ,(coerce (mapcar (lambda (msg)
+                                                                  `(("role" . ,(getf msg :role))
+                                                                    ("content" . ,(getf msg :content))))
+                                                                (hactar-session-chat-history session))
+                                                        'vector))
+                                 ("timestamp" . ,(if (hactar-session-timestamp session)
+                                                     (session-format-timestamp (hactar-session-timestamp session))
+                                                     :null))
+                                 ("stack" . ,(coerce (hactar-session-stack session) 'vector))
+                                 ("presets" . ,(coerce (hactar-session-active-presets session) 'vector))))
+                      (to-json `(("error" . ,(format nil "Session not found: ~A" name))))))
+                (to-json `(("error" . "Usage: /session.show <name>"))))))
+  :yaml (lambda (args)
+          (let ((name (first args)))
+            (if name
+                (let ((session (session/find-and-load name)))
+                  (if session
+                      (with-output-to-string (s)
+                        (format s "name: ~A~%description: ~A~%model: ~A~%timestamp: ~A~%"
+                                (hactar-session-name session)
+                                (or (hactar-session-description session) "null")
+                                (or (hactar-session-model-name session) "null")
+                                (if (hactar-session-timestamp session)
+                                    (session-format-timestamp (hactar-session-timestamp session))
+                                    "null"))
+                        (format s "files:~%")
+                        (dolist (f (hactar-session-files session))
+                          (format s "  - ~A~%" f))
+                        (format s "stack:~%")
+                        (dolist (st (hactar-session-stack session))
+                          (format s "  - ~A~%" st))
+                        (format s "presets:~%")
+                        (dolist (p (hactar-session-active-presets session))
+                          (format s "  - ~A~%" p)))
+                      (format nil "error: \"Session not found: ~A\"~%" name)))
+                "error: \"Usage: /session.show <name>\"~%")))
   :acp (lambda (cmd-args)
          (if cmd-args
              (let ((session (session/find-and-load (first cmd-args))))
@@ -631,7 +737,7 @@ Usage: /session.auto [on|off]"
                               (if *auto-save-session* "enabled" "disabled")))
            ("data" . (("autoSave" . ,(if *auto-save-session* t :false)))))))
 
-;;* CLI Sub-command
+;;* CLI sub-command
 
 (define-sub-command session (args)
   "Manage hactar sessions.

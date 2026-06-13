@@ -10,27 +10,23 @@ USER-PROMPT is the natural language query/instructions for the project."
     (return-from create-project nil))
   (let* ((starter-content
            (cond
-             ;; Known starter names
-             ((and starter (stringp starter)
+            ((and starter (stringp starter)
                    (member (string-downcase starter) '("react" "sinatra") :test #'string=))
               (read-file-content (resolve-starter-path (string-downcase starter))))
-             ;; File path to starter content (supports string or pathname)
-             ((and starter (probe-file starter))
+            ((and starter (probe-file starter))
               (read-file-content starter))
-             ;; Fallback to resolving via resolve-starter-path (only when STARTER is a string)
-             ((and starter (stringp starter))
+            ((and starter (stringp starter))
               (read-file-content (resolve-starter-path starter)))
-             ;; Default if nothing provided
-             (t
+            (t
               (read-file-content (resolve-starter-path "react")))))
-         (system-prompt-template (uiop:read-file-string (get-prompt-path "system.create.org")))
+         (system-prompt-template (get-prompt 'system.create "system.create.org"))
          (context (generate-context))
          (system-prompt (mustache:render* system-prompt-template
                                           `((:language . ,(or *language* "unknown"))
                                             (:rules . "")
                                             (:guide . ,starter-content)
                                             (:context . ,context))))
-         (final-user-prompt (or user-prompt (uiop:read-file-string (get-prompt-path "user.create.org")))))
+         (final-user-prompt (or user-prompt (get-prompt 'user.create "user.create.org"))))
     (if (and starter-content (> (length starter-content) 0))
         (progn
           (format t "Creating project from starter '~A'...~%" (or starter "react"))

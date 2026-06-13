@@ -6,7 +6,6 @@
 (in-suite acp-tests)
 
 ;;* JSON-RPC Message Construction
-
 (test acp-make-response-basic
   "Test basic JSON-RPC response construction."
   (let ((response (hactar::acp-make-response 1 '(("key" . "value")))))
@@ -131,7 +130,6 @@
       (is (null images)))))
 
 ;;* Path Utilities
-
 (test acp-absolute-path-already-absolute
   "Test that absolute paths are returned as-is."
   (let ((hactar::*repo-root* #P"/home/user/project/"))
@@ -150,7 +148,6 @@
       (error () (pass)))))
 
 ;;* Resource Link Content
-
 (test acp-make-resource-link-lisp
   "Test resource link creation for Lisp files."
   (let ((hactar::*repo-root* #P"/home/user/project/"))
@@ -187,7 +184,6 @@
       (error () (pass)))))
 
 ;;* Diff Content
-
 (test acp-make-diff-content
   "Test diff content block creation."
   (let ((hactar::*repo-root* #P"/home/user/project/"))
@@ -199,7 +195,6 @@
       (error () (pass)))))
 
 ;;* Client Capability Checks
-
 (test acp-client-has-capability-present
   "Test capability check when capability is present."
   (let ((hactar::*acp-client-capabilities*
@@ -231,7 +226,6 @@
     (is (null (hactar::acp-client-has-capability? '("a" "b" "d"))))))
 
 ;;* Message Dispatch
-
 (test acp-dispatch-response-to-pending-request
   "Test that responses are dispatched to pending requests."
   (let ((hactar::*acp-pending-requests* (make-hash-table :test 'equal))
@@ -242,7 +236,7 @@
        ("id" . "agent_1")
        ("result" . (("content" . "file contents")))))
     (is-true (second result-box))
-    (is (string= "file contents" 
+    (is (string= "file contents"
                   (cdr (assoc "content" (first result-box) :test #'string=))))))
 
 (test acp-dispatch-error-response-to-pending-request
@@ -287,7 +281,6 @@
     (is-true hactar::*acp-cancelled*)))
 
 ;;* Initialize Handler
-
 (test acp-handle-initialize
   "Test the initialize handshake."
   (let ((output-messages '())
@@ -335,7 +328,6 @@
         (setf (fdefinition 'hactar::acp-write-message) orig-fn)))))
 
 ;;* Authenticate Handler
-
 (test acp-handle-authenticate
   "Test the authenticate handler returns authenticated true."
   (let ((output-messages '()))
@@ -351,7 +343,6 @@
         (setf (fdefinition 'hactar::acp-write-message) orig-fn)))))
 
 ;;* Session New Handler
-
 (test acp-handle-session-new-creates-session
   "Test that session/new creates a session ID and sends response."
   (let ((output-messages '())
@@ -365,9 +356,7 @@
         (hactar::*current-model* nil)
         (hactar::*commands* (make-hash-table :test 'equal))
         (hactar::*repo-root* nil)
-        (hactar::*name* nil)
-        (hactar::*transcript-file* (merge-pathnames ".hactar.test.transcript.json"
-                                                     (uiop:temporary-directory))))
+        (hactar::*name* nil))
     (let ((orig-write #'hactar::acp-write-message)
           (orig-load-config #'hactar::load-project-config))
       (setf (fdefinition 'hactar::acp-write-message)
@@ -396,7 +385,6 @@
         (setf (fdefinition 'hactar::load-project-config) orig-load-config)))))
 
 ;;* Session Prompt Handler
-
 (test acp-handle-session-prompt-missing-prompt
   "Test session/prompt with missing prompt returns error."
   (let ((output-messages '())
@@ -438,7 +426,7 @@
         (hactar::*commands* (make-hash-table :test 'equal))
         (hactar::*acp-commands* (make-hash-table :test 'equal)))
     (setf (gethash "/test-acp-cmd" hactar::*commands*)
-          (list (lambda (args) (declare (ignore args)) (format t "test output")) 
+          (list (lambda (args) (declare (ignore args)) (format t "test output"))
                 "Test command"
                 nil))
     (let ((orig-write #'hactar::acp-write-message)
@@ -460,7 +448,6 @@
         (setf (fdefinition 'hactar::acp-send-agent-message-chunk) orig-chunk)))))
 
 ;;* ACP Command Registry
-
 (test acp-command-p-registered
   "Test that acp-command-p returns T for registered ACP commands."
   (let ((hactar::*acp-commands* (make-hash-table :test 'equal)))
@@ -524,8 +511,6 @@
          (hactar::*errors-context* nil)
          (hactar::*acp-commands* (make-hash-table :test 'equal))
          (hactar::*commands* (make-hash-table :test 'equal))
-         (hactar::*transcript-file* (merge-pathnames ".hactar.test.transcript.json"
-                                                      (uiop:temporary-directory)))
          (hactar::*silent* t)
          (hactar::*debug* nil)
          (hactar::*git-autocommit* nil)
@@ -542,7 +527,6 @@
      ,@body))
 
 ;;** /clear
-
 (test acp-cmd-clear
   "Test /clear ACP handler clears chat history and returns structured response."
   (with-acp-command-env ()
@@ -556,7 +540,6 @@
         (is (null hactar::*chat-history*))))))
 
 ;;** /compress
-
 (test acp-cmd-compress
   "Test /compress ACP handler returns structured response."
   (with-acp-command-env ()
@@ -567,7 +550,6 @@
         (is (string= "Chat history compression completed." (cdr (assoc "text" result :test #'string=))))))))
 
 ;;** /help
-
 (test acp-cmd-help
   "Test /help ACP handler returns list of ACP-compatible commands."
   (with-acp-command-env ()
@@ -600,7 +582,6 @@
           (is (= 2 (length data))))))))
 
 ;;** /version
-
 (test acp-cmd-version
   "Test /version ACP handler returns version info."
   (with-acp-command-env ()
@@ -614,7 +595,6 @@
           (is (string= "0.1.0-test" (cdr (assoc "version" data :test #'string=)))))))))
 
 ;;** /autocommit
-
 (test acp-cmd-autocommit-toggle-on
   "Test /autocommit ACP handler toggles autocommit on."
   (with-acp-command-env ()
@@ -648,7 +628,6 @@
           (is (eq :false (cdr (assoc "autocommit" data :test #'string=)))))))))
 
 ;;** /debug
-
 (test acp-cmd-debug-toggle
   "Test /debug ACP handler toggles debug mode."
   (with-acp-command-env ()
@@ -669,7 +648,6 @@
           (is (eq t (cdr (assoc "debug" data :test #'string=)))))))))
 
 ;;** /reset
-
 (test acp-cmd-reset
   "Test /reset ACP handler clears files, history, and overrides."
   (with-acp-command-env (:files '("/tmp/test.txt"))
@@ -686,7 +664,6 @@
         (is (search "Reset complete" (cdr (assoc "text" result :test #'string=))))))))
 
 ;;** /reload
-
 (test acp-cmd-reload
   "Test /reload ACP handler returns structured response."
   (with-acp-command-env ()
@@ -701,7 +678,6 @@
         (is (search "Reload complete" (cdr (assoc "text" result :test #'string=))))))))
 
 ;;** /settings
-
 (test acp-cmd-settings
   "Test /settings ACP handler returns structured settings data."
   (with-acp-command-env ()
@@ -729,7 +705,6 @@
           (is (= 0 (cdr (assoc "imagesInContext" data :test #'string=)))))))))
 
 ;;** /tokens
-
 (test acp-cmd-tokens-no-model
   "Test /tokens ACP handler with no model selected."
   (with-acp-command-env ()
@@ -758,7 +733,6 @@
           (is (numberp (cdr (assoc "totalCharacters" data :test #'string=)))))))))
 
 ;;** /cost
-
 (test acp-cmd-cost-no-model
   "Test /cost ACP handler with no model returns appropriate message."
   (with-acp-command-env ()
@@ -772,7 +746,6 @@
                       (cdr (assoc "text" result :test #'string=))))))))
 
 ;;** /model
-
 (test acp-cmd-model-no-args
   "Test /model ACP handler with no args returns current model info."
   (with-acp-command-env ()
@@ -1012,49 +985,45 @@
         (is (search "Dropped image" (cdr (assoc "text" result :test #'string=))))
         (is (null hactar::*images*))))))
 
-;;** /transcript
+(test acp-cmd-history-no-file
+  "Test /history ACP handler when no history file exists."
+  (let ((hactar::*interfaces* (make-hash-table :test 'equal))
+        (hactar::*instance-id* "nonexistent")
+        (hactar::*instance-dir* nil)
+        (hactar::*repo-root* (uiop:ensure-directory-pathname (uiop:temporary-directory))))
+    (hactar::definterface :history "history.lisp"
+      :format :lisp
+      :render (lambda () "r")
+      :parse (lambda (text) (declare (ignore text)) nil))
+    (let ((iface (gethash :history hactar::*interfaces*))
+          (handler (gethash "/history" hactar::*acp-commands*)))
+      (when handler
+        (let ((result (funcall handler nil)))
+          (is (string= "No history file found."
+                        (cdr (assoc "text" result :test #'string=)))))))))
 
-(test acp-cmd-transcript-no-file
-  "Test /transcript ACP handler when no transcript file exists."
-  (with-acp-command-env ()
-    (setf hactar::*transcript-file* "/tmp/nonexistent-transcript-12345.json")
-    (let ((handler (lambda (cmd-args)
-                     (cond
-                       ((null cmd-args)
-                        (if (probe-file hactar::*transcript-file*)
-                            `(("text" . "content"))
-                            `(("text" . "No transcript file found."))))
-                       (t `(("text" . "subcommand")))))))
-      (let ((result (funcall handler nil)))
-        (is (string= "No transcript file found."
-                      (cdr (assoc "text" result :test #'string=))))))))
-
-(test acp-cmd-transcript-clear
-  "Test /transcript ACP handler clear subcommand."
-  (with-acp-command-env ()
-    (let ((test-transcript (merge-pathnames "acp-transcript-test.json"
-                                             (uiop:temporary-directory))))
-      (setf hactar::*transcript-file* (namestring test-transcript))
-      (unwind-protect
-           (progn
-             (with-open-file (s test-transcript :direction :output :if-exists :supersede
-                                                 :if-does-not-exist :create)
-               (write-string "old content" s))
-             (let ((handler (lambda (cmd-args)
-                              (cond
-                                ((and cmd-args (string= (first cmd-args) "clear"))
-                                 (with-open-file (stream hactar::*transcript-file*
-                                                         :direction :output
-                                                         :if-exists :supersede
-                                                         :if-does-not-exist :create)
-                                   (format stream ""))
-                                 `(("text" . "Transcript cleared.")))
-                                (t `(("text" . "other")))))))
-               (let ((result (funcall handler '("clear"))))
-                 (is (string= "Transcript cleared."
-                               (cdr (assoc "text" result :test #'string=))))
-                 (is (string= "" (uiop:read-file-string test-transcript))))))
-        (ignore-errors (delete-file test-transcript))))))
+(test acp-cmd-history-clear
+  "Test /history ACP handler clear subcommand."
+  (let ((hactar::*interfaces* (make-hash-table :test 'equal))
+        (hactar::*instance-id* "clear-test")
+        (hactar::*instance-dir* nil)
+        (hactar::*repo-root* (uiop:ensure-directory-pathname (uiop:temporary-directory)))
+        (hactar::*chat-history* '(((:role . "user") (:content . "test"))))
+        (hactar::*history-changed-hook* (make-instance 'hactar::hook-history-changed)))
+    (hactar::definterface :history "history.lisp"
+      :format :lisp
+      :hooks ((hactar::*history-changed-hook* :out))
+      :render (lambda () "rendered")
+      :parse (lambda (text) (declare (ignore text)) nil))
+    (let ((iface (gethash :history hactar::*interfaces*))
+          (handler (gethash "/history" hactar::*acp-commands*)))
+      (hactar::materialize-interface iface)
+      (when handler
+        (let ((result (funcall handler '("clear"))))
+          (is (string= "History cleared."
+                        (cdr (assoc "text" result :test #'string=))))
+          (is (null hactar::*chat-history*))))
+      (ignore-errors (delete-file (hactar::interface-abs-path iface))))))
 
 ;;** /dump-context
 
@@ -1171,10 +1140,7 @@
         (hactar::*files* nil)
         (hactar::*repo-root* (uiop:temporary-directory))
         (hactar::*commands* (make-hash-table :test 'equal))
-        (hactar::*acp-commands* (make-hash-table :test 'equal))
-        (hactar::*chat-history* '(((:role . "user") (:content . "old msg"))))
-        (hactar::*transcript-file* (merge-pathnames ".hactar.dispatch-test.json"
-                                                     (uiop:temporary-directory))))
+        (hactar::*chat-history* '(((:role . "user") (:content . "old msg")))))
     (setf (gethash "/clear" hactar::*commands*)
           (list (lambda (args) (declare (ignore args))
                   (hactar::clear-chat-history)
@@ -1350,7 +1316,7 @@
              (is (= 1 (length output-messages)))
              (let* ((params (cdr (assoc "params" (first output-messages) :test #'string=)))
                     (update (cdr (assoc "update" params :test #'string=))))
-               (is (string= "available_commands_update" 
+               (is (string= "available_commands_update"
                             (cdr (assoc "sessionUpdate" update :test #'string=))))
                (let ((cmds (cdr (assoc "availableCommands" update :test #'string=))))
                  (is (= 2 (length cmds))))))
@@ -1457,7 +1423,7 @@
              (is (= 1 (length output-messages)))
              (let* ((params (cdr (assoc "params" (first output-messages) :test #'string=)))
                     (update (cdr (assoc "update" params :test #'string=))))
-               (is (string= "config_options_update" 
+               (is (string= "config_options_update"
                             (cdr (assoc "sessionUpdate" update :test #'string=))))
                (is-true (assoc "configOptions" update :test #'string=))))
         (setf (fdefinition 'hactar::acp-write-message) orig-fn)))))
@@ -1466,7 +1432,7 @@
 
 (test acp-write-message-output
   "Test that acp-write-message writes newline-delimited JSON to stdout."
-  (let ((written-output 
+  (let ((written-output
           (with-output-to-string (*standard-output*)
             (hactar::acp-write-message '(("jsonrpc" . "2.0") ("id" . 1) ("result" . nil))))))
     (is (char= #\Newline (char written-output (1- (length written-output)))))

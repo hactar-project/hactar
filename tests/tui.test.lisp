@@ -97,6 +97,37 @@
     (is (char= #\Esc (char result 0)))
     (is (string= "[5;10H" (subseq result 1)))))
 
+;;* ANSI parsing & wrapping tests
+
+(test parse-ansi-string-basic
+  "parse-ansi-string extracts colors and styles correctly."
+  (let* ((esc (string #\Esc))
+         (input (format nil "~A[32mGood: SBCL~A[0m and ~A[1;31mWarning~A[0m" esc esc esc esc))
+         (runs (hactar::parse-ansi-string input)))
+    (is (= 3 (length runs)))
+    (is (string= "Good: SBCL" (car (first runs))))
+    (is (eq :green (getf (cdr (first runs)) :color)))
+    (is (string= " and " (car (second runs))))
+    (is (null (getf (cdr (second runs)) :color)))
+    (is (string= "Warning" (car (third runs))))
+    (is (eq :red (getf (cdr (third runs)) :color)))
+    (is (getf (cdr (third runs)) :bold))))
+
+(test wrap-ansi-text-wrapping
+  "wrap-ansi-text wraps lines correctly while preserving styles."
+  (let* ((esc (string #\Esc))
+         (input (format nil "~A[32mGood: SBCL is installed.~A[0m" esc esc))
+         (lines (hactar::wrap-ansi-text input 10)))
+    ;; "Good: SBCL" = 10, "is" = 2, "installed." = 10.
+    ;; With width 10, should wrap into three lines: "Good: SBCL", "is", "installed."
+    (is (= 3 (length lines)))
+    (is (string= "Good: SBCL" (car (first (first lines)))))
+    (is (eq :green (getf (cdr (first (first lines))) :color)))
+    (is (string= "is" (car (first (second lines)))))
+    (is (eq :green (getf (cdr (first (second lines))) :color)))
+    (is (string= "installed." (car (first (third lines)))))
+    (is (eq :green (getf (cdr (first (third lines))) :color)))))
+
 ;;* TUI state management
 
 (test tui-add-chat-line-basic
@@ -650,29 +681,70 @@
       ;; Completions should be populated
       (is (> (length hactar::*tui-completions*) 0)))))
 
-(test tui-completions-reset-on-printable-char
-  "Typing a printable character resets completions."
-  (let ((hactar::*tui-input-buffer* "/help")
-        (hactar::*tui-completions* '("/help" "/hello"))
-        (hactar::*tui-completion-index* 0)
-        (hactar::*tui-completion-prefix* "/hel")
+(test tui-completions-filtered-on-printable-char
+  "Typing a printable character filters/updates completions instead of resetting."
+  (let ((hactar::*tui-input-buffer* "/h")
+        (hactar::*tui-completions* '())
+        (hactar::*tui-completion-index* -1)
+        (hactar::*tui-completion-prefix* "")
         (hactar::*tui-scroll-offset* 0)
-        (hactar::*tui-command-modal-open* nil))
-    (hactar::tui-handle-main-input #\x)
-    (is (null hactar::*tui-completions*))
-    (is (= -1 hactar::*tui-completion-index*))))
+        (hactar::*tui-command-modal-open* nil)
+        (hactar::*tui-autocomplete-disabled* nil))
+    (hactar::tui-handle-main-input #\e) ;; input becomes "/he"
+    (is (string= hactar::*tui-input-buffer* "/he"))
+    (is (> (length hactar::*tui-completions*) 0))
+    (is (member "/help" hactar::*tui-completions* :test #'string=))))
 
-(test tui-completions-reset-on-backspace
-  "Backspace resets completions."
-  (let ((hactar::*tui-input-buffer* "/help")
+(test tui-completions-updated-on-backspace
+  "Backspace updates completions instead of resetting."
+  (let ((hactar::*tui-input-buffer* "/hel")
+        (hactar::*tui-completions* '())
+        (hactar::*tui-completion-index* -1)
+        (hactar::*tui-completion-prefix* "")
+        (hactar::*tui-scroll-offset* 0)
+        (hactar::*tui-command-modal-open* nil)
+        (hactar::*tui-autocomplete-disabled* nil))
+    (hactar::tui-handle-main-input #\p) ;; input becomes "/help"
+    (is (> (length hactar::*tui-completions*) 0))
+    ;; Now backspace
+    (hactar::tui-handle-main-input (code-char 127)) ;; input becomes "/hel"
+    (is (string= hactar::*tui-input-buffer* "/hel"))
+    (is (> (length hactar::*tui-completions*) 0))
+    (is (member "/help" hactar::*tui-completions* :test #'string=))))
+
+(test tui-completions-height-calculation
+  "tui-completions-height computes correct line counts."
+  (let ((hactar::*tui-command-modal-open* nil))
+    ;; No completions
+    (let ((hactar::*tui-completions* '()))
+      (is (= 0 (hactar::tui-completions-height))))
+    ;; 3 completions (no scroll)
+    (let ((hactar::*tui-completions* '("a" "b" "c")))
+      (is (= 5 (hactar::tui-completions-height)))) ;; 3 completions + 2 hints = 5
+    ;; 10 completions (scroll active)
+    (let ((hactar::*tui-completions* '("1" "2" "3" "4" "5" "6" "7" "8" "9" "10")))
+      (is (= 8 (hactar::tui-completions-height)))))) ;; 5 visible + 1 more + 2 hints = 8
+
+(test tui-autocomplete-esc-dismiss-and-disabled-flag
+  "Escape key dismisses completions and sets disabled flag."
+  (let ((hactar::*tui-input-buffer* "/he")
         (hactar::*tui-completions* '("/help"))
         (hactar::*tui-completion-index* 0)
-        (hactar::*tui-completion-prefix* "/hel")
+        (hactar::*tui-completion-prefix* "/he")
         (hactar::*tui-scroll-offset* 0)
-        (hactar::*tui-command-modal-open* nil))
-    (hactar::tui-handle-main-input (code-char 127))
+        (hactar::*tui-command-modal-open* nil)
+        (hactar::*tui-autocomplete-disabled* nil))
+    ;; Press Escape
+    (hactar::tui-handle-main-input #\Esc)
     (is (null hactar::*tui-completions*))
-    (is (= -1 hactar::*tui-completion-index*))))
+    (is (eq t hactar::*tui-autocomplete-disabled*))
+    ;; Typing after ESC should not trigger autocompletion
+    (hactar::tui-handle-main-input #\l) ;; input becomes "/hel"
+    (is (null hactar::*tui-completions*))
+    ;; Backspacing back to empty resets it
+    (setf hactar::*tui-input-buffer* "")
+    (hactar::tui-on-input-change)
+    (is (null hactar::*tui-autocomplete-disabled*))))
 
 ;;* fuzzy-select edge cases
 
@@ -842,6 +914,82 @@
       (is (member "dracula" names :test #'string=))
       (is (member "nord" names :test #'string=)))))
 
+(test theme-command-modes
+  "Test that slash-cmd/theme behaves correctly under different modes."
+  (let ((original-fuzzy-select (fdefinition 'hactar::fuzzy-select))
+        (original-tui-apply-theme (fdefinition 'hactar::tui-apply-theme))
+        (hactar::*tui-theme* nil)
+        (hactar::*tui-theme-name* nil)
+        (applied-theme nil)
+        (selected-theme-alist nil))
+    (unwind-protect
+         (progn
+           ;; Set up dynamic mocks
+           (setf (fdefinition 'hactar::fuzzy-select)
+                 (lambda (items &key multi)
+                   (declare (ignore items multi))
+                   selected-theme-alist))
+           (setf (fdefinition 'hactar::tui-apply-theme)
+                 (lambda (th)
+                   (setf applied-theme th)))
+
+           ;; 1. CLI/Fallback mode: args provided
+           (let ((hactar::*tui-running* nil)
+                 (hactar::*in-repl* nil))
+             (hactar::slash-cmd/theme '("dracula"))
+             (is (string= "dracula" hactar::*tui-theme-name*))
+             (is (not (null hactar::*tui-theme*))))
+
+           ;; 2. CLI/Fallback mode: invalid theme name
+           (let ((hactar::*tui-running* nil)
+                 (hactar::*in-repl* nil)
+                 (hactar::*tui-theme-name* "dracula"))
+             (hactar::slash-cmd/theme '("nonexistent-theme-xyz"))
+             ;; Theme name shouldn't change
+             (is (string= "dracula" hactar::*tui-theme-name*)))
+
+           ;; 3. CLI/Fallback mode: no args (prints list of themes)
+           (let ((hactar::*tui-running* nil)
+                 (hactar::*in-repl* nil))
+             ;; Should execute cleanly without error
+             (is (null (hactar::slash-cmd/theme nil))))
+
+           ;; 4. REPL mode: args provided
+           (let ((hactar::*tui-running* nil)
+                 (hactar::*in-repl* t))
+             (hactar::slash-cmd/theme '("nord"))
+             (is (string= "nord" hactar::*tui-theme-name*)))
+
+           ;; 5. REPL mode: no args (fuzzy-select returns selection)
+           (let ((hactar::*tui-running* nil)
+                 (hactar::*in-repl* t))
+             (setf selected-theme-alist '((:item . "dracula")))
+             (hactar::slash-cmd/theme nil)
+             (is (string= "dracula" hactar::*tui-theme-name*)))
+
+           ;; 6. TUI mode: args provided (should trigger tui-apply-theme)
+           (let ((hactar::*tui-running* t)
+                 (hactar::*in-repl* nil))
+             (setf applied-theme nil)
+             (hactar::slash-cmd/theme '("gruvbox-dark"))
+             (is (string= "gruvbox-dark" hactar::*tui-theme-name*))
+             (is (not (null applied-theme)))
+             (is (string= "gruvbox-dark" (hactar::tui-theme-name applied-theme))))
+
+           ;; 7. TUI mode: no args (fuzzy-select returns selection, should apply)
+           (let ((hactar::*tui-running* t)
+                 (hactar::*in-repl* nil))
+             (setf selected-theme-alist '((:item . "nord")))
+             (setf applied-theme nil)
+             (hactar::slash-cmd/theme nil)
+             (is (string= "nord" hactar::*tui-theme-name*))
+             (is (not (null applied-theme)))
+             (is (string= "nord" (hactar::tui-theme-name applied-theme)))))
+
+      ;; Restore original functions in the cleanup form
+      (setf (fdefinition 'hactar::fuzzy-select) original-fuzzy-select)
+      (setf (fdefinition 'hactar::tui-apply-theme) original-tui-apply-theme))))
+
 ;;* Theme color pair registry (non-ncurses tests)
 
 (test tui-color-pair-returns-zero-for-unregistered
@@ -862,10 +1010,10 @@
     (is (null (hactar::tui-sidebar-widget-visible-fn widget)))))
 
 (test make-default-sidebar-widgets-list
-  "make-default-sidebar-widgets returns a list of 6 widgets."
+  "make-default-sidebar-widgets returns a list of 7 widgets."
   (let ((widgets (hactar::make-default-sidebar-widgets)))
     (is (listp widgets))
-    (is (= 6 (length widgets)))
+    (is (= 7 (length widgets)))
     (dolist (w widgets)
       (is (hactar::tui-sidebar-widget-p w))
       (is (functionp (hactar::tui-sidebar-widget-render-fn w))))))
@@ -875,6 +1023,7 @@
   (dolist (factory (list #'hactar::make-sidebar-widget-project-header
                          #'hactar::make-sidebar-widget-model
                          #'hactar::make-sidebar-widget-files
+                         #'hactar::make-sidebar-widget-docs
                          #'hactar::make-sidebar-widget-tool-calls
                          #'hactar::make-sidebar-widget-lsps
                          #'hactar::make-sidebar-widget-mcps))
@@ -973,3 +1122,65 @@
     (loop for i from 0 below 256
           do (is (not (null (aref palette i))))
              (is (= 3 (length (aref palette i)))))))
+
+(test confirm-action-under-tui-test
+  "Test confirm-action behavior under normal and TUI states."
+  (let ((def-prog-mode-called nil)
+        (endwin-called nil)
+        (deprep-called nil)
+        (prep-called nil)
+        (reset-prog-mode-called nil)
+        (clear-window-called nil)
+        (refresh-window-called nil)
+        (confirm-action-tui-called nil))
+    (with-dynamic-stubs ((charms/ll:def-prog-mode (lambda () (setf def-prog-mode-called t)))
+                         (charms/ll:endwin (lambda () (setf endwin-called t)))
+                         (rl:deprep-terminal (lambda () (setf deprep-called t)))
+                         (rl:prep-terminal (lambda (t-or-nil) (declare (ignore t-or-nil)) (setf prep-called t)))
+                         (charms/ll:reset-prog-mode (lambda () (setf reset-prog-mode-called t)))
+                         (charms:clear-window (lambda (win &key force-repaint) (declare (ignore win force-repaint)) (setf clear-window-called t)))
+                         (charms:refresh-window (lambda (win) (declare (ignore win)) (setf refresh-window-called t)))
+                         (charms/ll:isendwin (lambda () 1))
+                         (hactar::confirm-action-tui (lambda (prompt) (declare (ignore prompt)) (setf confirm-action-tui-called t) nil)))
+      ;; Case 1: normal (non-TUI, non-REPL)
+      (let ((hactar::*tui-running* nil)
+            (hactar::*in-repl* nil))
+        (with-input-from-string (*standard-input* "y")
+          (is (eq t (hactar::confirm-action "Proceed?")))
+          (is (not def-prog-mode-called))
+          (is (not deprep-called))
+          (is (not confirm-action-tui-called))))
+
+      ;; Case 2: TUI active (and was suspended)
+      (let ((hactar::*tui-running* t)
+            (hactar::*in-repl* nil)
+            (hactar::*current-theme* nil))
+        (let ((charms:*standard-window* :mock-window))
+          (is (eq nil (hactar::confirm-action "Proceed?")))
+          (is (identity reset-prog-mode-called))
+          (is (identity clear-window-called))
+          (is (identity confirm-action-tui-called))
+          (is (identity def-prog-mode-called))
+          (is (identity endwin-called)))))))
+
+(test confirm-action-tui-test
+  "Test confirm-action-tui rendering and input loop with mocks."
+  (let ((tui-render-called nil)
+        (refresh-window-called nil)
+        (get-char-sequence '(#\x #\y)))
+    (with-dynamic-stubs ((charms:window-dimensions (lambda (win) (declare (ignore win)) (values 80 24)))
+                         (hactar::tui-render (lambda (win) (declare (ignore win)) (setf tui-render-called t)))
+                         (hactar::tui-color-pair (lambda (role) (declare (ignore role)) 1))
+                         (charms/ll:color-pair (lambda (p) (declare (ignore p)) 1))
+                         (charms/ll:attron (lambda (attr) (declare (ignore attr)) nil))
+                         (charms/ll:attroff (lambda (attr) (declare (ignore attr)) nil))
+                         (hactar::tui-safe-write (lambda (win str col row max-width) (declare (ignore win str col row max-width)) nil))
+                         (hactar::tui-box (lambda (win col row width height) (declare (ignore win col row width height)) nil))
+                         (charms:refresh-window (lambda (win) (declare (ignore win)) (setf refresh-window-called t)))
+                         (charms:get-char (lambda (win &key ignore-error)
+                                            (declare (ignore win ignore-error))
+                                            (pop get-char-sequence))))
+      (let ((charms:*standard-window* :mock-window))
+        (is (eq t (hactar::confirm-action-tui "Confirm this action?")))
+        (is (identity tui-render-called))
+        (is (identity refresh-window-called))))))

@@ -26,7 +26,7 @@ end text"))
     (let ((curl-blocks (hactar::stripe--extract-blocks content "curl")))
       (is (= 1 (length curl-blocks)))
       (is (string= (first curl-blocks) "curl https://api.stripe.com/v1/charges")))
-    
+
     (let ((ruby-blocks (hactar::stripe--extract-blocks content "ruby")))
       (is (= 1 (length ruby-blocks)))
       (is (string= (first ruby-blocks) "Stripe::Charge.create")))
@@ -56,10 +56,10 @@ block 2
     (let ((child (hactar::stripe--get-or-create-child root "Child")))
       (is (typep child 'hactar::stripe-doc-node))
       (is (string= (hactar::stripe-doc-node-name child) "Child")))
-    
+
     ;; Test add-file-to-tree
     (hactar::stripe--add-file-to-tree root "core_resources/charges/create_charge.md" '("code1"))
-    
+
     ;; Verify structure: Root -> Core Resources -> Charges -> Create Charge
     (let* ((core (gethash "Core Resources" (hactar::stripe-doc-node-children root)))
            (charges (when core (gethash "Charges" (hactar::stripe-doc-node-children core))))
@@ -73,7 +73,7 @@ block 2
   "Test printing the tree structure."
   (let ((root (hactar::make-stripe-doc-node :name "Stripe" :children (make-hash-table :test 'equal))))
     (hactar::stripe--add-file-to-tree root "api/test.md" '("code"))
-    
+
     (let ((output (with-output-to-string (*standard-output*)
                     (hactar::stripe--print-tree root 1 "curl"))))
       (is (search "* Stripe" output))

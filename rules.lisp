@@ -35,7 +35,8 @@
   "Show currently active rules."
   (declare (ignore args))
   (run-rules-show)
-  :slash t :sub t)
+  :slash t :sub t
+  :examples ("/rules.show"))
 
 (defun list-available-rules ()
   "Returns a list of available rule names."
@@ -57,13 +58,21 @@
   "List available rules."
   (declare (ignore args))
   (run-rules-list)
-  :slash t :sub t)
+  :slash t :sub t
+  :examples ("/rules.list"))
+
+(define-command rules (args)
+  "List available rules (alias of /rules.list)."
+  (declare (ignore args))
+  (run-rules-list)
+  :slash t :sub t
+  :examples ("/rules"))
 
 (defun run-rules-add (args)
   "Implementation of rules.add command."
   (let ((name (first args)))
     (unless name
-      (format t "Usage: /rules.add <name>~%")
+      (format t "Usage: /rules.add <name>~%~%Examples:~%  /rules.add my-custom-rule~%")
       (return-from run-rules-add))
     (let ((rule-file (merge-pathnames (format nil "~A.lisp" name) *hactar-rules-path*)))
       (if (probe-file rule-file)
@@ -74,14 +83,20 @@
 
 (define-command rules.add (args)
   "Attach a rule to the current context by loading its lisp file."
-  (run-rules-add args)
-  :slash t :sub t)
+  (cond
+    (args (run-rules-add args))
+    ((and *tui-running* (list-available-rules))
+     (let ((selected (fuzzy-select (list-available-rules))))
+       (when selected (run-rules-add (list selected)))))
+    (t (run-rules-add args)))
+  :slash t :sub t
+  :examples ("/rules.add my-custom-rule"))
 
 (defun run-rules-install (args)
   "Implementation of rules.install command."
   (let ((source (first args)))
     (unless source
-      (format t "Usage: /rules.install <source>~%")
+      (format t "Usage: /rules.install <source>~%~%Examples:~%  /rules.install user/repo~%  /rules.install https://github.com/user/repo.git~%")
       (return-from run-rules-install))
 
     (ensure-directories-exist *hactar-rules-path*)
@@ -126,4 +141,6 @@
      - user/repo (shorthand for GitHub)
      - https://github.com/..."
   (run-rules-install args)
-  :slash t :sub t)
+  :slash t :sub t
+  :examples ("/rules.install user/repo"
+             "/rules.install https://github.com/user/repo.git"))

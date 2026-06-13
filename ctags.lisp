@@ -24,7 +24,7 @@
                            (subseq rest (+ addr-end 2))
                            ""))
              (fields (remove "" (str:split (string #\Tab) fields-str) :test #'string=)))
-        
+
         (make-tag :name name
                   :file file
                   :address address
@@ -36,6 +36,7 @@
 
 (defun load-tags ()
   "Load tags from the ctags file into *tags-cache*."
+  (ensure-repo-root)
   (let ((tags-path (merge-pathnames *ctags-file* *repo-root*)))
     (if (probe-file tags-path)
         (let ((tags '()))
@@ -56,7 +57,7 @@
   "Run ctags to index the codebase. ARGS are passed to ctags."
   (unless (find-executable "ctags")
     (error "ctags executable not found."))
-  
+  (ensure-repo-root)
   (let* ((excludes (mapcan (lambda (ex) (list (format nil "--exclude=~A" ex))) *exclude-from-ctags*))
          (cmd (append (list "ctags" "-R")
                       excludes
@@ -73,7 +74,7 @@
             (load-tags))
           (format t "Ctags failed: ~A~%" error-output)))))
 
-(define-sub-command code.index (args)
+(define-sub-command ctags.index (args)
   "Index the codebase using ctags."
   (apply #'tags-index args))
 
@@ -102,14 +103,15 @@
 (defun tags-for (targets)
   "Return tags for a file, directory, or list of them.
    TARGETS can be a string (path) or a list of strings."
+  (ensure-repo-root)
   (let ((target-list (uiop:ensure-list targets))
         (all (tags-all)))
     ;; Normalize targets to be relative to repo-root for comparison with tag paths
-    (let ((rel-targets (mapcar (lambda (targ) 
+    (let ((rel-targets (mapcar (lambda (targ)
                                  (let ((p (uiop:parse-native-namestring targ)))
                                    (if (uiop:absolute-pathname-p p)
                                        (uiop:native-namestring (uiop:enough-pathname p *repo-root*))
-                                       targ))) 
+                                       targ)))
                                target-list)))
       (remove-if-not (lambda (tag)
                        (some (lambda (target)
@@ -127,16 +129,12 @@
    Scans content of files in *files* for symbols that exist in tags db."
   (let ((symbols (make-hash-table :test 'equal))
         (found-tags '()))
-    ;; Extract symbols from all files in context
     (dolist (file *files*)
       (let ((content (get-file-content file)))
         (when content
           (dolist (sym (extract-symbols-from-text content))
             (setf (gethash sym symbols) t)))))
-    
-    ;; Find tags that match these symbols
     (dolist (tag (tags-all))
       (when (gethash (tag-name tag) symbols)
         (push tag found-tags)))
-    
     found-tags))

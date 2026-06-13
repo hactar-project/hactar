@@ -238,9 +238,7 @@ Looks at sibling nodes under the same path-prefix for richer context."
     (defroute "^wiki:(.+)$" (uri)
               :params (:uri)
               :priority 50
-              (let ((result (dispatch-wiki-query (concatenate 'string "wiki:" uri))))
-                (when result (format t "~A~%" result))
-                result)))
+              (dispatch-wiki-query (concatenate 'string "wiki:" uri))))
   ;; Match patterns like <namespace>.docs/<path>(.resource)?
   (unless (loop for r being the hash-values of *routes*
                 thereis (and (stringp (route-pattern r))
@@ -248,9 +246,7 @@ Looks at sibling nodes under the same path-prefix for richer context."
     (defroute "^([a-z0-9_-]+\\.docs)/(.+)$" (ns rest)
               :params (:namespace :rest)
               :priority 25
-              (let ((result (dispatch-wiki-query (format nil "~A/~A" ns rest))))
-                (when result (format t "~A~%" result))
-                result))))
+              (dispatch-wiki-query (format nil "~A/~A" ns rest)))))
 
 (push #'%install-wiki-routes *route-reinit-hooks*)
 
@@ -260,9 +256,7 @@ Looks at sibling nodes under the same path-prefix for richer context."
   (setf *route-fallback-fn*
         (lambda (input)
           (handler-case
-              (let ((result (dispatch-wiki-query input)))
-                (when result (format t "~A~%" result))
-                result)
+              (dispatch-wiki-query input)
             (error (e)
               (format t "~&Wiki fallback failed: ~A~%" e)
               nil)))))
@@ -377,8 +371,25 @@ Usage: /wiki.import <importer-name> [args...]"
                        (format nil "~A/~A" (aref m 0) (aref m 1))))
                    "imported")))
     (when content
-      (register-wiki-node ns path
-                          :type :other
-                          :properties (list :readme content :source url))
-      (format t "Imported ~A/~A from ~A~%" ns path url)
-      (list ns path))))
+      (let ((out-file (uiop:native-namestring
+                       (merge-pathnames
+                        (format nil "wiki/~A.lisp"
+                                (cl-ppcre:regex-replace-all
+                                 "[^A-Za-z0-9_.-]"
+                                 (format nil "~A-~A" ns path) "_"))
+                        (or *repo-root* (uiop:getcwd))))))
+        (ensure-directories-exist out-file)
+        (with-open-file (s out-file :direction :output
+                                    :if-exists :supersede
+                                    :if-does-not-exist :create
+                                    :external-format :utf-8)
+          (format s ";;; Imported wiki node from ~A~%(in-package :hactar)~%~%" url)
+          (let ((*print-case* :downcase))
+            (prin1 `(register-wiki-node ,ns ,path
+                                        :type :other
+                                        :properties (list :readme ,content :source ,url))
+                   s))
+          (terpri s))
+        (load out-file)
+        (format t "Imported ~A/~A from ~A -> ~A~%" ns path url out-file)
+        (list ns path)))))

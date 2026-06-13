@@ -1,7 +1,6 @@
 ;; npm mode
 (in-package :hactar)
-
-;;; NPM Package Operations
+;;* core
 (defun fetch-npm-registry-data (package-name)
   "Fetch package metadata from NPM registry."
   (let ((url (format nil "https://registry.npmjs.org/~A" package-name)))
@@ -61,26 +60,58 @@
                     when (str:starts-with-p version-spec (symbol-name key))
                     return version-obj))))))
 
-(defun get-package-readme (package-name version-spec)
-  "Get README content for a package version."
-  (let* ((package-data (fetch-npm-registry-data package-name))
-         (version-info (get-package-version-info package-data version-spec)))
-    (when version-info
-      (cdr (assoc :readme version-info)))))
+(defun get-package-readme (package-data version-spec)
+  "Get README content for a package, preferring the version-specific readme
+   and falling back to the package-level readme field."
+  (let* ((version-info (get-package-version-info package-data version-spec))
+         (version-readme (and version-info (cdr (assoc :readme version-info))))
+         (top-readme (cdr (assoc :readme package-data))))
+    (or (and version-readme (plusp (length version-readme)) version-readme)
+        (and top-readme (plusp (length top-readme)) top-readme))))
 
-(defun get-github-readme-from-repo (repo-url)
-  "Extract and fetch README from a GitHub repository URL."
-  (let ((github-raw-url (get-github-raw-url repo-url)))
-    (when github-raw-url
-      (fetch-url-content github-raw-url))))
+(defun normalize-github-repo-url (repo-url)
+  "Normalize an NPM repository URL into a plain GitHub URL.
+   Strips a leading \"git+\", a \"#fragment\" suffix and a trailing \".git\"."
+  (when repo-url
+    (let* ((url (string-trim '(#\Space #\Tab #\Newline #\Return) repo-url))
+           (url (if (str:starts-with-p "git+" url) (subseq url 4) url))
+           (hash (position #\# url))
+           (url (if hash (subseq url 0 hash) url))
+           (url (if (str:ends-with-p ".git" url)
+                    (subseq url 0 (- (length url) 4))
+                    url)))
+      url)))
+
+(defun fetch-github-readme (repo-url &optional directory)
+  "Fetch a README from a GitHub repository URL, probing the main and master
+   branches. When DIRECTORY is given (an NPM monorepo subpath), the README is
+   looked up inside that subdirectory first."
+  (let ((clean-url (normalize-github-repo-url repo-url)))
+    (when clean-url
+      (cl-ppcre:register-groups-bind (user repo)
+          ("github\\.com[/:]([^/]+)/([^/]+)" clean-url)
+        (let* ((dir (when (and directory (plusp (length directory)))
+                      (string-trim "/" directory)))
+               (found
+                 (loop named search
+                       for branch in '("main" "master")
+                       do (loop for fname in '("README.md" "readme.md" "README")
+                                for path = (if dir (format nil "~A/~A" dir fname) fname)
+                                for url = (format nil "https://raw.githubusercontent.com/~A/~A/refs/heads/~A/~A"
+                                                  user repo branch path)
+                                when (probe-url url)
+                                  do (return-from search url)))))
+          (when found
+            (fetch-url-content found)))))))
 
 (defun get-npm-docs (package-name &optional version-spec)
   "Get documentation for an NPM package.
    First checks custom doc routes, then falls back to package README."
   (let ((version (or version-spec "latest")))
-    ;; Try custom doc route first
+    ;; Try custom doc route first. Use the no-fallback variant so a missing
+    ;; route does not trigger the global wiki/LLM fallback.
     (let* ((route-input (format nil "npm:~A@~A" package-name version))
-           (custom-doc (execute-route route-input)))
+           (custom-doc (execute-route-no-fallback route-input)))
       (if custom-doc
           custom-doc
           ;; Fall back to default behavior
@@ -90,12 +121,14 @@
                        (repository (cdr (assoc :repository (or version-info package-data))))
                        (repo-url (if (stringp repository)
                                     repository
-                                    (cdr (assoc :url repository)))))
-                  ;; Try to get README from GitHub if available
-                  (if (and repo-url (search "github.com" repo-url))
-                      (or (get-github-readme-from-repo repo-url)
-                          (get-package-readme package-name version))
-                      (get-package-readme package-name version)))
+                                    (cdr (assoc :url repository))))
+                       (directory (and (consp repository)
+                                       (cdr (assoc :directory repository)))))
+                  ;; Try to get README from GitHub if available, otherwise fall
+                  ;; back to the README embedded in the registry metadata.
+                  (or (and repo-url (search "github.com" repo-url)
+                           (fetch-github-readme repo-url directory))
+                      (get-package-readme package-data version)))
                 (format nil "Package not found: ~A" package-name)))))))
 
 (defun get-npm-meta (package-name &optional version-spec)
@@ -107,9 +140,14 @@
     (when version-info
       (cl-json:encode-json-to-string version-info))))
 
-;;; Web Command Implementation
+;;* commands
 (defwebcommand npm
-  "NPM package management and documentation."
+  "NPM package management and documentation.
+
+Examples:
+  hactar npm search express
+  hactar npm docs svelte
+  hactar npm meta vue"
 
   (defwebroute npm-search "Search npm packages"
     ("search" &rest args) (args)
@@ -147,7 +185,7 @@
 
   (def-default-route ()
     (lambda ()
-      (format t "NPM Commands:~%  npm search <query> - Search for packages~%  npm docs <package@version> - Get documentation~%  npm meta <package@version> - Get package.json~%"))))
+      (format t "NPM Commands:~%  npm search <query> - Search for packages~%  npm docs <package@version> - Get documentation~%  npm meta <package@version> - Get package.json~%~%Examples:~%  hactar npm search express~%  hactar npm docs svelte~%  hactar npm meta vue~%"))))
 
 ;; some placeholder doc sourcess
 ;; TODO: Add top 100 packages here
@@ -159,3 +197,44 @@
               :version "5.^"
               :platform "npm"
               :uri "https://raw.githubusercontent.com/sveltejs/svelte/refs/heads/main/README.md")
+
+(defun get-npm-json (args)
+  "Get JSON-serializable alist/structure for NPM command with ARGS."
+  (let* ((subcmd (first args))
+         (sub-args (rest args)))
+    (cond
+      ((and subcmd (string-equal subcmd "search"))
+       (let* ((query (format nil "~{~A~^ ~}" sub-args))
+              (results (search-npm-packages query)))
+         results))
+      ((and subcmd (string-equal subcmd "docs"))
+       (let* ((package-spec (first sub-args)))
+         (when package-spec
+           (let* ((at-pos (position #\@ package-spec))
+                  (package-name (if at-pos (subseq package-spec 0 at-pos) package-spec))
+                  (version (if at-pos (subseq package-spec (1+ at-pos)) "latest"))
+                  (docs (get-npm-docs package-name version)))
+             (when docs
+               `((:package . ,package-name)
+                 (:version . ,version)
+                 (:docs . ,docs)))))))
+      ((and subcmd (string-equal subcmd "meta"))
+       (let* ((package-spec (first sub-args)))
+         (when package-spec
+           (let* ((at-pos (position #\@ package-spec))
+                  (package-name (if at-pos (subseq package-spec 0 at-pos) package-spec))
+                  (version (if at-pos (subseq package-spec (1+ at-pos)) "latest"))
+                  (package-data (fetch-npm-registry-data package-name)))
+             (when package-data
+               (get-package-version-info package-data version))))))
+      (t nil))))
+
+(register-format-handler "/npm" :json
+  (lambda (args)
+    (let ((clean-args (remove-if (lambda (arg) (or (str:starts-with-p "-" arg) (string= arg "--format"))) args)))
+      (let ((json-struct (get-npm-json clean-args)))
+        (when json-struct
+          ;; Use cl-json's encoder here: the NPM data was decoded by cl-json
+          ;; and contains dotted alists/mixed lists that shasht's to-json
+          ;; cannot serialize.
+          (cl-json:encode-json-to-string json-struct))))))

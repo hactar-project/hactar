@@ -49,7 +49,7 @@
 (defun generate-and-get-shell-command (query)
   "Asks the LLM to generate a shell command from a query and returns it as a string."
   (when (and *current-model* query (not (string= query "")))
-    (let* ((system-prompt-text (uiop:read-file-string (get-prompt-path "generate-shell-command.mustache")))
+    (let* ((system-prompt-text (get-prompt 'generate-shell-command "generate-shell-command.mustache"))
            (llm-response (get-llm-response query
                                            :custom-system-prompt system-prompt-text
                                            :stream nil

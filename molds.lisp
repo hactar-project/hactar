@@ -1,4 +1,4 @@
-;; molds — Mold system for Hactar
+;; Mold system for Hactar
 ;; A mold defines the architectural shape of a project: entities, interfaces, rules, and metadata.
 (in-package :hactar)
 
@@ -124,7 +124,6 @@
      nil)))
 
 ;;* defmold Macro
-
 (defmacro defmold (name description &body body)
   "Define a mold — the architectural shape of a project.
 
@@ -190,7 +189,6 @@
          ',name))))
 
 ;;* Mold Activation
-
 (defun mold-activate-rules (mold)
   "Activate all rules from a mold into the *active-rules* system."
   ;; Entity-level rules
@@ -231,20 +229,11 @@
         (remhash k *active-rules*)))))
 
 (defun mold-activate-entities (mold)
-  "Register mold entities as entity type definitions if not already registered."
-  (dolist (me (mold-definition-entities mold))
-    (let* ((name (mold-entity-name me))
-           (name-str (string-downcase (if (stringp name) name (symbol-name name)))))
-      (unless (gethash name-str *entity-registry*)
-        (setf (gethash name-str *entity-registry*)
-              (make-entity-definition
-               :name (if (symbolp name) name (intern (string-upcase name-str) :hactar))
-               :description (or (mold-entity-description me) "")
-               :schema (mold-entity-schema me)
-               :default-behaviors (mold-entity-required-behaviors me)
-               :commands-p nil
-               :storage :memory
-               :searchable '()))))))
+  "Mold entities are surfaced to the LLM via rules and context (see
+   mold-activate-rules / mold-context-string). The BOT entity registry has been
+   removed in favor of modes, so this is intentionally a no-op kept for symmetry."
+  (declare (ignore mold))
+  nil)
 
 (defun mold-use (mold-name)
   "Activate a mold by name. Deactivates any previously active mold."
@@ -330,7 +319,6 @@
                  *molds*))))
 
 ;;* Mold Installation
-
 (defun %mold-install-from-path (path)
   "Install a mold from a local file path."
   (let* ((resolved (expand-path path))
@@ -495,22 +483,17 @@
       (format t "~&No active mold to validate against.~%")
       (return-from mold-validate (values nil '("No active mold"))))
     (format t "~&Validating against mold '~A'...~%" (mold-definition-name m))
-    ;; Check that each entity type has at least one instance or implementation
+    ;; Check that each entity that declares an example points to an existing file.
+    ;; (The BOT entity/behavior registry has been removed; validation is now
+    ;; file-based rather than implementation/instance-based.)
     (dolist (me (mold-definition-entities m))
-      (let* ((name (mold-entity-name me))
-             (name-str (string-downcase (if (stringp name) name (symbol-name name))))
-             (impl (resolve-entity-implementation name-str))
-             (instances (find-entity-instances name-str)))
-        (unless (or impl instances)
-          (push (format nil "Entity '~A' has no implementation or instances." name-str) issues))))
-    ;; Check that required behaviors exist
-    (dolist (me (mold-definition-entities m))
-      (dolist (beh (mold-entity-required-behaviors me))
-        (let ((beh-name (string-downcase (if (stringp beh) beh (symbol-name beh)))))
-          (unless (get-behavior beh-name)
-            (push (format nil "Required behavior '~A' for entity '~A' is not defined."
-                          beh-name (mold-entity-name me))
-                  issues)))))
+      (let ((example (mold-entity-example me)))
+        (when example
+          (let ((example-path (merge-pathnames example *repo-root*)))
+            (unless (probe-file example-path)
+              (push (format nil "Entity '~A' example file not found: ~A"
+                            (mold-entity-name me) example)
+                    issues))))))
     ;; Report
     (if issues
         (progn
@@ -619,7 +602,6 @@
       (mold-pour (mold-entity-name entity) m))))
 
 ;;* Mold Export
-
 (defun mold-export-as-json (mold)
   "Export a mold as JSON."
   (let ((alist `(("name" . ,(mold-definition-name mold))
@@ -1125,7 +1107,7 @@
 (define-command "mold.install" (args)
   "Install a mold from various sources.
    Usage: /mold.install <source>
-   
+
    Sources:
      /mold.install saas-api           # from hactar registry
      /mold.install ./my-company-mold  # from local path
@@ -1244,3 +1226,55 @@
               `(("text" . ,(format nil "~A mold(s)." (hash-table-count *molds*)))
                 ("data" . ,(coerce (nreverse molds-list) 'vector)))))
            (t `(("text" . ,(format nil "Use /mold.list, /mold.install, /mold.use etc.")))))))
+
+;;** molds.* aliases (prefix mold commands with 'molds')
+(define-command "molds.list" (args)
+  "List all available molds (alias of /mold.list)."
+  (declare (ignore args))
+  (mold-list)
+  :sub t)
+
+(define-command "molds.use" (args)
+  "Activate a mold (alias of /mold.use). Usage: /molds.use <mold-name>"
+  (if args (mold-use (first args)) (format t "Usage: /molds.use <mold-name>~%"))
+  :sub t)
+
+(define-command "molds.show" (args)
+  "Show a mold (alias of /mold.show). Usage: /molds.show [mold-name]"
+  (if args
+      (let ((mold (gethash (string-downcase (first args)) *molds*)))
+        (if mold (mold-show mold) (format t "Mold '~A' not found.~%" (first args))))
+      (mold-show))
+  :sub t)
+
+(define-command "molds.install" (args)
+  "Install a mold (alias of /mold.install). Usage: /molds.install <source>"
+  (if args (mold-install (first args)) (format t "Usage: /molds.install <source>~%"))
+  :sub t)
+
+(define-command "molds.init" (args)
+  "Scaffold a mold (alias of /mold.init). Usage: /molds.init [mold-name]"
+  (mold-init (first args))
+  :sub t)
+
+(define-command "molds.validate" (args)
+  "Validate against the active mold (alias of /mold.validate)."
+  (declare (ignore args))
+  (multiple-value-bind (ok-p issues) (mold-validate)
+    (declare (ignore ok-p issues)))
+  :sub t)
+
+(define-command "molds.pour" (args)
+  "Ask AI to implement an entity (alias of /mold.pour). Usage: /molds.pour <entity>|--all"
+  (cond
+    ((and args (or (string= (first args) "--all") (string= (first args) "-a")))
+     (mold-pour-all))
+    (args (mold-pour (first args)))
+    (t (format t "Usage: /molds.pour <entity-name> or /molds.pour --all~%")))
+  :sub t)
+
+(define-command "molds.export" (args)
+  "Export the active mold (alias of /mold.export). Usage: /molds.export --format json|org|xml"
+  (let ((result (mold-export (or (first args) "json"))))
+    (when result (format t "~A~%" result)))
+  :sub t)

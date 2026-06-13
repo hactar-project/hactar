@@ -1,4 +1,3 @@
-;; mold tests
 (in-package :hactar-tests)
 
 (def-suite mold-tests
@@ -6,7 +5,7 @@
 
 (in-suite mold-tests)
 
-;;* Helper macro to isolate mold state
+;;* Helpers
 
 (defmacro with-clean-mold-env (&body body)
   "Run BODY with fresh mold registries and related state."
@@ -26,8 +25,7 @@
          (hactar::*acp-commands* (make-hash-table :test 'equal)))
      ,@body))
 
-;;* Mold Struct Tests
-
+;;* Mold Struct
 (test mold-definition-struct-creation
   "Test that mold-definition structs are created correctly."
   (let ((mold (hactar::make-mold-definition
@@ -124,8 +122,7 @@
   (let ((rule (hactar::%parse-mold-rule '(:entity))))
     (is (null rule))))
 
-;;* Entity Parsing Tests
-
+;;* Entities
 (test parse-mold-entity-full
   "Test parsing a full entity specification."
   (let ((entity (hactar::%parse-mold-entity
@@ -154,8 +151,7 @@
     (is (null (hactar::mold-entity-example entity)))
     (is (null (hactar::mold-entity-rules entity)))))
 
-;;* Interface Parsing Tests
-
+;;* Interface Parsing
 (test parse-mold-interface-plist-form
   "Test parsing an interface in plist form with keyword name."
   (let ((iface (hactar::%parse-mold-interface
@@ -408,37 +404,16 @@
                hactar::*active-rules*)
       (is-true found-b))))
 
-;;* Mold Activate Entities Tests
-
-(test mold-activate-entities-registers
-  "Test that mold activation registers entity types in *entity-registry*."
+(test mold-activate-entities-noop
+  "Test that mold activation runs successfully (noop) without ECS."
   (with-clean-mold-env
-    (eval '(hactar::defmold entity-reg-test
-             "Entity registration test"
+    (eval '(hactar::defmold entity-noop-test
+             "Entity registration noop test"
              :entities
              ((widget :desc "A widget" :default-tags (:ui))
               (gadget :desc "A gadget"))
              :rules ()))
-    (hactar::mold-use "entity-reg-test")
-    (is-true (gethash "widget" hactar::*entity-registry*))
-    (is-true (gethash "gadget" hactar::*entity-registry*))
-    (let ((widget-def (gethash "widget" hactar::*entity-registry*)))
-      (is (string= "A widget" (hactar::entity-definition-description widget-def))))))
-
-(test mold-activate-entities-no-overwrite
-  "Test that mold activation doesn't overwrite existing entity type definitions."
-  (with-clean-mold-env
-    ;; Pre-register an entity
-    (setf (gethash "widget" hactar::*entity-registry*)
-          (hactar::make-entity-definition :name 'widget :description "Pre-existing widget"))
-    (eval '(hactar::defmold no-overwrite-test
-             "No overwrite test"
-             :entities ((widget :desc "Mold widget"))
-             :rules ()))
-    (hactar::mold-use "no-overwrite-test")
-    ;; Should keep pre-existing definition
-    (let ((widget-def (gethash "widget" hactar::*entity-registry*)))
-      (is (string= "Pre-existing widget" (hactar::entity-definition-description widget-def))))))
+    (is-true (hactar::mold-use "entity-noop-test"))))
 
 ;;* Mold Display Tests
 
@@ -517,14 +492,14 @@
       (is (null ok))
       (is (= 1 (length issues))))))
 
-(test mold-validate-missing-behaviors
-  "Test validation detects missing required behaviors."
+(test mold-validate-missing-example-file
+  "Test validation detects missing entity example files."
   (with-clean-mold-env
     (eval '(hactar::defmold validate-test
              "Validation test"
              :entities
              ((route
-               :required-behaviors (:nonexistent-behavior)
+               :example "nonexistent/file.tsx"
                :desc "A route"))
              :rules ()))
     (hactar::mold-use "validate-test")
@@ -532,7 +507,7 @@
         (hactar::mold-validate)
       (is (null ok))
       (is (> (length issues) 0))
-      (is (some (lambda (issue) (search "nonexistent-behavior" issue)) issues)))))
+      (is (some (lambda (issue) (search "file.tsx" issue)) issues)))))
 
 (test mold-validate-passes-clean
   "Test validation passes when all requirements are met."
@@ -1012,17 +987,78 @@
       (is-true (assoc :rules entity))
       (is (= 2 (length (cdr (assoc :rules entity))))))))
 
-;;* Mold Validate Entity Without Implementation
-
-(test mold-validate-missing-entity-implementation
-  "Test that validation detects entities with no implementations."
+(test mold-validate-with-existing-example-file
+  "Test that validation passes when entity example file exists."
   (with-clean-mold-env
-    (eval '(hactar::defmold validate-entity-test
-             "Validate entity test"
-             :entities ((unique-entity-xyz :desc "Entity with no impl"))
+    (let* ((example-rel "src/my-example.tsx")
+           (example-path (merge-pathnames example-rel hactar::*repo-root*)))
+      (ensure-directories-exist example-path)
+      (with-open-file (s example-path :direction :output :if-exists :supersede :if-does-not-exist :create)
+        (format s "// some example content~%"))
+      (eval `(hactar::defmold validate-existing-example-test
+               "Validate existing example test"
+               :entities ((unique-entity-xyz :example ,example-rel :desc "Entity with impl"))
+               :rules ()))
+      (hactar::mold-use "validate-existing-example-test")
+      (multiple-value-bind (ok issues)
+          (hactar::mold-validate)
+        (is-true ok)
+        (is (null issues)))
+      (ignore-errors (delete-file example-path)))))
+
+;;* Mold Interface (render/parse via interface.lisp)
+
+(test mold-interface-render-no-mold
+  "render-active-mold-org returns empty string when no mold is active."
+  (with-clean-mold-env
+    (is (string= "" (hactar::render-active-mold-org)))))
+
+(test mold-interface-render
+  "render-active-mold-org renders the active mold as org text."
+  (with-clean-mold-env
+    (eval '(hactar::defmold render-iface-test
+             "Render iface mold"
+             :entities ((route :desc "A route"))
+             :rules ("Rule One")))
+    (hactar::mold-use "render-iface-test")
+    (let ((org (hactar::render-active-mold-org)))
+      (is (search "render-iface-test" org))
+      (is (search "Rule One" org))
+      (is (search "* Rules" org)))))
+
+(test mold-interface-parse
+  "parse-mold-org replaces generic mold rules in *active-rules* from a Rules section."
+  (with-clean-mold-env
+    (eval '(hactar::defmold parse-iface-test
+             "Parse iface mold"
+             :entities ()
+             :rules ("Old Rule")))
+    (hactar::mold-use "parse-iface-test")
+    (hactar::parse-mold-org
+     (format nil "* Rules~%- New Rule A~%- New Rule B~%"))
+    (let ((vals '()))
+      (maphash (lambda (k v) (declare (ignore k)) (push v vals))
+               hactar::*active-rules*)
+      (is (member "New Rule A" vals :test #'string=))
+      (is (member "New Rule B" vals :test #'string=))
+      (is (not (member "Old Rule" vals :test #'string=))))))
+
+(test mold-interface-parse-strips-scope-prefix
+  "parse-mold-org strips a leading [..] scope prefix from rule text."
+  (with-clean-mold-env
+    (eval '(hactar::defmold parse-strip-test
+             "Parse strip mold"
+             :entities ()
              :rules ()))
-    (hactar::mold-use "validate-entity-test")
-    (multiple-value-bind (ok issues)
-        (hactar::mold-validate)
-      (is (null ok))
-      (is (some (lambda (issue) (search "unique-entity-xyz" issue)) issues)))))
+    (hactar::mold-use "parse-strip-test")
+    (hactar::parse-mold-org
+     (format nil "* Rules~%- [generic] Bare Rule~%"))
+    (let ((vals '()))
+      (maphash (lambda (k v) (declare (ignore k)) (push v vals))
+               hactar::*active-rules*)
+      (is (member "Bare Rule" vals :test #'string=)))))
+
+(test mold-interface-parse-no-mold
+  "parse-mold-org is a no-op when no mold is active."
+  (with-clean-mold-env
+    (is (null (hactar::parse-mold-org (format nil "* Rules~%- X~%"))))))

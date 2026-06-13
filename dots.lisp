@@ -1,4 +1,4 @@
-;; dot commands operate on the current prompt
+;; dot commands operate on the system prompt. was a useful hack before models figured out tools. now kinda deprceiated. still useful for edge models
 (in-package :hactar)
 (defvar *dot-commands* (make-hash-table :test 'equal)
   "Hash table of available dot commands.")
@@ -14,10 +14,10 @@
                    ,@body-without-docstring)
                  ,(or docstring "No description available.")))))
 
-(define-command dump-dot (args)
-  "Print out the current dot system prompt."
+(define-command "prompts.system.dump" (args)
+  "Print out the current active system prompt."
   (declare (ignore args))
-  (dump-dot-system-prompt))
+  (dump-current-system-prompt))
 ;;** Dot Commands
 (defdot set (args)
   "Usage: set key=value
@@ -124,7 +124,6 @@ Asks the LLM to generate a shell command and runs it immediately."
   (multiple-value-bind (cmd-name cmd-args) (parse-command command-string)
     (when (and cmd-name (str:starts-with? "." cmd-name) (gethash cmd-name *dot-commands*))
       (let ((full-user-cmd (format nil "~A~{ ~A~}" cmd-name cmd-args)))
-        ;; Call get-llm-response without streaming and without adding to history for intermediate pipe steps.
         (get-llm-response full-user-cmd :dot-command-p t :stream nil :add-to-history nil)))))
 
 (defdot \| (args)
@@ -140,25 +139,58 @@ Example: .| .cat myfile.txt | .modify anotherfile.txt The content is:"
                (cmd2-prefix-str (string-trim '(#\Space) (subseq args-string (+ pipe-pos (length pipe-marker)))))
                (output1 (execute-dot-command-for-pipe cmd1-full-str)))
           (if output1
-              (let* (;; Construct the full second command string
-                     (cmd2-full-str (format nil "~A ~A" cmd2-prefix-str output1)))
+              (let* ((cmd2-full-str (format nil "~A ~A" cmd2-prefix-str output1)))
                 (debug-log "Piping. Cmd1 output:" output1)
                 (debug-log "Piping. Executing full Cmd2 string:" cmd2-full-str)
-
-                ;; Parse and execute the second command
                 (multiple-value-bind (cmd2-name cmd2-args) (parse-command cmd2-full-str)
                   (if (and cmd2-name (str:starts-with? "." cmd2-name) (gethash cmd2-name *dot-commands*))
                       (let ((cmd-fn (first (gethash cmd2-name *dot-commands*))))
-                        (funcall cmd-fn cmd2-args)) ; Call the target command's lambda
+                        (funcall cmd-fn cmd2-args))
                       (format t "Error: Second command in pipe is not a valid dot command or failed to parse: ~A~%" cmd2-prefix-str))))
               (format t "Error: First command in pipe ('~A') failed or produced no output.~%" cmd1-full-str))))))
 
 (define-command dots (args)
                 "Display available dot commands and their descriptions."
-                (declare (ignore args))
-                (format t "Available dot commands:~%")
-                (let ((sorted-commands (sort (alexandria:hash-table-keys *dot-commands*) #'string<)))
-                  (dolist (cmd sorted-commands)
-                    (let* ((command-info (gethash cmd *dot-commands*))
-                           (description (second command-info)))
-                      (format t "  ~A - ~A~%" cmd description)))))
+                (cond
+                  (args
+                   (format t "Usage: /dots (selects a command via fuzzy-select in TUI)~%"))
+                  ((and *tui-running* (> (hash-table-count *dot-commands*) 0))
+                   (let* ((sorted-commands (sort (alexandria:hash-table-keys *dot-commands*) #'string<))
+                          (selected (fuzzy-select sorted-commands)))
+                     (when selected
+                       (format t "Selected: ~A~%" selected)
+                       (format t "Enter arguments (or leave empty): ")
+                       (finish-output)
+                       (let* ((args-str (or (read-line *standard-input* nil nil) ""))
+                              (cmd-full-str (format nil "~A ~A" selected args-str)))
+                         (multiple-value-bind (cmd-name cmd-args) (parse-command cmd-full-str)
+                           (declare (ignore cmd-name))
+                           (funcall (first (gethash selected *dot-commands*)) cmd-args))))))
+                  (t
+                   (format t "Available dot commands:~%")
+                   (let ((sorted-commands (sort (alexandria:hash-table-keys *dot-commands*) #'string<)))
+                     (dolist (cmd sorted-commands)
+                       (let* ((command-info (gethash cmd *dot-commands*))
+                              (description (second command-info)))
+                         (format t "  ~A - ~A~%" cmd description)))))))
+(defun dot-system-prompt ()
+  "Generate the system prompt for dot commands."
+  (let* ((mustache:*escape-tokens* nil)
+	 (template-string (handler-case (get-prompt 'system.dot-command "system.dot-command.org")
+                            (error (e)
+				   (format t "Error reading dot command system prompt: ~A~%" e)
+				   "Error: Could not load dot command system prompt. Commands: {{commands}}. Rules: {{rules}}. Context: {{context}}.")))
+         (context-string (generate-context))
+         (rules-string (with-output-to-string (s)
+					      (maphash (lambda (key value)
+							 (declare (ignore key))
+							 (format s "~A~%~%" value))
+						       *active-rules*)))
+         (commands-string (with-output-to-string (s)
+						 (maphash (lambda (cmd-name cmd-info)
+							    (format s "command: ~A~% ~A~%" cmd-name (second cmd-info)))
+							  *dot-commands*))))
+    (mustache:render* template-string
+                      `((:commands . ,commands-string)
+                        (:rules . ,(if (string= rules-string "") "(No active rules)" rules-string))
+                        (:context . ,context-string)))))

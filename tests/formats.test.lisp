@@ -24,6 +24,8 @@
   (is (string= "org-mode" (hactar::extract-format-string '("--org"))))
   (is (string= "org-mode" (hactar::extract-format-string '("-org"))))
   (is (string= "org-mode" (hactar::extract-format-string '("--org-mode"))))
+  (is (string= "toml" (hactar::extract-format-string '("--toml"))))
+  (is (string= "toml" (hactar::extract-format-string '("-toml"))))
   (is (null (hactar::extract-format-string '("arg1" "arg2")))))
 
 (test wrap-formatted-output
@@ -31,7 +33,7 @@
   (let ((hactar::*format-wrapper-style* :xml-tags))
     (is (string= (format nil "<json>~%{\"test\":true}~%</json>")
                  (hactar::wrap-formatted-output "{\"test\":true}" :json))))
-  
+
   (let ((hactar::*format-wrapper-style* :markdown))
     (is (string= (format nil "```json~%{\"test\":true}~%```")
                  (hactar::wrap-formatted-output "{\"test\":true}" :json)))))
@@ -46,7 +48,8 @@
   (let ((names (hactar::supported-format-names)))
     (is (member "json" names :test #'string=))
     (is (member "markdown" names :test #'string=))
-    (is (member "xml" names :test #'string=))))
+    (is (member "xml" names :test #'string=))
+    (is (member "org-mode" names :test #'string=))))
 
 (test format-handler-registry
   "Test registering, retrieving, and unregistering format handlers."

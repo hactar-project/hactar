@@ -1,10 +1,5 @@
 ;; checks to catch potential hactar environment and configuration issues
 (in-package :hactar)
-(defun check-sqlite-installed? ()
-  "Check if sqlite3 CLI is installed."
-  (if (find-executable "sqlite3")
-      (progn (log-good "sqlite3 is installed.") t)
-      (progn (log-warning "sqlite3 is not installed or not in PATH.") nil)))
 
 (defun check-sbcl-installed? ()
   "Check if SBCL is installed."
@@ -38,35 +33,6 @@
     (if (%dir-writable-p dir)
         (progn (log-good "Writable: ~A" (uiop:native-namestring (uiop:ensure-directory-pathname dir))) t)
         (progn (log-warning "Not writable: ~A" (uiop:native-namestring (uiop:ensure-directory-pathname dir))) nil))))
-
-(defun check-db-path-writable? ()
-  "Check write permissions to the directory containing *db-path*."
-  (let* ((db (%to-pathname *db-path*))
-         (dir (uiop:pathname-directory-pathname db)))
-    (if (%dir-writable-p dir)
-        (progn (log-good "Database directory writable: ~A" (uiop:native-namestring dir)) t)
-        (progn (log-warning "Database directory not writable: ~A" (uiop:native-namestring dir)) nil))))
-
-(defun check-db-writable? ()
-  "Check if the database file itself is writable (create it if missing)."
-  (let* ((db (%to-pathname *db-path*))
-         (dir (uiop:pathname-directory-pathname db)))
-    (handler-case
-        (progn
-          ;; Ensure the parent directory exists
-          (ensure-directories-exist (uiop:ensure-directory-pathname dir))
-          (if (probe-file db)
-              ;; Try opening for output append to verify write permission without recreating
-              (with-open-file (_s db :direction :output :if-exists :append)
-                (declare (ignorable _s)))
-              ;; Create an empty file if missing
-              (with-open-file (_s db :direction :output :if-exists :supersede :if-does-not-exist :create)
-                (declare (ignorable _s))))
-          (log-good "Database file is writable: ~A" (uiop:native-namestring db))
-          t)
-      (error (e)
-        (log-warning "Database not writable: ~A (~A)" (uiop:native-namestring db) e)
-        nil))))
 
 (defun check-piper-model-path-writable? ()
   "Check write permissions to the directory containing *piper-model-path*."
@@ -145,53 +111,19 @@
         (log-warning "Error checking Hactar Pro repository: ~A" e)
         nil))))
 
-(defun check-db-schema-and-migrate? ()
-  "Check the database schema by attempting to run migrations."
-  (handler-case
-      (if (hactar-migrations:run-migrations)
-          (progn (log-good "Database schema OK (migrations up-to-date).") t)
-          (progn (log-warning "Database migrations failed.") nil))
-    (error (e)
-      (log-warning "Error running database migrations: ~A" e)
-      nil)))
-
-(defun check-for-vec0? ()
-  "Check for vec0"
-  (if (probe-file "/etc/NIXOS")
-      (progn
-        (log-good "Skipping vec0 check on NixOS.")
-        t)
-      (handler-case
-          (multiple-value-bind (out err code)
-              (uiop:run-program (list "sh" "-c" "ldconfig -p | grep vec0.so")
-                                :output :string :ignore-error-status t)
-            (declare (ignore out err))
-            (if (zerop code)
-                (log-good "Found vec0.so")
-                (log-warning "vec0.so not found in library path. Vector search features may not work.")))
-        (error (e)
-          (log-warning "Error checking for vec0.so: ~A" e)))))
-
 (defun run-all-checks-and-report ()
   "Run all environment/setup checks and report results. Returns T if all pass."
   (let ((results (list
-                  (check-sqlite-installed?)
                   (check-sbcl-installed?)
                   (check-git-installed?)
                   (check-hactar-pro-path-writable?)
                   (check-hactar-data-path-writable?)
 		  (check-hactar-config-path-writable?)
-                  (check-db-path-writable?)
 		  (check-hactar-repo-cloned?)
 		  (check-prompts-folder-exists?)
 		  (check-models-config-exists?)
 		  (check-piper-model-path-writable?)
-                  (check-current-folder-git-project?)
-		  (check-for-vec0?)
-		  ;;  this check is commented out because git ls-remote will prompt for passwords unless a user has acess
-		  ;; (check-can-clone-hactar-pro-repo?)
-                  (check-db-writable?)
-                  (check-db-schema-and-migrate?))))
+                  (check-current-folder-git-project?))))
     (every #'identity results)))
 
 (define-command check (args)

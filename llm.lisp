@@ -1,40 +1,55 @@
 ;; The LLM lib
 ;; Supports anthropic, openai, gemini, ollama, github copilot, and openrouter
+;; WIP support for opencode, mistral, deepseek, and bedrock
 (defpackage #:llm
-  (:use #:cl :str :cl-json :chunga :cl-base64)
-  (:export #:complete
-           #:anthropic-complete
-           #:gemini-complete
-           #:ollama-complete
-           #:openai-complete
-           #:openrouter-complete
-           #:copilot-complete
-           #:*read-timeout*
-           #:*debug-stream*
-           #:make-stream-reader
-           #:read-next-chunk
-           #:llm-stream-reader
-           #:llm-stream-reader-closed-p
-           #:close-reader
-           #:dump-api-keys
-	   #:anthropic-completer
-           #:gemini-completer
-           #:ollama-completer
-           #:openai-completer
-           #:openrouter-completer
-           #:copilot-completer
-           #:llm-stream-reader-provider
-           #:ollama-embed
-           #:*default-system-prompt*
-	   #:*debug*
-           #:*openai-api-key*
-           #:*anthropic-api-key*
-           #:*gemini-api-key*
-           #:*openrouter-api-key*
-           #:*github-copilot-token*
-	   #:get-copilot-token
-	   #:list-copilot-models
-	   #:copilot-complete-text))
+	    (:use #:cl :str :cl-json :chunga :cl-base64)
+	    (:export #:complete
+		     #:anthropic-complete
+		     #:gemini-complete
+		     #:ollama-complete
+		     #:openai-complete
+		     #:openrouter-complete
+		     #:copilot-complete
+		     #:mistral-complete
+		     #:deepseek-complete
+		     #:kimi-complete
+		     #:opencode-complete
+		     #:bedrock-complete
+		     #:*read-timeout*
+		     #:*debug-stream*
+		     #:make-stream-reader
+		     #:read-next-chunk
+		     #:llm-stream-reader
+		     #:llm-stream-reader-closed-p
+		     #:close-reader
+		     #:dump-api-keys
+		     #:anthropic-completer
+		     #:gemini-completer
+		     #:ollama-completer
+		     #:openai-completer
+		     #:openrouter-completer
+		     #:copilot-completer
+		     #:llm-stream-reader-provider
+		     #:ollama-embed
+		     #:*default-system-prompt*
+		     #:*debug*
+		     #:*openai-api-key*
+		     #:*anthropic-api-key*
+		     #:*gemini-api-key*
+		     #:*openrouter-api-key*
+		     #:*mistral-api-key*
+		     #:*deepseek-api-key*
+		     #:*kimi-api-key*
+		     #:*opencode-api-key*
+		     #:*bedrock-bearer-token*
+		     #:*bedrock-region*
+		     #:*github-copilot-token*
+		     #:*anthropic-oauth-token*
+		     #:*antigravity-token*
+		     #:*antigravity-project-id*
+		     #:get-copilot-token
+		     #:list-copilot-models
+		     #:copilot-complete-text))
 
 (in-package :llm)
 
@@ -59,9 +74,34 @@
                          "API key for Google Gemini services.")
 (defvar *openrouter-api-key* (uiop:getenv "OPENROUTER_API_KEY")
                              "API key for OpenRouter services.")
+(defvar *mistral-api-key* (uiop:getenv "MISTRAL_API_KEY")
+                          "API key for Mistral services.")
+(defvar *deepseek-api-key* (uiop:getenv "DEEPSEEK_API_KEY")
+                           "API key for DeepSeek services.")
+(defvar *kimi-api-key* (or (uiop:getenv "MOONSHOT_API_KEY")
+                           (uiop:getenv "KIMI_API_KEY"))
+                       "API key for Kimi (Moonshot) services.")
+(defvar *opencode-api-key* (uiop:getenv "OPENCODE_API_KEY")
+                           "API key for the OpenCode Go subscription service.")
+(defvar *bedrock-bearer-token* (uiop:getenv "AWS_BEARER_TOKEN_BEDROCK")
+  "Bearer token for Amazon Bedrock API-key authentication.")
+(defvar *bedrock-region* (or (uiop:getenv "AWS_REGION")
+                             (uiop:getenv "AWS_DEFAULT_REGION")
+                             "us-east-1")
+  "AWS region used to build the Bedrock runtime endpoint.")
 (defvar *ollama-endpoint* (or (uiop:getenv "OLLAMA_ENDPOINT")
 			     "http://localhost:11434/api/chat")
   "Ollama Endpoint uri")
+
+;; Subscription/OAuth token overrides. These mirror how GitHub Copilot can be
+;; driven purely from an environment variable. When set, they take precedence
+;; over any stored OAuth credentials.
+(defvar *anthropic-oauth-token* (uiop:getenv "ANTHROPIC_OAUTH_TOKEN")
+  "OAuth bearer (access) token for the Anthropic subscription API.")
+(defvar *antigravity-token* (uiop:getenv "ANTIGRAVITY_TOKEN")
+  "OAuth access token for Google Antigravity / Cloud Code Assist.")
+(defvar *antigravity-project-id* (uiop:getenv "ANTIGRAVITY_PROJECT_ID")
+  "Project ID for Google Antigravity / Cloud Code Assist.")
 
 (defun read-copilot-token-from-file ()
   "Read GitHub access token (Personal Access Token) from hosts.json config file."
@@ -448,6 +488,22 @@ Returns NIL if no choices or content are present."
                       when (cdr (assoc :function_call part))
 			collect (cdr (assoc :function_call part))))))
        (values text-content function-calls)))
+    (:bedrock
+     ;; Bedrock Converse non-streaming response structure
+     (let* ((output (cdr (assoc :output response)))
+            (message (when output (cdr (assoc :message output))))
+            (content-blocks (when message (cdr (assoc :content message))))
+            (text-content
+              (when content-blocks
+                (loop for block in content-blocks
+                      for text = (cdr (assoc :text block))
+                      when text return text)))
+            (tool-calls
+              (when content-blocks
+                (loop for block in content-blocks
+                      for tool-use = (cdr (assoc :tool_use block))
+                      when tool-use collect tool-use))))
+       (values text-content tool-calls)))
     (otherwise
      (error "Unknown provider type for message extraction: ~A" provider))))
 
@@ -469,12 +525,17 @@ Returns NIL if no choices or content are present."
                         (:openrouter #'openrouter-complete)
                         (:gemini #'gemini-complete)
                         (:copilot #'copilot-complete)
+                        (:mistral #'mistral-complete)
+                        (:deepseek #'deepseek-complete)
+                        (:kimi #'kimi-complete)
+                        (:opencode-go #'opencode-complete)
+                        (:bedrock #'bedrock-complete)
                         (otherwise (error "Unknown completer type: ~A" type)))))
     ;; Ensure max-context, images, tools, and tool-choice are passed along with other args
-    (apply completer-fn messages 
-           :max-context max-context 
-           :images images 
-           :tools tools 
+    (apply completer-fn messages
+           :max-context max-context
+           :images images
+           :tools tools
            :tool-choice tool-choice
            args)))
 
@@ -534,6 +595,24 @@ Returns NIL if no choices or content are present."
                      (debug-log (format nil "~&API JSON Parse Error: ~A~%Response: ~A~%" e response-string))
                nil))))))))
 
+(defun finish-completion (provider endpoint payload headers stream processed-messages)
+  "Shared stream/non-stream tail for all providers.
+   For streaming, returns (values stream-reader processed-messages).
+   Otherwise returns (values content tool-calls full-message-history)."
+  (if stream
+      (values (make-stream-reader (execute-llm-request endpoint payload headers t)
+                                  provider)
+              processed-messages)
+      (let ((json (execute-llm-request endpoint payload headers nil)))
+        (if json
+            (multiple-value-bind (content tool-calls) (extract-messages provider json)
+              (values content tool-calls
+                      (append processed-messages
+                              (list `((:role . "assistant")
+                                      (:content . ,(or content ""))
+                                      ,@(when tool-calls `((:tool_calls . ,tool-calls))))))))
+            (values nil nil processed-messages)))))
+
 (defun openai-complete (messages &key
                         (api-key *openai-api-key*)
                         (model "gpt-4o-mini")
@@ -568,34 +647,21 @@ Returns NIL if no choices or content are present."
                            processed-messages))
          (messages-array (make-array (length final-messages) :initial-contents final-messages))
          ;; Convert tools to array if it's a list
-         (tools-array (when tools 
+         (tools-array (when tools
                         (if (vectorp tools) tools (coerce tools 'vector))))
          (payload-alist `((:model . ,model)
                           (:messages . ,messages-array)
                           ("max_tokens" . ,max-tokens)
                           (:stream . ,(if stream t :false))
                           ,@(when response-format `(("response_format" . (("type" . ,response-format)))))
-                          ,@(when tools-array `((:tools . ,tools-array) 
+                          ,@(when tools-array `((:tools . ,tools-array)
                                                 (:tool_choice . ,tool-choice)))))
          (payload-string (payload-to-json payload-alist))
          (headers (append `(("Content-Type" . "application/json")
                             ("Authorization" . ,(concatenate 'string "Bearer " api-key)))
                           extra-headers)))
     (debug-log (format nil "OpenAI Payload: ~A~%" payload-string))
-    (if stream
-      (let ((http-stream (execute-llm-request endpoint payload-string headers t)))
-        (values (make-stream-reader http-stream :openai)
-                processed-messages))
-      (let ((response-json (execute-llm-request endpoint payload-string headers nil)))
-        (if response-json
-            (multiple-value-bind (content tool-calls) (extract-messages :openai response-json)
-              (values content
-                      tool-calls
-                      (append processed-messages
-                              (list `((:role . "assistant")
-                                      (:content . ,(or content ""))
-                                      ,@(when tool-calls `((:tool_calls . ,tool-calls))))))))
-            (values nil nil processed-messages))))))
+    (finish-completion :openai endpoint payload-string headers stream processed-messages)))
 
 (defun ollama-complete (messages &key
 				   (model "llama3")
@@ -697,20 +763,7 @@ Returns NIL if no choices or content are present."
                             ("anthropic-beta" . "tools-2024-04-04"))
                           extra-headers)))
     (debug-log (format nil "Anthropic Payload: ~A~%" payload-string))
-    (if stream
-      (let ((http-stream (execute-llm-request endpoint payload-string headers t)))
-        (values (make-stream-reader http-stream :anthropic)
-                processed-messages))
-      (let ((response-json (execute-llm-request endpoint payload-string headers nil)))
-        (if response-json
-            (multiple-value-bind (content tool-calls) (extract-messages :anthropic response-json)
-              (values content
-                      tool-calls
-                      (append processed-messages
-                              (list `((:role . "assistant")
-                                      (:content . ,(or content ""))
-                                      ,@(when tool-calls `((:tool_calls . ,tool-calls))))))))
-            (values nil nil processed-messages))))))
+    (finish-completion :anthropic endpoint payload-string headers stream processed-messages)))
 
 (defun openrouter-complete (messages &key
                             (api-key *openrouter-api-key*)
@@ -755,20 +808,7 @@ Returns NIL if no choices or content are present."
                             ("Authorization" . ,(concatenate 'string "Bearer " api-key)))
                           extra-headers)))
     (debug-log (format nil "OpenRouter Payload: ~A~%" payload-string))
-    (if stream
-      (let ((http-stream (execute-llm-request endpoint payload-string headers t)))
-        (values (make-stream-reader http-stream :openrouter)
-                processed-messages))
-      (let ((response-json (execute-llm-request endpoint payload-string headers nil)))
-        (if response-json
-            (multiple-value-bind (content tool-calls) (extract-messages :openrouter response-json)
-              (values content
-                      tool-calls
-                      (append processed-messages
-                              (list `((:role . "assistant")
-                                      (:content . ,(or content ""))
-                                      ,@(when tool-calls `((:tool_calls . ,tool-calls))))))))
-            (values nil nil processed-messages))))))
+    (finish-completion :openrouter endpoint payload-string headers stream processed-messages)))
 
 (defun copilot-complete (messages &key
 				  (api-token (get-copilot-token))
@@ -814,20 +854,95 @@ Returns NIL if no choices or content are present."
     (unless api-token
       (error "No GitHub Copilot token available. Set GITHUB_COPILOT_ACCESS_TOKEN and try again."))
     (debug-log (format nil "Copilot Payload: ~A~%" payload-string))
-    (if stream
-      (let ((http-stream (execute-llm-request endpoint payload-string headers t)))
-        (values (make-stream-reader http-stream :openai) ; Copilot uses OpenAI-compatible streaming
-                processed-messages))
-      (let ((response-json (execute-llm-request endpoint payload-string headers nil)))
-        (if response-json
-            (multiple-value-bind (content tool-calls) (extract-messages :openai response-json)
-              (values content
-                      tool-calls
-                      (append processed-messages
-                              (list `((:role . "assistant")
-                                      (:content . ,(or content ""))
-                                      ,@(when tool-calls `((:tool_calls . ,tool-calls))))))))
-            (values nil nil processed-messages))))))
+    ;; Copilot uses OpenAI-compatible streaming and response shape.
+    (finish-completion :openai endpoint payload-string headers stream processed-messages)))
+
+(defun mistral-complete (messages &rest args
+                         &key (api-key *mistral-api-key*)
+                              (model "mistral-small-latest")
+                              (endpoint "https://api.mistral.ai/v1/chat/completions")
+                         &allow-other-keys)
+  "Generate a completion using the Mistral API (OpenAI-compatible)."
+  (apply #'openai-complete messages
+         :api-key api-key :model model :endpoint endpoint
+         args))
+
+(defun deepseek-complete (messages &rest args
+                          &key (api-key *deepseek-api-key*)
+                               (model "deepseek-v4-pro")
+                               (endpoint "https://api.deepseek.com/chat/completions")
+                          &allow-other-keys)
+  "Generate a completion using the DeepSeek API (OpenAI-compatible)."
+  (apply #'openai-complete messages
+         :api-key api-key :model model :endpoint endpoint
+         args))
+
+(defun kimi-complete (messages &rest args
+                      &key (api-key *kimi-api-key*)
+                           (model "kimi-k2.6")
+                           (endpoint "https://api.moonshot.ai/v1/chat/completions")
+                      &allow-other-keys)
+  "Generate a completion using the Kimi (Moonshot) API (OpenAI-compatible)."
+  (apply #'openai-complete messages
+         :api-key api-key :model model :endpoint endpoint
+         args))
+
+(defun opencode-complete (messages &rest args
+                          &key (api-key *opencode-api-key*)
+                               (model "kimi-k2.6")
+                               (endpoint "https://opencode.ai/zen/go/v1/chat/completions")
+                          &allow-other-keys)
+  "Generate a completion using the OpenCode Go subscription API (OpenAI-compatible)."
+  (apply #'openai-complete messages
+         :api-key api-key :model model :endpoint endpoint
+         args))
+
+(defun bedrock-complete (messages &key
+                         (bearer-token *bedrock-bearer-token*)
+                         (region *bedrock-region*)
+                         (model "anthropic.claude-3-5-sonnet-20241022-v2:0")
+                         (endpoint nil)
+                         (system-prompt *default-system-prompt*)
+                         (max-tokens 1024)
+                         (max-context 32000)
+                         (stream nil)
+                         (images nil)
+                         (tools nil)
+                         (extra-headers nil)
+                         &allow-other-keys)
+  "Generate a completion using the Amazon Bedrock Converse API.
+   Uses bearer-token (AWS_BEARER_TOKEN_BEDROCK) authentication and bypasses SigV4.
+   Streaming is not supported; requests are always non-streaming."
+  (declare (ignore max-context images tools stream))
+  (let* ((processed-messages (prepare-messages messages system-prompt :add-system-prompt nil))
+         ;; Bedrock Converse only accepts user/assistant roles with structured content.
+         (converse-list (loop for msg in processed-messages
+                              for role = (cdr (assoc :role msg))
+                              unless (string= role "system")
+                              collect `(("role" . ,role)
+                                        ("content" . #((("text" . ,(cdr (assoc :content msg))))))) ))
+         (messages-array (make-array (length converse-list) :initial-contents converse-list))
+         (url (or endpoint
+                  (format nil "https://bedrock-runtime.~A.amazonaws.com/model/~A/converse"
+                          region (drakma:url-encode model :utf-8))))
+         (payload-alist `(("messages" . ,messages-array)
+                          ,@(when (and system-prompt (> (length system-prompt) 0))
+                              `(("system" . #((("text" . ,system-prompt))))))
+                          ("inferenceConfig" . (("maxTokens" . ,max-tokens)))))
+         (payload-string (payload-to-json payload-alist))
+         (headers (append `(("Content-Type" . "application/json")
+                            ("Authorization" . ,(concatenate 'string "Bearer " (or bearer-token ""))))
+                          extra-headers)))
+    (debug-log (format nil "Bedrock Payload: ~A~%" payload-string))
+    (let ((json (execute-llm-request url payload-string headers nil)))
+      (if json
+          (multiple-value-bind (content tool-calls) (extract-messages :bedrock json)
+            (values content tool-calls
+                    (append processed-messages
+                            (list `((:role . "assistant")
+                                    (:content . ,(or content ""))
+                                    ,@(when tool-calls `((:tool_calls . ,tool-calls))))))))
+          (values nil nil processed-messages)))))
 
 (defun gemini-complete (messages &key
                         (api-key *gemini-api-key*)
@@ -876,20 +991,7 @@ Returns NIL if no choices or content are present."
          (payload-string (payload-to-json payload-alist))
          (headers '(("Content-Type" . "application/json"))))
     (debug-log (format nil "Gemini Payload: ~A~%" payload-string))
-    (if stream
-      (let ((http-stream (execute-llm-request api-url payload-string headers t)))
-        (values (make-stream-reader http-stream :gemini)
-                processed-messages))
-      (let ((response-json (execute-llm-request api-url payload-string headers nil)))
-        (if response-json
-            (multiple-value-bind (content tool-calls) (extract-messages :gemini response-json)
-              (values content
-                      tool-calls
-                      (append processed-messages
-                              (list `((:role . "assistant")
-                                      (:content . ,(or content ""))
-                                      ,@(when tool-calls `((:tool_calls . ,tool-calls))))))))
-            (values nil nil processed-messages))))))
+    (finish-completion :gemini api-url payload-string headers stream processed-messages)))
 
 ;;* embeddings
 (defun ollama-embed (text &key
@@ -912,7 +1014,7 @@ Returns NIL if no choices or content are present."
                                  :connection-timeout *read-timeout*)
           (declare (ignore response-headers uri stream must-close))
 
-          (debug-log "~&Ollama Embeddings Response Status: ~A (~A)~%" status-code reason)
+          (debug-log (format nil "~&Ollama Embeddings Response Status: ~A (~A)~%" status-code reason))
 
           (if (>= status-code 400)
               (progn

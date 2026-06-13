@@ -1,8 +1,7 @@
 (in-package :hactar-tests)
 
 (def-suite ruhe-tests
-  :description "Tests for Ruhe web feed generator."
-  )
+	   :description "Tests for Ruhe web feed generator.")
 
 (in-suite ruhe-tests)
 
@@ -27,19 +26,19 @@
   "Test that defformat correctly creates and registers a format."
   (clrhash ruhe::*formats*)
   (clrhash ruhe::*formats-by-ext*)
-  
+
   (eval '(ruhe::defformat test-fmt
            :language "testlang"
            :extensions ("tf" "tfx")
            :parser (lambda (s) (list :source s :tree nil))
            :renderer (lambda (bundle) (getf bundle :source))))
-  
+
   (let ((fmt (ruhe::find-format 'test-fmt)))
     (is-true fmt)
     (is (eq (ruhe::format-object-name fmt) 'test-fmt))
     (is (string= (ruhe::format-object-language fmt) "testlang"))
     (is (equal (ruhe::format-object-extensions fmt) '("tf" "tfx"))))
-  
+
   ;; Check extension mapping
   (is (eq (gethash "tf" ruhe::*formats-by-ext*) 'test-fmt))
   (is (eq (gethash "tfx" ruhe::*formats-by-ext*) 'test-fmt)))
@@ -70,19 +69,19 @@
   "Test that defformat can extend a parent format."
   (clrhash ruhe::*formats*)
   (clrhash ruhe::*formats-by-ext*)
-  
+
   ;; Define base format
   (eval '(ruhe::defformat base-fmt
            :extensions ("base")
            :parser (lambda (s) (list :source s :parsed t))
            :renderer (lambda (b) (format nil "BASE:~A" (getf b :source)))))
-  
+
   ;; Define extended format
   (eval '(ruhe::defformat extended-fmt
            :extends base-fmt
            :extensions ("ext")
            :wrap-render (lambda (result) (format nil "EXTENDED:~A" result))))
-  
+
   (let* ((ext-fmt (ruhe::find-format 'extended-fmt))
          (parse-fn (ruhe::format-object-parse ext-fmt))
          (render-fn (ruhe::format-object-render ext-fmt)))
@@ -108,13 +107,13 @@
 (test ruhe-defschema-macro-test
   "Test that defschema correctly creates and registers a schema."
   (clrhash ruhe::*schemas*)
-  
+
   (eval '(ruhe::defschema test-schema
            (:type :object
             :properties ((:id (:type :integer))
                         (:name (:type :string))))
            :extends json))
-  
+
   (let ((schema (ruhe::find-schema 'test-schema)))
     (is-true schema)
     (is (eq (ruhe::schema-object-name schema) 'test-schema))
@@ -123,9 +122,9 @@
 (test ruhe-schema-exists-p-test
   "Test checking if a schema exists."
   (clrhash ruhe::*schemas*)
-  
+
   (eval '(ruhe::defschema exists-schema (:type :string)))
-  
+
   (is-true (ruhe::schema-exists-p 'exists-schema))
   (is (null (ruhe::schema-exists-p 'nonexistent-schema))))
 
@@ -144,12 +143,12 @@
 (test ruhe-defsource-macro-test
   "Test that defsource correctly creates and registers a source."
   (clrhash ruhe::*sources*)
-  
+
   (eval '(ruhe::defsource test-api
            :base-url "https://test.api.com"
            :headers (("X-Test" . "value"))
            :get (lambda (id) (format nil "Item ~A" id))))
-  
+
   (let ((source (ruhe::find-source 'test-api)))
     (is-true source)
     (is (eq (ruhe::source-object-name source) 'test-api))
@@ -158,13 +157,13 @@
 (test ruhe-fetch-source-test
   "Test fetching data from a registered source."
   (clrhash ruhe::*sources*)
-  
+
   (eval '(ruhe::defsource fetch-test-source
            :get (lambda (arg) (format nil "Fetched: ~A" arg))))
-  
+
   (let ((result (ruhe::fetch-source 'fetch-test-source "item-1")))
     (is (string= result "Fetched: item-1")))
-  
+
   ;; Non-existent source returns nil
   (is (null (ruhe::fetch-source 'nonexistent "arg"))))
 
@@ -297,14 +296,14 @@
 (test ruhe-cache-operations-test
   "Test cache put, get, and clear."
   (ruhe::ruhe-cache-clear)
-  
+
   ;; Initially empty
   (is (null (ruhe::ruhe-cache-get "test-key")))
-  
+
   ;; Put and get
   (ruhe::ruhe-cache-put "test-key" "test-content")
   (is (string= (ruhe::ruhe-cache-get "test-key") "test-content"))
-  
+
   ;; Clear
   (ruhe::ruhe-cache-clear)
   (is (null (ruhe::ruhe-cache-get "test-key"))))
@@ -312,26 +311,26 @@
 (test ruhe-cache-lru-test
   "Test that cache maintains LRU order."
   (ruhe::ruhe-cache-clear)
-  
+
   (ruhe::ruhe-cache-put "key1" "content1")
   (ruhe::ruhe-cache-put "key2" "content2")
   (ruhe::ruhe-cache-put "key3" "content3")
-  
+
   ;; Access key1 to move it to front
   (ruhe::ruhe-cache-get "key1")
-  
+
   ;; key1 should be at front of order
   (is (string= (first ruhe::*ruhe-cache-order*) "key1")))
 
 (test ruhe-cache-size-bytes-test
   "Test calculating cache size in bytes."
   (ruhe::ruhe-cache-clear)
-  
+
   (is (= 0 (ruhe::ruhe-cache-size-bytes)))
-  
+
   (ruhe::ruhe-cache-put "k1" "hello")  ; ~5 bytes for the value
   (is (> (ruhe::ruhe-cache-size-bytes) 0))
-  
+
   (ruhe::ruhe-cache-put "k2" "world!")  ; More bytes
   (let ((size-after (ruhe::ruhe-cache-size-bytes)))
     (is (> size-after 5))))
@@ -352,7 +351,7 @@
       (is (= 2 (length urls)))
       (is (member "https://example.com" urls :test #'string=))
       (is (member "http://test.org/page" urls :test #'string=))))
-  
+
   ;; No URLs
   (is (null (ruhe::extract-urls "no urls here"))))
 
@@ -363,11 +362,11 @@
     (let ((sources (ruhe::detect-sources text)))
       (is (find :reddit sources :key (lambda (s) (getf s :type))))
       (is (find :hn sources :key (lambda (s) (getf s :type))))))
-  
+
   ;; RSS feed detection
   (let ((sources (ruhe::detect-sources "Subscribe to https://example.com/rss")))
     (is (find :rss sources :key (lambda (s) (getf s :type)))))
-  
+
   ;; Subreddit keyword detection
   (let ((sources (ruhe::detect-sources "r/programming is great")))
     (is (find :reddit sources :key (lambda (s) (getf s :type))))))
@@ -405,7 +404,7 @@
     (let ((org-result (ruhe::generate-output sources-content :org)))
       (is (search "* Source 1" org-result))
       (is (search "* Source 2" org-result)))
-    
+
     ;; Markdown format
     (let ((md-result (ruhe::generate-output sources-content :markdown)))
       (is (search "# Source 1" md-result))
@@ -439,9 +438,9 @@
   (uiop:with-temporary-file (:pathname p :keep t)
     (with-open-file (s p :direction :output :if-exists :supersede)
       (format s "Follow https://example.com/rss for updates"))
-    
+
     (ruhe::ruhe-cache-clear)
-    
+
     (with-dynamic-stubs ((ruhe::parse-intent (lambda (text)
                                                (declare (ignore text))
                                                '((:sources))))
@@ -457,7 +456,7 @@
   (uiop:with-temporary-file (:pathname p :keep t)
     (with-open-file (s p :direction :output :if-exists :supersede)
       (format s "Monitor https://news.ycombinator.com for tech news"))
-    
+
     (with-dynamic-stubs ((ruhe::parse-intent (lambda (text)
                                                (declare (ignore text))
                                                '((:sources)))))
@@ -472,7 +471,7 @@
     (uiop:with-temporary-file (:pathname output :keep t)
       (with-open-file (s input :direction :output :if-exists :supersede)
         (format s "Test feed"))
-      
+
       (with-dynamic-stubs ((ruhe::parse-intent (lambda (text)
                                                  (declare (ignore text))
                                                  '((:sources)))))
@@ -498,15 +497,15 @@
     ;; RSS source
     (let ((content (ruhe::fetch-source-content '(:type :rss :url "http://feed.com"))))
       (is-true (or (null content) (listp content))))  ; Just check it doesn't error
-    
+
     ;; HN source
     (let ((content (ruhe::fetch-source-content '(:type :hn :feed :top))))
       (is-true (or (null content) (listp content))))
-    
+
     ;; Reddit source
     (let ((content (ruhe::fetch-source-content '(:type :reddit :subreddit "lisp"))))
       (is-true (or (null content) (listp content))))
-    
+
     ;; Web source
     (let ((content (ruhe::fetch-source-content '(:type :web :url "http://page.com"))))
       (is (string= content "Web content")))))
@@ -520,8 +519,7 @@
   (is-true (gethash "/ruhe-sources" hactar::*commands*))
   (is-true (gethash "/ruhe-urls" hactar::*commands*))
   ;; Aliases
-  (is-true (gethash "/brief" hactar::*commands*))
-  (is-true (gethash "/tldr" hactar::*commands*)))
+  (is-true (gethash "/txt.tldr" hactar::*commands*)))
 
 (test ruhe-cron-command-test
   "Test /ruhe-cron command generates cron syntax."
@@ -583,13 +581,13 @@
   (uiop:with-temporary-file (:pathname p :keep t)
     (with-open-file (s p :direction :output :if-exists :supersede)
       (format s "Test content"))
-    
+
     (ruhe::ruhe-cache-clear)
-    
+
     ;; Pre-populate cache
     (let ((key (ruhe::ruhe-cache-key p)))
       (ruhe::ruhe-cache-put key "# Cached Result"))
-    
+
     ;; Should return cached content
     (let ((result (ruhe::ruhe-process p :format :org :use-cache t)))
       (is (string= result "# Cached Result")))))

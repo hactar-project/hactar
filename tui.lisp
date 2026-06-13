@@ -2,11 +2,12 @@
 
 (defvar *commands*)  ; forward declaration — defined in commands.lisp
 
-;;* tui state 
+;;* state
 (defvar *tui-running* nil "T when the 3-column TUI is active.")
 (defvar *tui-chat-lines* '() "List of chat line plists for the main panel.")
 (defvar *tui-sidebar-model* nil "Current model name string for sidebar display.")
 (defvar *tui-sidebar-files* '() "List of modified file strings for sidebar.")
+(defvar *tui-sidebar-docs* '() "List of doc titles in context for sidebar.")
 (defvar *tui-sidebar-lsps* '() "List of LSP plists ((:name . n) (:status . s)).")
 (defvar *tui-sidebar-mcps* '() "List of MCP name strings.")
 (defvar *tui-sidebar-tool-calls* '() "List of active tool call plists: (:id :name :status :kind).")
@@ -25,13 +26,20 @@
 (defvar *tui-completions* '() "Current list of completion candidates.")
 (defvar *tui-completion-index* -1 "Current index in completion list (-1 = none selected).")
 (defvar *tui-completion-prefix* "" "The prefix text that was completed.")
+(defvar *tui-expand-tool-calls* nil "Whether tool call details are expanded in the chat panel.")
+(defvar *tui-autocomplete-disabled* nil "T if the user explicitly dismissed autocomplete via Esc.")
 
-;;** Modal (command palette) completion state
+;;** history
+(defvar *tui-input-history* '() "List of previously sent input strings (newest first).")
+(defvar *tui-history-index* -1 "Current position in history (-1 = not browsing).")
+(defvar *tui-history-saved-input* "" "Saved input buffer from before entering history mode.")
+
+;;** modals
 (defvar *tui-modal-completions* '() "Completion candidates in the command modal.")
 (defvar *tui-modal-completion-index* -1 "Selected index in modal completion list.")
 (defvar *tui-modal-completion-prefix* "" "The query prefix when modal completion started.")
 
-;;* utils 
+;;* utils
 (defun tui-safe-write (win str col row max-width)
   "Write STR to WIN at (COL, ROW), truncating to MAX-WIDTH. Safe against out-of-bounds.
    Strips newlines to prevent ncurses from writing to unintended rows."
@@ -73,12 +81,87 @@
     (tui-vline win col (1+ row) (- height 2) #\│)
     (tui-vline win right (1+ row) (- height 2) #\│)))
 
-;;* completion helpers 
+;;* completion helpers
 (defun tui-reset-completions ()
   "Clear any active completion state."
   (setf *tui-completions* '())
   (setf *tui-completion-index* -1)
   (setf *tui-completion-prefix* ""))
+
+(defun tui-get-command-description (cmd-name)
+  "Get the short description string for CMD-NAME."
+  (let ((info (gethash cmd-name *commands*)))
+    (if info
+        (or (second info) "")
+        "")))
+
+(defun tui-completions-height ()
+  "Return the number of lines required by the autocomplete UI below the input line."
+  (if (and *tui-completions* (not *tui-command-modal-open*))
+      (let* ((count (length *tui-completions*))
+             (max-visible 5)
+             (completions-height (min count max-visible))
+             (has-more (> count max-visible))
+             (more-height (if has-more 1 0))
+             (hints-height 2))
+        (+ completions-height more-height hints-height))
+      0))
+
+(defun tui-auto-complete-update ()
+  "Populate *tui-completions* based on current input buffer."
+  (let* ((input *tui-input-buffer*)
+         (trimmed (string-trim '(#\Space #\Tab) input)))
+    (if (and (> (length input) 0)
+             (char= (char input 0) #\/))
+        (let* ((words (str:split #\Space trimmed :omit-nulls t))
+               (first-word (or (first words) "/")))
+          (if (and (str:starts-with? "/" first-word)
+                   (or (= (length words) 0)
+                       (and (= (length words) 1)
+                            (not (position #\Space input :from-end t :end (length input))))))
+              ;; Complete command names
+              (let* ((partial (if (string= first-word "") "/" first-word))
+                     (matches (loop for cmd being the hash-keys of *commands*
+                                    unless (gethash cmd *tui-hidden-commands*)
+                                    when (str:starts-with-p partial cmd :ignore-case t)
+                                    collect cmd)))
+                (if matches
+                    (progn
+                      (setf *tui-completion-prefix* input)
+                      (setf *tui-completions* (sort matches #'string<))
+                      (setf *tui-completion-index* 0))
+                    (tui-reset-completions)))
+              ;; Complete command arguments
+              (let* ((cmd-name first-word)
+                     (rest-args (rest words))
+                     (partial (if (and (> (length input) 0)
+                                       (char= (char input (1- (length input))) #\Space))
+                                  ""
+                                  (or (car (last rest-args)) "")))
+                     (args-without-partial (if (string= partial "")
+                                               rest-args
+                                               (butlast rest-args)))
+                     (completions (or (get-command-completions cmd-name partial args-without-partial)
+                                      (tui-path-completions partial))))
+                (if completions
+                    (progn
+                      (setf *tui-completion-prefix* input)
+                      (setf *tui-completions* completions)
+                      (setf *tui-completion-index* 0))
+                    (tui-reset-completions)))))
+        (tui-reset-completions))))
+
+(defun tui-on-input-change ()
+  "Called whenever *tui-input-buffer* is modified by character insertion or deletion."
+  (let ((input *tui-input-buffer*))
+    ;; If the buffer is empty, reset the disabled flag
+    (when (string= input "")
+      (setf *tui-autocomplete-disabled* nil))
+    ;; Update completions if not disabled
+    (if (and (not *tui-autocomplete-disabled*)
+             (str:starts-with? "/" input))
+        (tui-auto-complete-update)
+        (tui-reset-completions))))
 
 (defun tui-accept-completion ()
   "Apply the currently selected completion to the input buffer."
@@ -104,6 +187,26 @@
             (setf *tui-input-buffer* (concatenate 'string base completion))))))
   (tui-reset-completions))
 
+(defun tui-path-completions (text)
+  "Return path completions for TEXT relative to *repo-root*."
+  (let* ((prefix (if (string= text "") "./" text))
+         (dir-part (or (directory-namestring prefix) ""))
+         (name-part (file-namestring prefix))
+         (base-dir (if (and dir-part (not (string= dir-part "")))
+                       (merge-pathnames dir-part (or *repo-root* (uiop:getcwd)))
+                       (or *repo-root* (uiop:getcwd)))))
+    (when (probe-file base-dir)
+      (sort
+       (loop for entry in (directory (merge-pathnames (make-pathname :name :wild :type :wild :defaults base-dir) base-dir))
+             for rel = (if *repo-root*
+                           (uiop:native-namestring (uiop:enough-pathname entry *repo-root*))
+                           (uiop:native-namestring entry))
+             when (str:starts-with-p name-part (file-namestring rel) :ignore-case t)
+             collect (if (uiop:directory-pathname-p entry)
+                         (if (str:ends-with-p "/" rel) rel (format nil "~A/" rel))
+                         rel))
+       #'string<))))
+
 (defun tui-try-complete ()
   "Attempt to complete the current input buffer. Populates the completion list for display."
   (if *tui-completions*
@@ -123,6 +226,7 @@
                 ;; Complete command names
                 (let* ((partial first-word)
                        (matches (loop for cmd being the hash-keys of *commands*
+                                      unless (gethash cmd *tui-hidden-commands*)
                                       when (str:starts-with-p partial cmd :ignore-case t)
                                       collect cmd)))
                   (when matches
@@ -140,11 +244,47 @@
                          (args-without-partial (if (string= partial "")
                                                    rest-args
                                                    (butlast rest-args)))
-                         (completions (get-command-completions cmd-name partial args-without-partial)))
+                         (completions (or (get-command-completions cmd-name partial args-without-partial)
+                                          (tui-path-completions partial))))
                     (when completions
                       (setf *tui-completion-prefix* input)
                       (setf *tui-completions* completions)
                       (setf *tui-completion-index* 0))))))))))
+
+;;* input history helpers
+(defun tui-history-push (text)
+  "Push TEXT onto the input history stack (newest first). Deduplicates consecutive."
+  (when (and (stringp text) (> (length text) 0))
+    (when (or (null *tui-input-history*)
+              (not (string= text (first *tui-input-history*))))
+      (push text *tui-input-history*))))
+
+(defun tui-history-navigate (direction)
+  "Navigate input history. DIRECTION is :up (older) or :down (newer).
+   Saves the current input on first :up, restores on exiting history."
+  (when (null *tui-input-history*) (return-from tui-history-navigate))
+  (let ((max-index (1- (length *tui-input-history*))))
+    (case direction
+      (:up
+       (when (= *tui-history-index* -1)
+         ;; Entering history mode — save current input
+         (setf *tui-history-saved-input* *tui-input-buffer*))
+       (setf *tui-history-index* (min max-index (1+ *tui-history-index*)))
+       (setf *tui-input-buffer* (nth *tui-history-index* *tui-input-history*)))
+      (:down
+       (cond
+         ((<= *tui-history-index* 0)
+          ;; Exiting history mode — restore saved input
+          (setf *tui-history-index* -1)
+          (setf *tui-input-buffer* *tui-history-saved-input*))
+         (t
+          (decf *tui-history-index*)
+          (setf *tui-input-buffer* (nth *tui-history-index* *tui-input-history*))))))))
+
+(defun tui-history-reset ()
+  "Reset history navigation state without changing the input buffer."
+  (setf *tui-history-index* -1)
+  (setf *tui-history-saved-input* ""))
 
 ;;* modal completion helpers
 (defun tui-modal-reset-completions ()
@@ -213,7 +353,7 @@
               (setf *tui-modal-completions* completions)
               (setf *tui-modal-completion-index* 0)))))))
 
-;;* chat lines 
+;;* chat lines
 (defun tui-add-chat-line (text &key (type :text) (role "system"))
   "Add a line to the chat panel. TYPE can be :text, :thought, :bash, :assistant, :user, :error."
   (push (list :text text :type type :role role) *tui-chat-lines*))
@@ -222,7 +362,20 @@
   (tui-add-chat-line (format nil "> ~A" text) :type :user :role "user"))
 
 (defun tui-add-assistant-message (text)
-  (tui-add-chat-line text :type :assistant :role "assistant"))
+  (tui-add-chat-line (render-md-ansi text) :type :assistant :role "assistant"))
+
+(defun tui-add-chat-tool-call (id name args)
+  "Add a tool call line to the chat panel."
+  (push (list :id id :name name :args args :status "in_progress" :type :tool-call :role "assistant" :result nil)
+        *tui-chat-lines*))
+
+(defun tui-update-chat-tool-call (id status &optional result)
+  "Update the status and result of a tool call in the chat panel."
+  (let ((entry (find id *tui-chat-lines* :key (lambda (line) (getf line :id)) :test #'string-equal)))
+    (when entry
+      (setf (getf entry :status) status)
+      (when result
+        (setf (getf entry :result) result)))))
 
 (defun tui-add-thought (seconds)
   (tui-add-chat-line (format nil "Thought for ~As" seconds) :type :thought))
@@ -235,8 +388,7 @@
     (dolist (line (str:lines output))
       (tui-add-chat-line (format nil "    ~A" line) :type :text))))
 
-;;; --- Tool call tracking ---
-
+;;* tool calls
 (defun tui-add-tool-call (id name kind)
   "Register a new tool call in the sidebar. STATUS starts as \"pending\"."
   (push (list :id id :name name :status "pending" :kind (or kind "other"))
@@ -274,8 +426,7 @@
   (setf *tui-status-line* text)
   (setf *tui-status-type* type))
 
-;;*Sidebar
-
+;;* Sidebar
 (defun tui-refresh-sidebar-data ()
   "Pull current state into sidebar display variables."
   (setf *tui-sidebar-model*
@@ -289,20 +440,116 @@
                     (if *repo-root*
                         (uiop:native-namestring (uiop:enough-pathname path *repo-root*))
                         (uiop:native-namestring path))))
-                *files*)))
-;;*Rendering
+                *files*))
+  (setf *tui-sidebar-docs*
+        (mapcar (lambda (d) (cdr (assoc :title d)))
+                *docs-context*)))
+
+(defun clean-tool-name (name)
+  (let* ((name-str (format nil "~A" name))
+         (colon-pos (position #\: name-str :from-end t)))
+    (if colon-pos
+        (subseq name-str (1+ colon-pos))
+        name-str)))
+
+(defun extract-tool-target-arg (args)
+  "Find the most representative argument to display in the tool header."
+  (let ((keys '(:path :command :message :msg :query :name :url :target-file :targetfile :target :value)))
+    (loop for key in keys
+          for val = (getf args key)
+          when val
+          return (format nil "~A" val)
+          finally (return (if args
+                              (format nil "~A" (cadr args))
+                              "")))))
+
+(defun format-tool-call-header (name args status)
+  (let* ((cleaned-name (clean-tool-name name))
+         (target-arg (extract-tool-target-arg args))
+         (bullet-color (cond
+                         ((string= status "completed") :tool-done)
+                         ((string= status "failed") :tool-failed)
+                         ((string= status "in_progress") :tool-running)
+                         (t :tool-pending)))
+         (hint-str (if *tui-expand-tool-calls* " (ctrl+o to collapse)" " (ctrl+o to expand)")))
+    (list (cons "● " (list :color bullet-color :bold t))
+          (cons (format nil "~A(~A)" cleaned-name target-arg) (list :bold t))
+          (cons hint-str (list :color :muted)))))
+
+(defun format-tool-call-details-string (args status result)
+  "Format the expanded tool call details as a string."
+  (with-output-to-string (s)
+    (format s "  Arguments:~%")
+    (if args
+        (loop for (key val) on args by #'cddr
+              do (format s "    ~S: ~S~%" key val))
+        (format s "    None~%"))
+    (cond
+      ((string= status "completed")
+       (format s "  Result:~%")
+       (let ((res-str (if result (format nil "~A" result) "nil")))
+         (dolist (line (str:lines res-str))
+           (format s "    ~A~%" line))))
+      ((string= status "failed")
+       (format s "  Error:~%")
+       (let ((err-str (if result (format nil "~A" result) "unknown error")))
+         (dolist (line (str:lines err-str))
+           (format s "    ~A~%" line)))))))
+
+(defun dim-run (run)
+  "Return a copy of RUN with :dim T added to its style plist."
+  (cons (car run) (list* :dim t (cdr run))))
+
+;;* Rendering
 (defun tui-render-chat-panel (win col row width height)
-  "Render the main chat area."
-  ;; Wrap all chat lines to width, collect into display lines
+  "Render the main chat area with visual distinction between message blocks."
   (let* ((content-width (- width 2))
-         (all-display-lines '()))
-    ;; Chat lines are newest-first in *tui-chat-lines*, reverse for display
-    (dolist (chat-line (reverse *tui-chat-lines*))
-      (let ((text (getf chat-line :text))
-            (type (getf chat-line :type)))
-        (let ((wrapped (wrap-text text content-width)))
-          (dolist (wline (or wrapped '("")))
-            (push (list :text wline :type type) all-display-lines)))))
+         (all-display-lines '())
+         (len (length *tui-chat-lines*))
+         (most-recent-user-idx (position-if (lambda (line) (eq (getf line :type) :user))
+                                            *tui-chat-lines*)))
+    (loop for i from (1- len) downto 0
+          for chat-line = (nth i *tui-chat-lines*)
+          do (let* ((type (getf chat-line :type))
+                    (dim-p (and most-recent-user-idx (> i most-recent-user-idx))))
+               ;; If this is the most recent user prompt, insert the separator before it
+               (when (and most-recent-user-idx (= i most-recent-user-idx))
+                 (push (list :runs (list (cons "_____________________________" '(:color :muted :bold nil :dim nil))) :type :separator)
+                       all-display-lines))
+
+               (cond
+                 ((eq type :tool-call)
+                  (let* ((name (getf chat-line :name))
+                         (args (getf chat-line :args))
+                         (status (getf chat-line :status))
+                         (result (getf chat-line :result))
+                         (header-runs (format-tool-call-header name args status)))
+                    (when dim-p
+                      (setf header-runs (mapcar #'dim-run header-runs)))
+                    (push (list :runs header-runs :type :tool-call) all-display-lines)
+
+                    (when *tui-expand-tool-calls*
+                      (let* ((details-str (format-tool-call-details-string args status result))
+                             (wrapped-details (wrap-ansi-text details-str content-width)))
+                        (dolist (wl wrapped-details)
+                          (let ((styled-wl (mapcar (lambda (run)
+                                                     (let ((style (cdr run)))
+                                                       (cons (car run)
+                                                             (list* :color (if (string= status "failed") :ansi-red :muted)
+                                                                    style))))
+                                                   wl)))
+                            (when dim-p
+                              (setf styled-wl (mapcar #'dim-run styled-wl)))
+                            (push (list :runs styled-wl :type :tool-call-detail) all-display-lines)))))))
+
+                 (t
+                  (let* ((text (getf chat-line :text))
+                         (wrapped-lines (wrap-ansi-text text content-width)))
+                    (dolist (wl (or wrapped-lines (list (list (cons "" '(:color nil :bold nil :dim nil))))))
+                      (let ((styled-wl wl))
+                        (when dim-p
+                          (setf styled-wl (mapcar #'dim-run styled-wl)))
+                        (push (list :runs styled-wl :type type) all-display-lines))))))))
     (setf all-display-lines (nreverse all-display-lines))
     (let* ((total-lines (length all-display-lines))
            (visible-lines height)
@@ -312,21 +559,22 @@
             for screen-row = (+ row i)
             do (if (and (>= line-idx 0) (< line-idx total-lines))
                    (let* ((dline (nth line-idx all-display-lines))
-                          (text (getf dline :text))
+                          (runs (getf dline :runs))
                           (type (getf dline :type)))
-                     ;; Set color based on type
-                     (let ((pair (case type
-                                   (:user (tui-color-pair :chat-user))
-                                   (:assistant (tui-color-pair :chat-assistant))
-                                   (:thought (tui-color-pair :chat-thought))
-                                   (:bash (tui-color-pair :chat-bash))
-                                   (:error (tui-color-pair :chat-error))
-                                   (t 0))))
-                       (when (> pair 0)
-                         (charms/ll:attron (charms/ll:color-pair pair)))
-                       (tui-safe-write win text col screen-row content-width)
-                       (when (> pair 0)
-                         (charms/ll:attroff (charms/ll:color-pair pair)))))
+                     ;; Set base color and attributes based on type
+                     (let ((base-pair (case type
+                                        (:user (tui-color-pair :chat-user))
+                                        (:assistant (tui-color-pair :chat-assistant))
+                                        (:thought (tui-color-pair :chat-thought))
+                                        (:bash (tui-color-pair :chat-bash))
+                                        (:error (tui-color-pair :chat-error))
+                                        (:separator 0)
+                                        (:role-header (tui-color-pair :muted))
+                                        (:tool-call 0)
+                                        (:tool-call-detail (tui-color-pair :muted))
+                                        (t 0))))
+                       ;; Write the runs one by one
+                       (tui-write-runs win runs col screen-row content-width base-pair (eq type :user))))
                    ;; Empty line
                    nil)))))
 
@@ -360,41 +608,83 @@
     (tui-safe-write win (str:shorten text-width *tui-input-buffer* :ellipsis "")
                     (+ col 2) row text-width)))
 
-(defun tui-render-completions (win input-col input-row chat-width)
-  "Render a completion dropdown above the input bar."
-  (when (and *tui-completions* (>= *tui-completion-index* 0))
+(defun tui-render-autocomplete-popup (win col start-row width)
+  "Render the new autocomplete popup below the input line."
+  (when (and *tui-completions* (not *tui-command-modal-open*))
     (let* ((count (length *tui-completions*))
-           (max-visible (min count 10))
-           ;; Compute width: widest completion + 2 for padding
-           (menu-width (min (- chat-width 4)
-                            (+ 4 (reduce #'max *tui-completions*
-                                         :key #'length :initial-value 0))))
-           (menu-col (+ input-col 2))
+           (max-visible 5)
+           (visible-count (min count max-visible))
+           (has-more (> count max-visible))
            ;; Scroll offset so selected item is always visible
-           (scroll (max 0 (min (- count max-visible)
-                               (- *tui-completion-index* (1- max-visible)))))
-           ;; Draw upward from the input row
-           (base-row (1- input-row)))
-      ;; Draw items from bottom to top (closest to input = first visible item)
-      (loop for vi from 0 below max-visible
+           (scroll (max 0 (min (- count visible-count)
+                               (- *tui-completion-index* (1- visible-count)))))
+           (current-row start-row))
+      ;; Draw visible completions
+      (loop for vi from 0 below visible-count
             for idx = (+ scroll vi)
-            for screen-row = (- base-row (- max-visible vi 1))
-            when (and (>= idx 0) (< idx count) (>= screen-row 0))
-            do (let* ((item (nth idx *tui-completions*))
-                      (selected-p (= idx *tui-completion-index*))
-                      (display (str:shorten menu-width
-                                            (format nil " ~A " item)
-                                            :ellipsis "..")))
-                 ;; Fill background
+            for selected-p = (= idx *tui-completion-index*)
+            for cmd = (nth idx *tui-completions*)
+            for help-text = (or (tui-get-command-description cmd) "")
+            do (progn
+                 ;; 1. Draw selection indicator/prefix
                  (if selected-p
-                     (charms/ll:attron (charms/ll:color-pair (tui-color-pair :selected)))
+                     (progn
+                       (charms/ll:attron (charms/ll:color-pair (tui-color-pair :prompt-marker)))
+                       (tui-safe-write win "> " col current-row 2)
+                       (charms/ll:attroff (charms/ll:color-pair (tui-color-pair :prompt-marker))))
+                     (tui-safe-write win "  " col current-row 2))
+                 ;; 2. Draw command name
+                 (if selected-p
+                     (charms/ll:attron (charms/ll:color-pair (tui-color-pair :prompt-marker)))
                      (charms/ll:attron (charms/ll:color-pair (tui-color-pair :completion))))
-                 (tui-safe-write win (make-string menu-width :initial-element #\Space)
-                                 menu-col screen-row menu-width)
-                 (tui-safe-write win display menu-col screen-row menu-width)
+                 (tui-safe-write win cmd (+ col 2) current-row 18) ; reserve 18 cols for command name
                  (if selected-p
-                     (charms/ll:attroff (charms/ll:color-pair (tui-color-pair :selected)))
-                     (charms/ll:attroff (charms/ll:color-pair (tui-color-pair :completion)))))))))
+                     (charms/ll:attroff (charms/ll:color-pair (tui-color-pair :prompt-marker)))
+                     (charms/ll:attroff (charms/ll:color-pair (tui-color-pair :completion))))
+                 ;; 3. Draw description next to command name (in muted color)
+                 (charms/ll:attron (charms/ll:color-pair (tui-color-pair :muted)))
+                 (tui-safe-write win help-text (+ col 20) current-row (- width 21))
+                 (charms/ll:attroff (charms/ll:color-pair (tui-color-pair :muted)))
+                 (incf current-row)))
+      ;; Draw "↓ N more" indicator
+      (when has-more
+        (let ((remaining (- count visible-count)))
+          (charms/ll:attron (charms/ll:color-pair (tui-color-pair :muted)))
+          (tui-safe-write win (format nil "  ↓ ~A more" remaining) col current-row (- width 1))
+          (charms/ll:attroff (charms/ll:color-pair (tui-color-pair :muted)))
+          (incf current-row)))
+      ;; Draw hints
+      ;; Hint line 1: ↑/↓ Navigate  ·  enter Select  ·  tab Complete
+      (let ((hint1-col (+ col 2)))
+        ;; Write ↑/↓ in prompt-marker color
+        (charms/ll:attron (charms/ll:color-pair (tui-color-pair :prompt-marker)))
+        (tui-safe-write win "↑/↓" hint1-col current-row 3)
+        (charms/ll:attroff (charms/ll:color-pair (tui-color-pair :prompt-marker)))
+        ;; Write " Navigate  ·  " in muted color
+        (charms/ll:attron (charms/ll:color-pair (tui-color-pair :muted)))
+        (tui-safe-write win " Navigate  ·  " (+ hint1-col 3) current-row 14)
+        (charms/ll:attroff (charms/ll:color-pair (tui-color-pair :muted)))
+        ;; Write enter in prompt-marker color
+        (charms/ll:attron (charms/ll:color-pair (tui-color-pair :prompt-marker)))
+        (tui-safe-write win "enter" (+ hint1-col 17) current-row 5)
+        (charms/ll:attroff (charms/ll:color-pair (tui-color-pair :prompt-marker)))
+        ;; Write " Select  ·  " in muted color
+        (charms/ll:attron (charms/ll:color-pair (tui-color-pair :muted)))
+        (tui-safe-write win " Select  ·  " (+ hint1-col 22) current-row 12)
+        (charms/ll:attroff (charms/ll:color-pair (tui-color-pair :muted)))
+        ;; Write tab in prompt-marker color
+        (charms/ll:attron (charms/ll:color-pair (tui-color-pair :prompt-marker)))
+        (tui-safe-write win "tab" (+ hint1-col 34) current-row 3)
+        (charms/ll:attroff (charms/ll:color-pair (tui-color-pair :prompt-marker)))
+        ;; Write " Complete" in muted color
+        (charms/ll:attron (charms/ll:color-pair (tui-color-pair :muted)))
+        (tui-safe-write win " Complete" (+ hint1-col 37) current-row 9)
+        (charms/ll:attroff (charms/ll:color-pair (tui-color-pair :muted)))
+        (incf current-row))
+      ;; Hint line 2: esc to cancel
+      (charms/ll:attron (charms/ll:color-pair (tui-color-pair :muted)))
+      (tui-safe-write win "  esc to cancel" col current-row (- width 1))
+      (charms/ll:attroff (charms/ll:color-pair (tui-color-pair :muted))))))
 
 (defun tui-render-status-bar (win col row width)
   "Render the status bar at the very bottom."
@@ -408,7 +698,7 @@
     (tui-safe-write win (str:shorten width *tui-status-line* :ellipsis "..") col row width)
     (charms/ll:attroff (charms/ll:color-pair pair))))
 
-;;*Comman Palette
+;;* Command Palette
 
 (defun tui-get-command-help-text (cmd-name)
   "Get the full help text for a command by name (with leading /).
@@ -437,7 +727,8 @@
   "Get all commands as a list of plists with :name and :description."
   (let ((cmds '()))
     (maphash (lambda (name info)
-               (push (list :name name :description (second info)) cmds))
+               (unless (gethash name *tui-hidden-commands*)
+                 (push (list :name name :description (second info)) cmds)))
              *commands*)
     (sort cmds #'string< :key (lambda (c) (getf c :name)))))
 
@@ -641,9 +932,10 @@
       (charms:window-dimensions win)
     (let* ((sidebar-width (max 20 (min 35 (floor total-width 4))))
            (chat-width (- total-width sidebar-width 1)) ;; 1 for divider
-           (input-row (- total-height 3))
+           (comp-height (tui-completions-height))
+           (input-row (- total-height comp-height 3))
            (status-row (- total-height 1))
-           (chat-height (- total-height 4)) ;; room for input + status + border
+           (chat-height (- total-height comp-height 4)) ;; room for input + status + border + completions
            (sidebar-col (- total-width sidebar-width))
            (divider-col (1- sidebar-col)))
 
@@ -663,15 +955,16 @@
       ;; Render input bar
       (tui-render-input-bar win 1 (1+ input-row) chat-width)
 
-      ;; Render completion dropdown above input
-      (when (and *tui-completions* (not *tui-command-modal-open*))
-        (tui-render-completions win 1 input-row chat-width))
+      ;; Render completion dropdown below input
+      (when (> comp-height 0)
+        (tui-render-autocomplete-popup win 1 (+ input-row 2) chat-width))
 
       ;; Render sidebar
       (tui-render-sidebar win sidebar-col 1 sidebar-width (- total-height 2))
 
       ;; Render status bar (full width, bottom)
-      (tui-render-status-bar win 0 status-row total-width)
+      (unless (> comp-height 0)
+        (tui-render-status-bar win 0 status-row total-width))
 
       ;; Render command modal if open
       (when *tui-command-modal-open*
@@ -825,20 +1118,19 @@
      (tui-accept-completion)
      :handled)
 
-    ;; Tab: cycle to next completion
+    ;; Tab: accept the selected completion (tab Complete in mockup)
     ((eql c #\Tab)
-     (setf *tui-completion-index*
-           (mod (1+ *tui-completion-index*) (length *tui-completions*)))
+     (tui-accept-completion)
      :handled)
 
-    ;; Escape: dismiss completions
+    ;; Escape: dismiss completions and disable autotrigger
     ((eql c #\Esc)
      (tui-reset-completions)
+     (setf *tui-autocomplete-disabled* t)
      :handled)
 
-    ;; Anything else: dismiss and pass through
+    ;; Anything else: pass through to main input handler
     (t
-     (tui-reset-completions)
      :passthrough)))
 
 (defun tui-handle-main-input (c)
@@ -852,7 +1144,13 @@
   (cond
     ;; Tab: trigger completion
     ((eql c #\Tab)
+     (setf *tui-autocomplete-disabled* nil)
      (tui-try-complete)
+     nil)
+
+    ;; Ctrl-O: toggle tool call details expansion
+    ((eql c (code-char 15))  ;; Ctrl-O
+     (setf *tui-expand-tool-calls* (not *tui-expand-tool-calls*))
      nil)
 
     ;; Ctrl-P or Ctrl-K: open command palette
@@ -883,22 +1181,36 @@
      (setf *tui-scroll-offset* (max 0 (1- *tui-scroll-offset*)))
      nil)
 
+    ;; Ctrl-R: history up (older) — standard readline-like binding
+    ((eql c (code-char 18))  ;; Ctrl-R
+     (tui-history-navigate :up)
+     (tui-reset-completions)
+     nil)
+
+    ;; Ctrl-S: history down (newer)
+    ((eql c (code-char 19))  ;; Ctrl-S
+     (tui-history-navigate :down)
+     (tui-reset-completions)
+     nil)
+
     ;; Backspace
     ((or (eql c #\Backspace) (eql c #\Rubout) (eql c (code-char 127))
          (eql c (code-char charms/ll:key_backspace)))
      (when (> (length *tui-input-buffer*) 0)
        (setf *tui-input-buffer* (subseq *tui-input-buffer* 0 (1- (length *tui-input-buffer*)))))
+     (tui-history-reset)
+     (tui-on-input-change)
      nil)
 
     ;; Printable character
     ((and c (graphic-char-p c))
      (setf *tui-input-buffer* (concatenate 'string *tui-input-buffer* (string c)))
+     (tui-history-reset)
+     (tui-on-input-change)
      nil)
 
     (t nil)))
-
-;;; --- Main TUI loop ---
-
+;;* main loop
 (defun tui-process-command (cmd-name)
   "Execute a command by name within the TUI context.
    Suspends curses around the command so commands that spawn external
@@ -985,8 +1297,8 @@
                        (tui-render win)))
 
             (let ((assistant-response (get-output-stream-string full-response)))
-              ;; Final update of the chat line text
-              (setf (getf (first *tui-chat-lines*) :text) assistant-response)
+              ;; Final update of the chat line text — apply markdown rendering
+              (setf (getf (first *tui-chat-lines*) :text) (render-md-ansi assistant-response))
               ;; Add to chat history for persistence
               (add-to-chat-history "user" prompt)
               (add-to-chat-history "assistant" assistant-response)
@@ -1005,7 +1317,10 @@
     (setf *tui-input-buffer* "")
     (setf *tui-scroll-offset* 0)
     (tui-reset-completions)
+    (tui-history-reset)
     (when (string= input "") (return-from tui-send-message))
+    ;; Save to input history
+    (tui-history-push input)
 
     ;; Check if it's a command
     (multiple-value-bind (cmd args) (parse-command input)
@@ -1022,7 +1337,7 @@
             (tui-render win)
             ;; Stream the LLM response with live TUI updates
             (tui-stream-llm-response input win)
-            (tui-set-status (format nil "Model: ~A | C-p: Commands | C-c: Quit"
+            (tui-set-status (format nil "Model: ~A | C-p: Commands | C-r/s: History | C-c: Quit"
                                     (if *current-model* (model-config-name *current-model*) "None"))
                             :info))))))
 
@@ -1049,9 +1364,11 @@
   (unless *tui-sidebar-widgets*
     (setf *tui-sidebar-widgets* (make-default-sidebar-widgets)))
   (tui-reset-completions)
+  ;; Preserve input history across TUI restarts, but reset navigation
+  (tui-history-reset)
   (tui-modal-reset-completions)
   (tui-refresh-sidebar-data)
-  (tui-set-status (format nil "Model: ~A | C-p: Commands | C-c: Quit"
+  (tui-set-status (format nil "Model: ~A | C-p: Commands | C-r/s: History | C-c: Quit"
                           (if *current-model* (model-config-name *current-model*) "None"))
                   :info)
   (tui-add-chat-line "Hactar AI Pair Programmer" :type :text)
@@ -1090,7 +1407,25 @@
                              (t nil))))))))
     (setf *tui-running* nil))))
 
-;;* tui utils 
+;;* oauth login flow (TUI)
+(defun tui-oauth-login (&optional provider-id)
+  "Suspend curses and run the interactive OAuth login flow, then restore the TUI.
+   This makes it trivial to drive the same login flow from the TUI as from the REPL."
+  (charms/ll:def-prog-mode)
+  (charms/ll:endwin)
+  (unwind-protect
+       (handler-case (run-oauth-login-flow provider-id)
+         (serious-condition (e)
+           (format t "~&Login failed: ~A~%" e))
+         (:no-error (result)
+           (when result
+             (tui-add-chat-line "OAuth login completed." :type :text))
+           result))
+    (charms/ll:reset-prog-mode)
+    (charms:clear-window charms:*standard-window* :force-repaint t)
+    (charms:refresh-window charms:*standard-window*)))
+
+;;* tui utils
 (defun ansi (code)
   "Helper to generate ANSI escape sequences."
   (format nil "~C~A" #\Esc code))
@@ -1169,6 +1504,235 @@
   (handler-case (uiop:run-program '("stty" "-raw" "echo"))
     (error (e) (debug-log "Failed to exit raw mode with stty:" e))))
 
+(defun parse-ansi-string (str)
+  "Parse a string containing ANSI escape sequences into a list of (substring . style-plist) runs."
+  (let ((runs '())
+        (current-style (list :color nil :bold nil :dim nil))
+        (len (length str))
+        (i 0)
+        (chunk-start 0))
+    (labels ((add-run (end)
+               (when (> end chunk-start)
+                 (push (cons (subseq str chunk-start end) (copy-list current-style)) runs))))
+      (loop while (< i len) do
+        (cond
+          ;; Check for ESC [
+          ((and (< (1+ i) len)
+                (char= (char str i) #\Esc)
+                (char= (char str (1+ i)) #\[))
+           ;; Add the current run before the escape sequence
+           (add-run i)
+           ;; Find the terminating 'm'
+           (let ((m-pos (position #\m str :start (+ i 2))))
+             (if m-pos
+                 (let* ((codes-str (subseq str (+ i 2) m-pos))
+                        ;; Split codes by semicolon
+                        (codes (str:split #\; codes-str)))
+                   ;; Update current-style based on codes.
+                   ;; Handle simple SGR codes as well as 256-color
+                   ;; (38;5;N) and truecolor (38;2;R;G;B) sequences.
+                   (let* ((nums (mapcar (lambda (cs)
+                                          (or (ignore-errors (parse-integer cs)) -1))
+                                        codes))
+                          (vec (coerce nums 'vector))
+                          (n (length vec))
+                          (k 0))
+                     (flet ((idx->color (i)
+                              (case (mod i 8)
+                                (0 nil) ;; black -> default
+                                (1 :red) (2 :green) (3 :yellow)
+                                (4 :blue) (5 :magenta) (6 :cyan) (7 :white))))
+                       (loop while (< k n) do
+                         (let ((code (aref vec k)))
+                           (cond
+                             ((= code 0) (setf current-style (list :color nil :bold nil :dim nil)))
+                             ((= code 1) (setf (getf current-style :bold) t))
+                             ((= code 2) (setf (getf current-style :dim) t))
+                             ((= code 22) (setf (getf current-style :bold) nil)
+                                          (setf (getf current-style :dim) nil))
+                             ((= code 39) (setf (getf current-style :color) nil))
+                             ;; 256-color foreground: 38;5;N
+                             ((and (= code 38) (< (+ k 2) n) (= (aref vec (+ k 1)) 5))
+                              (setf (getf current-style :color)
+                                    (idx->color (aref vec (+ k 2))))
+                              (incf k 2))
+                             ;; truecolor foreground: 38;2;R;G;B (approximate as default)
+                             ((and (= code 38) (< (+ k 4) n) (= (aref vec (+ k 1)) 2))
+                              (setf (getf current-style :color) nil)
+                              (incf k 4))
+                             ((member code '(30 90)) (setf (getf current-style :color) nil))
+                             ((member code '(31 91)) (setf (getf current-style :color) :red))
+                             ((member code '(32 92)) (setf (getf current-style :color) :green))
+                             ((member code '(33 93)) (setf (getf current-style :color) :yellow))
+                             ((member code '(34 94)) (setf (getf current-style :color) :blue))
+                             ((member code '(35 95)) (setf (getf current-style :color) :magenta))
+                             ((member code '(36 96)) (setf (getf current-style :color) :cyan))
+                             ((member code '(37 97)) (setf (getf current-style :color) :white)))
+                           (incf k)))))
+                   (setf i (1+ m-pos))
+                   (setf chunk-start i))
+                 ;; If no 'm' is found, treat the ESC as normal text
+                 (progn
+                   (incf i 2)))))
+          (t
+           (incf i))))
+      (add-run len)
+      (nreverse runs))))
+
+(defun tokenize-run (run)
+  "Tokenize a run (text . style) into a list of (token-string . style) where token-string is either a word or a space sequence."
+  (let* ((text (car run))
+         (style (cdr run))
+         (tokens '())
+         (len (length text))
+         (i 0))
+    (loop while (< i len) do
+      (let ((char (char text i)))
+        (if (char= char #\Space)
+            ;; Collect consecutive spaces
+            (let ((start i))
+              (loop while (and (< i len) (char= (char text i) #\Space))
+                    do (incf i))
+              (push (cons (subseq text start i) style) tokens))
+            ;; Collect consecutive non-spaces
+            (let ((start i))
+              (loop while (and (< i len) (not (char= (char text i) #\Space)))
+                    do (incf i))
+              (push (cons (subseq text start i) style) tokens)))))
+    (nreverse tokens)))
+
+(defun wrap-ansi-line-tokens (tokens width)
+  "Wrap a list of (token . style) tokens to the given width.
+   Returns a list of lines, where each line is a list of (text . style) runs."
+  (let ((lines '())
+        (current-runs '())
+        (current-len 0))
+    (labels ((commit-line ()
+               (when current-runs
+                 ;; Remove trailing spaces from current-runs
+                 (let ((trimmed-runs '())
+                       (rev (nreverse current-runs))
+                       (trimming t))
+                   (dolist (run rev)
+                     (let ((text (car run))
+                           (style (cdr run)))
+                       (if trimming
+                           (let ((trimmed (string-right-trim " " text)))
+                             (unless (string= trimmed "")
+                               (setf trimming nil)
+                               (push (cons trimmed style) trimmed-runs)))
+                           (push run trimmed-runs))))
+                   (when trimmed-runs
+                     (push trimmed-runs lines)))
+                 (setf current-runs '()
+                       current-len 0)))
+             (add-to-line (text style)
+               (let ((len (length text)))
+                 ;; If the last run in current-runs has the same style, merge them!
+                 (if (and current-runs (equal (cdr (first current-runs)) style))
+                     (setf (car (first current-runs)) (concatenate 'string (car (first current-runs)) text))
+                     (push (cons text style) current-runs))
+                 (incf current-len len))))
+      (dolist (tok tokens)
+        (let ((text (car tok))
+              (style (cdr tok)))
+          (cond
+            ;; If token is a space
+            ((char= (char text 0) #\Space)
+             ;; Skip leading spaces on the line
+             (when (> current-len 0)
+               (add-to-line text style)))
+            ;; If token is a word
+            (t
+             (let ((word-len (length text)))
+               (cond
+                 ;; If it fits on the current line
+                 ((or (zerop current-len) (<= (+ current-len word-len) width))
+                  (add-to-line text style))
+                 ;; Otherwise, start a new line
+                 (t
+                  (commit-line)
+                  (add-to-line text style))))))))
+      (commit-line)
+      (nreverse lines))))
+
+(defun wrap-ansi-text (text width)
+  "Wrap TEXT (which may contain ANSI escape sequences and explicit newlines) to the given WIDTH.
+   Returns a list of lines, where each line is a list of (text . style) runs."
+  (unless text
+    (return-from wrap-ansi-text nil))
+  (let ((all-wrapped-lines '())
+        (raw-lines (str:lines text)))
+    (unless raw-lines
+      (setf raw-lines (list "")))
+    (dolist (raw-line raw-lines)
+      (if (string= raw-line "")
+          (push (list (cons "" '(:color nil :bold nil :dim nil))) all-wrapped-lines)
+          (let* ((runs (parse-ansi-string raw-line))
+                 (tokens (mapcan #'tokenize-run runs))
+                 (wrapped-lines (wrap-ansi-line-tokens tokens width)))
+            (dolist (wl wrapped-lines)
+              (push wl all-wrapped-lines)))))
+    (nreverse all-wrapped-lines)))
+
+(defun tui-write-runs (win runs col row max-width base-pair is-user)
+  "Write a list of (text . style) runs to WIN at (COL, ROW), applying styles and base-pair."
+  (let ((current-col col)
+        (remaining-width max-width))
+    (dolist (run runs)
+      (when (<= remaining-width 0) (return))
+      (let* ((text (car run))
+             (style (cdr run))
+             (color (getf style :color))
+             (bold (getf style :bold))
+             (dim (getf style :dim))
+             ;; Determine the color pair to use
+             (pair (cond
+                     ;; If the run has an explicit ANSI color, use it!
+                     (color (case color
+                              (:red (tui-color-pair :ansi-red))
+                              (:green (tui-color-pair :ansi-green))
+                              (:yellow (tui-color-pair :ansi-yellow))
+                              (:blue (tui-color-pair :ansi-blue))
+                              (:magenta (tui-color-pair :ansi-magenta))
+                              (:cyan (tui-color-pair :ansi-cyan))
+                              (:white (tui-color-pair :ansi-white))
+                              (:muted (tui-color-pair :muted))
+                              (:tool-pending (tui-color-pair :tool-pending))
+                              (:tool-running (tui-color-pair :tool-running))
+                              (:tool-done (tui-color-pair :tool-done))
+                              (:tool-failed (tui-color-pair :tool-failed))
+                              (t base-pair)))
+                     (t base-pair)))
+             ;; Truncate the text to remaining width
+             (write-text (if (> (length text) remaining-width)
+                             (subseq text 0 remaining-width)
+                             text)))
+        (when (> (length write-text) 0)
+          ;; Turn on attributes
+          (when (> pair 0)
+            (charms/ll:attron (charms/ll:color-pair pair)))
+          (when (or bold is-user)
+            (charms/ll:attron charms/ll:a_bold))
+          (when dim
+            (charms/ll:attron charms/ll:a_dim))
+
+          ;; Write string safely
+          (handler-case
+              (charms:write-string-at-point win write-text current-col row)
+            (error () nil))
+
+          ;; Turn off attributes
+          (when dim
+            (charms/ll:attroff charms/ll:a_dim))
+          (when (or bold is-user)
+            (charms/ll:attroff charms/ll:a_bold))
+          (when (> pair 0)
+            (charms/ll:attroff (charms/ll:color-pair pair)))
+
+          (incf current-col (length write-text))
+          (decf remaining-width (length write-text)))))))
+
 (defun wrap-text (text width)
   "Simple text wrapper. Respects existing newlines in TEXT, then wraps long lines."
   (when text
@@ -1199,407 +1763,140 @@
               (push (get-output-stream-string current-line) result)))))
       (nreverse result))))
 
-(defun fuzzy-select (items)
-  "Displays a simple fzf-like TUI selector using fuzzy-match and cl-charms.
-   In editor mode, falls back to a simple numbered list selection.
-   ITEMS is a list of plists, e.g., '(((:item . \"display\") (:preview \"preview text\")))'.
-   Returns the selected plist or nil if cancelled (Esc)."
-  (when (null items) (return-from fuzzy-select nil))
-  ;; In editor mode, use simple numbered selection instead of curses TUI
-  (when *in-editor*
-    (return-from fuzzy-select (fuzzy-select-simple items)))
-  (when *in-repl*
-    (rl:deprep-terminal))
-  (let ((result nil))
-    (charms:with-curses ()
-      (charms:disable-echoing)
-      (charms:enable-raw-input :interpret-control-characters t)
-      (charms:enable-extra-keys charms:*standard-window*)
-      (charms/ll:curs-set 0) ; Hide cursor
-
-      (let* ((query "")
-             (selected-index 0)
-             (display-offset 0)
-             (filtered-items items)
-             (item-map (make-hash-table :test 'equal)))
-
-        (dolist (item items)
-          (setf (gethash (cdr (assoc :item item)) item-map) item))
-
-        (loop named select-loop do
-              (multiple-value-bind (win-width win-height)
-                  (charms:window-dimensions charms:*standard-window*)
-                (let* ((input-row 0)          ; Row 0 for input (charms uses 0-based)
-                       (top-border-row 1)
-                       (list-start-row 2)
-                       (status-row (1- win-height))
-                       (bottom-border-row (max top-border-row (1- status-row)))
-                       (list-height (max 1 (- win-height 3)))
-                       (list-width (max 10 (floor (* win-width 0.5))))
-                       (preview-border-col list-width)
-                       (preview-content-col (1+ preview-border-col))
-                       (preview-end-col (min (1- win-width) (1- win-width)))
-                       (preview-content-width (max 1 (- preview-end-col preview-content-col))))
-
-                  ;; Clear screen
-                  (charms:clear-window charms:*standard-window* :force-repaint t)
-
-                  ;; 1. Filter and sort items based on query using fuzzy-match
-                  (setf filtered-items
-                        (if (string= query "")
-                            items
-                            (let* ((display-strings (mapcar (lambda (item) (cdr (assoc :item item))) items))
-                                   (matched-strings (fuzzy-match:fuzzy-match query display-strings)))
-                              (mapcar (lambda (str) (gethash str item-map)) matched-strings))))
-
-                  ;; 2. Clamp selected-index
-                  (setf selected-index (if (null filtered-items)
-                                           0
-                                           (max 0 (min selected-index (1- (length filtered-items))))))
-
-                  ;; 3. Adjust display-offset (scrolling)
-                  (when (< selected-index display-offset)
-                    (setf display-offset selected-index))
-                  (when (>= selected-index (+ display-offset list-height))
-                    (setf display-offset (1+ (- selected-index list-height))))
-                  (setf display-offset (max 0 display-offset))
-
-                  ;; 4. Render UI
-
-                  ;; Render Input Line (Row 0)
-                  (let ((input-str (format nil "> ~A" query)))
-                    (charms:write-string-at-point charms:*standard-window*
-                                                  (str:shorten (1- win-width) input-str :ellipsis "")
-                                                  0 input-row))
-
-                  ;; Render Preview Top Border (using ASCII for ncurses compatibility)
-                  (when (< preview-border-col win-width)
-                    (charms:write-char-at-point charms:*standard-window* #\+
-                                                preview-border-col top-border-row))
-                  (loop for col from preview-content-col
-                        for count from 0 below preview-content-width
-                        when (< col win-width)
-                        do (charms:write-char-at-point charms:*standard-window* #\-
-                                                       col top-border-row))
-                  (when (< preview-end-col win-width)
-                    (charms:write-char-at-point charms:*standard-window* #\+
-                                                preview-end-col top-border-row))
-
-                  ;; Prepare Preview Content (Selected Item)
-                  (let* ((selected-item (when (> (length filtered-items) 0) (nth selected-index filtered-items)))
-                         (preview-text (if selected-item (cdr (assoc :preview selected-item)) "(No selection)"))
-                         (wrapped-preview-lines (wrap-text preview-text preview-content-width)))
-
-                    ;; Render Item List (Left Column) and Preview (Right Column with Border)
-                    (loop for list-row from 0 below list-height
-                          for i = (+ list-row display-offset)
-                          for screen-row = (+ list-row list-start-row)
-                          do
-                             ;; Render List Item
-                             (when (< i (length filtered-items))
-                               (let* ((item-plist (nth i filtered-items))
-                                      (safe-list-width (min list-width (1- win-width)))
-                                      (display-text (str:shorten safe-list-width (cdr (assoc :item item-plist)) :ellipsis "")))
-                                 (when (= i selected-index)
-                                   (charms/ll:attron charms/ll:a_reverse))
-                                 (charms:write-string-at-point charms:*standard-window*
-                                                               display-text
-                                                               0 screen-row)
-                                 ;; Pad with spaces to fill the highlight across the list width
-                                 (when (= i selected-index)
-                                   (loop for pad-col from (length display-text) below safe-list-width
-                                         when (< pad-col win-width)
-                                         do (charms:write-char-at-point charms:*standard-window* #\Space
-                                                                        pad-col screen-row))
-                                   (charms/ll:attroff charms/ll:a_reverse))))
-
-                             ;; Draw Preview Left Border
-                             (when (< preview-border-col win-width)
-                               (charms:write-char-at-point charms:*standard-window* #\|
-                                                           preview-border-col screen-row))
-
-                             ;; Render Preview Content Line
-                             (when (and (< list-row (length wrapped-preview-lines))
-                                        (< preview-content-col win-width))
-                               (let* ((avail-width (max 1 (- preview-end-col preview-content-col)))
-                                      (line (str:shorten avail-width
-                                                         (nth list-row wrapped-preview-lines)
-                                                         :ellipsis "")))
-                                 (charms:write-string-at-point charms:*standard-window*
-                                                               line
-                                                               preview-content-col screen-row)))
-
-                             ;; Draw Preview Right Border
-                             (when (< preview-end-col win-width)
-                               (charms:write-char-at-point charms:*standard-window* #\|
-                                                           preview-end-col screen-row)))
-
-                    ;; Render Preview Bottom Border
-                    (when (< preview-border-col win-width)
-                      (charms:write-char-at-point charms:*standard-window* #\+
-                                                  preview-border-col bottom-border-row))
-                    (loop for col from preview-content-col
-                          for count from 0 below preview-content-width
-                          when (< col win-width)
-                          do (charms:write-char-at-point charms:*standard-window* #\-
-                                                         col bottom-border-row))
-                    (when (< preview-end-col win-width)
-                      (charms:write-char-at-point charms:*standard-window* #\+
-                                                  preview-end-col bottom-border-row))
-
-                    ;; Render Status Line
-                    (let ((status-str (format nil "~A/~A Sel:~A Scr:~A"
-                                             (length filtered-items) (length items)
-                                             selected-index display-offset)))
-                      (charms:write-string-at-point charms:*standard-window*
-                                                    (str:shorten (1- win-width) status-str :ellipsis "")
-                                                    0 status-row)))
-
-                  ;; Refresh the window to display everything
-                  (charms:refresh-window charms:*standard-window*)
-
-                  ;; 5. Handle Input
-                  (let ((c (charms:get-char charms:*standard-window*)))
-                    (cond
-                      ;; ESC key (value 27) - cancel selection
-                      ((eql c #\Esc)
-                       (setf result nil)
-                       (return-from select-loop))
-
-                      ;; Arrow keys via charms extra keys
-                      ((eql c (code-char charms/ll:key_up))
-                       (setf selected-index (max 0 (1- selected-index))))
-
-                      ((eql c (code-char charms/ll:key_down))
-                       (setf selected-index (if (null filtered-items) 0
-                                                (min (1- (length filtered-items)) (1+ selected-index)))))
-
-                      ;; Enter - return selection
-                      ((or (eql c #\Return) (eql c #\Newline))
-                       (setf result (when (> (length filtered-items) 0)
-                                      (nth selected-index filtered-items)))
-                       (return-from select-loop))
-
-                      ;; Backspace - remove character from query
-                      ((or (eql c #\Backspace) (eql c #\Rubout)
-                           (eql c (code-char 127))    ; DEL
-                           (eql c (code-char charms/ll:key_backspace)))
-                       (when (> (length query) 0)
-                         (setf query (subseq query 0 (1- (length query))))
-                         (setf selected-index 0)
-                         (setf display-offset 0)))
-
-                      ;; Any other printable character - add to query
-                      ((and c (graphic-char-p c))
-                       (setf query (concatenate 'string query (string c)))
-                       (setf selected-index 0)
-                       (setf display-offset 0)))))))))
-    (when *in-repl*
-      (rl:prep-terminal t))
-    result))
-(defun fuzzy-select-simple (items)
-  "Simple numbered list selector for editor mode (no curses).
-   Returns the selected plist or nil."
-  (format t "~%Select an item:~%")
-  (loop for item in items
-        for i from 1
-        do (format t "  ~A) ~A~%" i (cdr (assoc :item item))))
-  (format t "Enter number (or 0 to cancel): ")
-  (force-output)
-  (handler-case
-      (let* ((input (read-line *standard-input* nil nil))
-             (n (when input (parse-integer (string-trim '(#\Space #\Tab) input) :junk-allowed t))))
-        (if (and n (> n 0) (<= n (length items)))
-            (nth (1- n) items)
-            nil))
-    (error () nil)))
-
-;; ** fzf
-(defun select-with-fzf (items &key preview-command)
-  "Presents a list of items to the user via fzf and returns the selected item.
-   In editor mode, falls back to a simple numbered list.
-   ITEMS should be a list of strings.
-   PREVIEW-COMMAND is an optional shell command string used for the fzf preview."
-  (when (and items *in-editor*)
-    (return-from select-with-fzf (select-with-fzf-simple items)))
-  (when items
-    (uiop:with-temporary-file (:pathname input-pathname :stream input-stream :keep nil)
-                              (uiop:with-temporary-file (:pathname output-pathname :keep nil)
-                                                        ;; Write items to input file
-                                                        (dolist (item items)
-                                                          (format input-stream "~A~%" item))
-                                                        (finish-output input-stream)
-                                                        (close input-stream)
-
-                                                        ;; Build fzf command
-                                                        (let* ((fzf-base-command "fzf --exit-0 --bind 'enter:accept-non-empty'")
-                                                               (fzf-preview-opts (if preview-command
-                                                                                   (format nil "--preview '~A' --preview-window=right:60%:wrap" preview-command)
-                                                                                   ""))
-                                                               (fzf-command (format nil "~A ~A < ~S > ~S"
-                                                                                    fzf-base-command
-                                                                                    fzf-preview-opts
-                                                                                    (uiop:native-namestring input-pathname)
-                                                                                    (uiop:native-namestring output-pathname))))
-                                                          (debug-log "Running fzf command:" fzf-command)
-                                                          (when *in-repl* (rl:deprep-terminal))
-                                                          (unwind-protect
-                                                              (handler-case
-                                                                  (let ((exit-code (uiop:run-program fzf-command
-                                                                                                     :force-shell t
-                                                                                                     :input :interactive
-                                                                                                     :output :interactive
-                                                                                                     :error-output :interactive
-                                                                                                     :ignore-error-status t)))
-                                                                    (cond
-                                                                      ((or (not exit-code) (= 0 exit-code))
-                                                                        (when (probe-file output-pathname)
-                                                                          (let ((result (string-trim '(#\Newline #\Return #\Space #\Tab)
-                                                                                                     (uiop:read-file-string output-pathname))))
-									    (if (string= result "")
-                                                                              nil
-                                                                              result))))
-                                                                      ((= exit-code 1) ; No match / user aborted with Esc/Ctrl-C before selection
-                                                                        (debug-log "fzf exited with code 1 (no match or aborted)")
-                                                                        nil)
-                                                                      ((= exit-code 130) ; User cancelled with Ctrl-C after selection or Esc
-                                                                        (debug-log "fzf cancelled by user (exit code 130)")
-                                                                        nil)
-                                                                      (t
-                                                                        (debug-log "fzf exited with code:" exit-code)
-                                                                        nil)))
-                                                                (error (e)
-                                                                  (debug-log "Error running fzf:" e)
-                                                                 nil))
-                                                            (when *in-repl* (rl:prep-terminal t))))))))
-(defun select-with-fzf-simple (items)
-  "Simple numbered list selector for editor mode (no fzf). ITEMS is a list of strings."
-  (format t "~%Select an item:~%")
-  (loop for item in items
-        for i from 1
-        do (format t "  ~A) ~A~%" i item))
-  (format t "Enter number (or 0 to cancel): ")
-  (force-output)
-  (handler-case
-      (let* ((input (read-line *standard-input* nil nil))
-             (n (when input (parse-integer (string-trim '(#\Space #\Tab) input) :junk-allowed t))))
-        (if (and n (> n 0) (<= n (length items)))
-            (nth (1- n) items)
-            nil))
-    (error () nil)))
-
 ;;** user inputs
+(defmacro with-terminal-interaction (&body body)
+  "Suspends the curses TUI and/or readline terminal state if active, runs BODY, and then restores them."
+  (let ((was-tui (gensym "WAS-TUI"))
+        (was-repl (gensym "WAS-REPL")))
+    `(let ((,was-tui *tui-running*)
+           (,was-repl *in-repl*))
+       (if ,was-tui
+           (progn
+             (charms/ll:def-prog-mode)
+             (charms/ll:endwin)
+             (when ,was-repl
+               (rl:deprep-terminal))
+             (unwind-protect
+                  (progn ,@body)
+               (when ,was-repl
+                 (rl:prep-terminal t))
+               (charms/ll:reset-prog-mode)
+               (charms:clear-window charms:*standard-window* :force-repaint t)
+               (charms:refresh-window charms:*standard-window*)))
+           (if ,was-repl
+               (progn
+                 (rl:deprep-terminal)
+                 (unwind-protect
+                      (progn ,@body)
+                   (rl:prep-terminal t)))
+               (progn ,@body))))))
+
+(defun confirm-action-tui (prompt)
+  "Render a nice native curses pop-up confirmation dialog and return T/NIL."
+  (let ((win charms:*standard-window*))
+    (tui-render win)
+    (multiple-value-bind (win-width win-height)
+        (charms:window-dimensions win)
+      (let* ((box-width (min 70 (- win-width 4)))
+             (box-height 8)
+             (box-col (floor (- win-width box-width) 2))
+             (box-row (floor (- win-height box-height) 2))
+             (inner-width (- box-width 4))
+             (prompt-lines (wrap-text prompt inner-width)))
+
+        ;; Draw box background
+        (charms/ll:attron (charms/ll:color-pair (tui-color-pair :modal-bg)))
+        (loop for y from box-row below (+ box-row box-height)
+              do (tui-safe-write win (make-string box-width :initial-element #\Space)
+                                 box-col y box-width))
+        (charms/ll:attroff (charms/ll:color-pair (tui-color-pair :modal-bg)))
+
+        ;; Draw border
+        (charms/ll:attron (charms/ll:color-pair (tui-color-pair :modal-border)))
+        (tui-box win box-col box-row box-width box-height)
+        (charms/ll:attroff (charms/ll:color-pair (tui-color-pair :modal-border)))
+
+        ;; Draw Title
+        (charms/ll:attron (charms/ll:color-pair (tui-color-pair :modal-border)))
+        (charms/ll:attron charms/ll:a_bold)
+        (tui-safe-write win " Confirmation Required " (+ box-col 2) box-row (- box-width 4))
+        (charms/ll:attroff charms/ll:a_bold)
+        (charms/ll:attroff (charms/ll:color-pair (tui-color-pair :modal-border)))
+
+        ;; Draw prompt lines
+        (charms/ll:attron (charms/ll:color-pair (tui-color-pair :modal-bg)))
+        (loop for line in prompt-lines
+              for r from (+ box-row 2)
+              do (tui-safe-write win line (+ box-col 2) r inner-width))
+
+        ;; Draw actions help
+        (let ((action-str "[Y] Yes   [N/Esc] Cancel"))
+          (tui-safe-write win action-str
+                          (+ box-col (floor (- box-width (length action-str)) 2))
+                          (+ box-row box-height -2)
+                          inner-width))
+        (charms/ll:attroff (charms/ll:color-pair (tui-color-pair :modal-bg)))
+
+        (charms:refresh-window win)
+
+        ;; Input reading loop
+        (loop
+          (let ((c (charms:get-char win :ignore-error t)))
+            (when c
+              (cond
+                ((or (char-equal c #\y) (char-equal c #\Y))
+                 (return t))
+                ((or (char-equal c #\n) (char-equal c #\N)
+                     (eql (char-code c) 27))
+                 (return nil))))))))))
+
 (defun confirm-action (prompt)
   "Prompts the user for confirmation (Y/N) and returns T for yes, NIL for no."
-  (loop
-    (format t "~A [Y/N]: " prompt)
-    (finish-output) ; Ensure prompt is displayed before reading input
-    (let ((response (read-line *standard-input* nil nil)))
-      (cond
-        ((string-equal response "y") (return t))
-        ((string-equal response "n") (return nil))
-        (t (format t "Please enter Y or N.~%"))))))
+  (if *tui-running*
+      (let ((was-suspended (not (eql (charms/ll:isendwin) 0))))
+        (when was-suspended
+          (charms/ll:reset-prog-mode)
+          (charms:clear-window charms:*standard-window* :force-repaint t))
+        (unwind-protect
+             (confirm-action-tui prompt)
+          (when was-suspended
+            (charms/ll:def-prog-mode)
+            (charms/ll:endwin))))
+      (with-terminal-interaction
+        (loop
+          (format t "~A [Y/N]: " prompt)
+          (finish-output) ; Ensure prompt is displayed before reading input
+          (let ((response (read-line *standard-input* nil nil)))
+            (cond
+              ((string-equal response "y") (return t))
+              ((string-equal response "n") (return nil))
+              (t (format t "Please enter Y or N.~%"))))))))
 
 (defun get-multiline-input ()
   "Get multiline input from the user using a temporary file and editor."
-  (let ((temp-file (merge-pathnames (format nil "hactar-temp-~A.txt" (get-universal-time))
-                                    (uiop:temporary-directory))))
-    (unwind-protect
-        (progn
-          ;; Create empty file
-          (with-open-file (stream temp-file :direction :output :if-exists :supersede)
-            (format stream "# Enter your prompt here. Lines starting with # are comments.~%"))
+  (with-terminal-interaction
+    (let ((temp-file (merge-pathnames (format nil "hactar-temp-~A.txt" (get-universal-time))
+                                      (uiop:temporary-directory))))
+      (unwind-protect
+          (progn
+            ;; Create empty file
+            (with-open-file (stream temp-file :direction :output :if-exists :supersede)
+              (format stream "# Enter your prompt here. Lines starting with # are comments.~%"))
 
-          ;; Open editor
-          (let ((editor (or (uiop:getenv "EDITOR") "nano")))
-            (uiop:run-program (list editor (namestring temp-file))
-                              :output :interactive
-                              :error-output :interactive
-                              :input :interactive))
+            ;; Open editor
+            (let ((editor (or (uiop:getenv "EDITOR") "nano")))
+              (uiop:run-program (list editor (namestring temp-file))
+                                :output :interactive
+                                :error-output :interactive
+                                :input :interactive))
 
-          ;; Read the file content using UTF-8
-          (with-open-file (stream temp-file :direction :input :external-format :utf-8)
-            (let ((content (make-string (file-length stream))))
-              (read-sequence content stream)
-              ;; Remove comment lines
-              (cl-ppcre:regex-replace-all "^#.*$" content ""))))
+            ;; Read the file content using UTF-8
+            (with-open-file (stream temp-file :direction :input :external-format :utf-8)
+              (let ((content (make-string (file-length stream))))
+                (read-sequence content stream)
+                ;; Remove comment lines
+                (cl-ppcre:regex-replace-all "^#.*$" content ""))))
 
-      ;; Clean up
-      (when (probe-file temp-file)
-        (delete-file temp-file)))))
-;; * fzf
-(defun select-doc-with-fzf (doc-list)
-  "Uses fzf to select a document from a list of plists.
-   In editor mode, falls back to a simple numbered list.
-   Displays titles, previews full doc, returns the selected plist."
-  (when (and doc-list *in-editor*)
-    (return-from select-doc-with-fzf
-      (let* ((items (loop for doc in doc-list
-                          for title = (cdr (assoc :title doc))
-                          collect `((:item . ,title) (:preview . ,(format-doc-for-fzf-preview doc)))))
-             (selected (fuzzy-select-simple items)))
-        (when selected
-          (let ((idx (position selected items :test #'eq)))
-            (when idx (nth idx doc-list)))))))
-  (when doc-list
-    (uiop:with-temporary-file
-     (:pathname input-pathname :stream input-stream :keep nil)
-     (uiop:with-temporary-file
-      (:pathname preview-pathname :stream preview-stream :keep nil)
-      (uiop:with-temporary-file
-       (:pathname output-pathname :keep nil)
-       ;; Write Index<tab>Title to input file and full preview to preview file
-       (loop for doc in doc-list
-             for i from 0
-             for title = (cdr (assoc :title doc))
-             for preview-string = (format-doc-for-fzf-preview doc)
-             do (format input-stream "~A~C~A~%" i #\Tab title)
-             (format preview-stream "~A~%" preview-string))
-       (finish-output input-stream)
-       (close input-stream)
-       (finish-output preview-stream)
-       (close preview-stream)
-
-       ;; Build fzf command
-       (let* ((fzf-command (format nil "fzf --exit-0 --bind 'enter:accept-non-empty' --delimiter='\\t' --with-nth=2 --preview=\"head -n {n} '~A' | tail -n 1\" --preview-window=right:60%:wrap < ~S > ~S"
-                                   (uiop:native-namestring preview-pathname)
-                                   (uiop:native-namestring input-pathname)
-                                   (uiop:native-namestring output-pathname))))
-         (debug-log "Running fzf command for docs:" fzf-command)
-	 (when *in-repl*
-           (rl:deprep-terminal))
-         (unwind-protect
-             (handler-case
-                 (let ((exit-code (uiop:run-program fzf-command
-						    :force-shell t
-						    :input :interactive
-						    :output :interactive
-						    :error-output :interactive
-						    :ignore-error-status t)))
-                   (cond
-		    ((or (not exit-code) (= 0 exit-code))
-                     (when (probe-file output-pathname)
-                       (let* ((selected-line (string-trim '(#\Newline #\Return) (uiop:read-file-string output-pathname)))
-                              (tab-pos (position #\Tab selected-line)))
-                         (when tab-pos
-			   (let ((selected-index-str (subseq selected-line 0 tab-pos)))
-                             (handler-case
-                                 (let ((selected-index (parse-integer selected-index-str)))
-                                   (nth selected-index doc-list))
-                               (error (e)
-				      (debug-log "Error parsing selected index:" selected-index-str e)
-				      nil)))))))
-		    ((= exit-code 1)
-                     (debug-log "fzf (docs) exited with code 1 (no match or aborted)")
-                     nil)
-		    ((= exit-code 130)
-                     (debug-log "fzf (docs) cancelled by user (exit code 130)")
-                     nil)
-		    (t
-                     (debug-log "fzf (docs) exited with code:" exit-code)
-                     nil)))
-               (error (e)
-		      (debug-log "Error running fzf for docs:" e)
-		      nil))
-	   (when *in-repl*
-	     (rl:prep-terminal t)))))))))
+        ;; Clean up
+        (when (probe-file temp-file)
+          (delete-file temp-file))))))

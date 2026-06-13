@@ -81,7 +81,7 @@
 ;;; Basic Commands
 (defcommand self-insert-command ()
   "Insert the character that invoked this command."
-  (when (and *key-sequence* 
+  (when (and *key-sequence*
              (= (length *key-sequence*) 1))
     (let* ((key (first *key-sequence*))
            (char (key-event-char key)))
@@ -247,15 +247,15 @@
   "Start the Hactar editor."
   (setf *editor-running* t)
   (message "Welcome to Hactar Editor")
-  
+
   ;; Create initial buffer
   (if filename
       (find-file filename)
       (make-buffer "*scratch*"))
-  
+
   ;; For now, just return - full terminal UI will be added later
   (message "Editor initialized. Buffer: ~A" (buffer-name (current-buffer)))
-  
+
   ;; In a real implementation, this would enter the main event loop
   ;; For now, return the current buffer for testing
   (current-buffer))
@@ -277,7 +277,7 @@
         (return))
       (cond
         ((string= input "quit") (return (stop-editor)))
-        ((string= input "buffer") 
+        ((string= input "buffer")
          (format t "~A~%" (buffer-to-string (current-buffer))))
         ((string= input "point")
          (format t "Point: ~A, Line: ~A, Col: ~A~%"
@@ -287,7 +287,7 @@
         ((string= input "undo")
          (call-command 'undo))
         ((uiop:string-prefix-p "insert " input)
-         (buffer-insert-string (current-buffer) 
+         (buffer-insert-string (current-buffer)
                                (subseq input 7)))
         ((uiop:string-prefix-p "open " input)
          (find-file (subseq input 5)))

@@ -3,7 +3,7 @@
 (def-suite worker-target-tests :description "Worker target tests.")
 (in-suite worker-target-tests)
 
-;;* Helpers 
+;;* Helpers
 (defun worker-compile (source)
   (string-trim '(#\Space #\Newline #\Tab)
                (hactar::compile-file-to-string source :target :worker)))

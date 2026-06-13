@@ -33,7 +33,7 @@ run-cli:
 # Run tests
 .PHONY: test
 test:
-	$(LISP) --non-interactive --load hactar.asd --load hactar-migrations.asd --load llm.asd --load hactar-tests.asd --load llm-tests.asd --eval "(ql:quickload :hactar-migrations)" --eval "(ql:quickload :hactar-tests)" --eval "(ql:quickload :llm-tests)" --load migrations/run-migrations.lisp --load run-tests.lisp --quit
+	$(LISP) --non-interactive --eval "(require :asdf)" --eval "(let ((q (merge-pathnames \"quicklisp/setup.lisp\" (user-homedir-pathname)))) (when (probe-file q) (load q)))" --load hactar.asd --load llm.asd --load hactar-tests.asd --load llm-tests.asd --eval "(ql:quickload :hactar-tests)" --eval "(ql:quickload :llm-tests)" --load run-tests.lisp --quit
 
 # Clear SBCL FASL cache to force recompilation
 .PHONY: clean-cache
@@ -43,7 +43,7 @@ clean-cache:
 # Run tests with sb-cover and generate HTML coverage report
 .PHONY: coverage
 coverage:
-	$(LISP) --non-interactive --load hactar.asd --load hactar-migrations.asd --load llm.asd --load hactar-tests.asd --load llm-tests.asd --load run-coverage.lisp --quit
+	$(LISP) --non-interactive --eval "(require :asdf)" --load hactar.asd --load llm.asd --load hactar-tests.asd --load llm-tests.asd --load run-coverage.lisp --quit
 	@echo "Coverage report: coverage/cover-index.html"
 
 # Clean build artifacts
@@ -60,16 +60,6 @@ clean:
 .PHONY: dev
 dev:
 	$(LISP) --load dev.lisp
-
-# Database migrations (main DB)
-.PHONY: migrate
-migrate:
-	$(LISP) --load hactar.asd --eval "(ql:quickload :hactar-migrations)" --load migrations/run-migrations.lisp --eval "(hactar-migrations:run-migrations)" --quit
-
-# Database migrations (test DB)
-.PHONY: migrate-test
-migrate-test:
-	$(LISP) --load hactar.asd hactar-migrations.asd --eval "(ql:quickload :hactar-migrations)" --load migrations/run-migrations.lisp --eval "(hactar-migrations:run-migrations :test t)" --quit
 
 # Install via Roswell
 .PHONY: install-ros

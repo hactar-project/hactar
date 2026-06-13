@@ -1,7 +1,5 @@
-;; Tools Handling - XML-based and API-based tool calling
+;; Tools Handling
 (in-package :hactar)
-
-;;* Tool Definition Structure
 
 (defstruct tool-definition
   "Structure representing a defined tool."
@@ -20,8 +18,7 @@
   (required t :type boolean)
   (enum nil :type list))
 
-;;* deftool Macro
-
+;;* core
 (defmacro deftool (name (&rest params) &body body)
   "Define a tool that Hactar can use.
 
@@ -49,24 +46,24 @@ Example:
          (rules nil)
          (permissions :confirm)
          (impl-body body))
-    
+
     (loop while (and impl-body (keywordp (car impl-body)))
           do (case (car impl-body)
                (:description (setf description (cadr impl-body)))
                (:rules (setf rules (cadr impl-body)))
                (:permissions (setf permissions (cadr impl-body))))
              (setf impl-body (cddr impl-body)))
-    
+
     (unless description
       (error "deftool ~A requires a :description" name))
-    
+
     `(progn
        (defun ,fn-name (hactar::%tool-args%)
          "Tool implementation function. HACTAR::%TOOL-ARGS% is a plist of parameter values."
          (let ((hactar::args hactar::%tool-args%))
            (declare (ignorable hactar::args))
            ,@impl-body))
-       
+
        (setf (gethash ,tool-name-str *defined-tools*)
              (make-tool-definition
               :name ,tool-name-str
@@ -75,7 +72,7 @@ Example:
               :rules ,rules
               :permissions ,permissions
               :function #',fn-name))
-       
+
        (unless *silent*
          (format t "Defined tool: ~A~%" ,tool-name-str))
        ',name)))
@@ -99,14 +96,14 @@ Example:
             :required ,required
             :enum ',enum)))))
 
-;;* XML Generation for Tools-in-Prompt Mode
+;;* XML Generation for tools in prompt
 
 (defun generate-tool-xml-description (tool)
   "Generate XML description for a single tool."
   (with-output-to-string (s)
     (format s "<tool name=\"~A\">~%" (tool-definition-name tool))
     (format s "  <description>~A</description>~%" (tool-definition-description tool))
-    
+
     (format s "  <parameters>~%")
     (dolist (param (tool-definition-parameters tool))
       (format s "    <parameter name=\"~A\" type=\"~A\" required=\"~A\">~%"
@@ -119,17 +116,17 @@ Example:
         (format s "      <enum>~{~A~^, ~}</enum>~%" (tool-parameter-enum param)))
       (format s "    </parameter>~%"))
     (format s "  </parameters>~%")
-    
+
     (when (tool-definition-rules tool)
       (format s "  <rules>~%~A~%  </rules>~%" (tool-definition-rules tool)))
-    
+
     (format s "  <usage>~%")
     (format s "<~A>~%" (tool-definition-name tool))
     (dolist (param (tool-definition-parameters tool))
       (format s "<~A>value</~A>~%" (tool-parameter-name param) (tool-parameter-name param)))
     (format s "</~A>~%" (tool-definition-name tool))
     (format s "  </usage>~%")
-    
+
     (format s "</tool>")))
 
 (defun generate-all-tools-xml ()
@@ -144,7 +141,7 @@ Example:
                *defined-tools*)
       (format s "</tools>"))))
 
-;;* API-based Tool Definitions (OpenAI/Anthropic format)
+;;* API tool calls
 
 (defun tool-parameter-to-json-schema (param)
   "Convert a tool-parameter to JSON schema format."
@@ -185,7 +182,6 @@ Example:
         (coerce (nreverse tools) 'vector)))))
 
 ;;* XML Tool Call Parsing
-
 (defun parse-xml-tool-calls (text)
   "Parse XML tool calls from LLM response text.
 Returns a list of (tool-name . args-alist) pairs."
@@ -229,8 +225,7 @@ Returns a list of (tool-name . args-alist) pairs."
                 (push (cons (intern (string-upcase param-name) :keyword) value) args)))))))
     (nreverse args)))
 
-;;* Tool Execution
-
+;;* Execution
 (defun execute-tool (tool-name args)
   "Execute a tool by name with the given arguments.
 ARGS can be an alist or plist of parameter values.
@@ -240,9 +235,9 @@ Uses the permissions system (resolve-permission) instead of simple :confirm chec
     (unless tool
       (return-from execute-tool
         (values nil nil (format nil "Tool '~A' not found" tool-name))))
-    
-    (let ((args-plist (if (and args 
-                               (consp (car args)) 
+
+    (let ((args-plist (if (and args
+                               (consp (car args))
                                (not (null (cdr (car args))))
                                (atom (cdr (car args))))
                           (loop for (key . val) in args
@@ -263,11 +258,13 @@ Uses the permissions system (resolve-permission) instead of simple :confirm chec
                            (let ((id (format nil "tui_~A_~A" tool-name (get-universal-time))))
                              (tui-add-tool-call id tool-name nil)
                              (tui-update-tool-call id "in_progress")
+                             (tui-add-chat-tool-call id tool-name args-plist)
                              id))))
         (handler-case
             (let ((result (funcall (tool-definition-function tool) args-plist)))
               (when tui-call-id
-                (tui-update-tool-call tui-call-id "completed"))
+                (tui-update-tool-call tui-call-id "completed")
+                (tui-update-chat-tool-call tui-call-id "completed" (format nil "~A" result)))
               (when *in-editor*
                 (editor-log-write
                  (format nil "Tool: ~A~%Args: ~S~%Result: ~A" tool-name args-plist result)
@@ -276,7 +273,8 @@ Uses the permissions system (resolve-permission) instead of simple :confirm chec
               (values result t nil))
           (error (e)
             (when tui-call-id
-              (tui-update-tool-call tui-call-id "failed"))
+              (tui-update-tool-call tui-call-id "failed")
+              (tui-update-chat-tool-call tui-call-id "failed" (format nil "~A" e)))
             (let ((err-msg (format nil "Error executing tool '~A': ~A" tool-name e)))
               (when *in-editor*
                 (editor-log-write
@@ -294,7 +292,6 @@ Returns a list of (tool-name result success-p error) for each call."
                   (list tool-name result success-p error-msg))))
 
 ;;* API Tool Call Handling
-
 (defun handle-api-tool-calls (tool-calls-list)
   "Handle tool calls from the LLM API response.
 TOOL-CALLS-LIST is the list of tool calls in API format.
@@ -307,10 +304,10 @@ Returns a list of tool result messages."
              (function-info (cdr (assoc :function tc)))
              (function-name (cdr (assoc :name function-info)))
              (arguments-json (cdr (assoc :arguments function-info)))
-             (args (handler-case 
+             (args (handler-case
                        (cl-json:decode-json-from-string arguments-json)
                      (error () nil))))
-        
+
         (multiple-value-bind (result success-p error-msg)
             (execute-tool function-name args)
           (unless success-p (setf all-succeeded nil))
@@ -326,8 +323,7 @@ Returns a list of tool result messages."
       (editor-done-marker :success (if all-succeeded "true" "false")))
     (nreverse results)))
 
-;;* Tool Response Formatting
-
+;;* Response Formatting
 (defun format-tool-results-for-prompt (results)
   "Format tool execution results for inclusion in a follow-up prompt.
 RESULTS is a list from execute-xml-tool-calls."
@@ -350,23 +346,72 @@ RESULTS is a list from execute-xml-tool-calls."
     formatted))
 
 ;;* Commands
+(defun coerce-tool-arg-value (value type)
+  "Convert a string value to the expected type for a tool parameter."
+  (if (stringp value)
+      (case type
+        (:boolean (not (member value '("false" "nil" "f" "no" "0") :test #'string-equal)))
+        (:number (or (parse-integer value :junk-allowed t) 0))
+        (t value))
+      value))
 
 (define-command tool-call (args)
   "Manually call a defined tool. Usage: /tool-call <tool_name> [args...]"
   (if (null args)
       (format t "Usage: /tool-call <tool_name> [key=value ...]~%")
       (let* ((tool-name (first args))
-             (arg-pairs (rest args))
-             (args-plist (loop for pair in arg-pairs
-                               for pos = (position #\= pair)
-                               when pos
-                               append (list (intern (string-upcase (subseq pair 0 pos)) :keyword)
-                                           (subseq pair (1+ pos))))))
-        (multiple-value-bind (result success-p error-msg)
-            (execute-tool tool-name args-plist)
-          (if success-p
-              (format t "Result: ~A~%" result)
-              (format t "Error: ~A~%" error-msg))))))
+             (tool (gethash tool-name *defined-tools*)))
+        (if (null tool)
+            (format t "Error: Tool '~A' not found~%" tool-name)
+            (let* ((arg-pairs (rest args))
+                   (named-args '())
+                   (positional-args '())
+                   ;; Separate named (key=value) and positional arguments
+                   (_ (dolist (pair arg-pairs)
+                        (let ((pos (position #\= pair)))
+                          (if pos
+                              (let* ((raw-key (subseq pair 0 pos))
+                                     (norm-key (substitute #\- #\_ raw-key))
+                                     (key (intern (string-upcase norm-key) :keyword))
+                                     (val (subseq pair (1+ pos))))
+                                (push (cons key val) named-args))
+                              (push pair positional-args)))))
+                   ;; Reverse because they were pushed
+                   (named-args (nreverse named-args))
+                   (positional-args (nreverse positional-args))
+                   ;; Get the parameters in order
+                   (params (tool-definition-parameters tool))
+                   (args-plist '()))
+              (declare (ignore _))
+              ;; Add named args first, coercing their values to the parameter's expected type
+              (dolist (pair named-args)
+                (let* ((key (car pair))
+                       (val (cdr pair))
+                       (param (find (string-downcase (symbol-name key))
+                                    params
+                                    :key #'tool-parameter-name
+                                    :test #'string=))
+                       (coerced-val (if param
+                                        (coerce-tool-arg-value val (tool-parameter-type param))
+                                        val)))
+                  (setf args-plist (append args-plist (list key coerced-val)))))
+              ;; For each positional arg, find the next param that hasn't been set yet
+              (dolist (pos-val positional-args)
+                (let ((matched-param
+                        (loop for param in params
+                              for param-keyword = (intern (string-upcase (tool-parameter-name param)) :keyword)
+                              unless (getf args-plist param-keyword)
+                              return param)))
+                  (when matched-param
+                    (let* ((key (intern (string-upcase (tool-parameter-name matched-param)) :keyword))
+                           (coerced-val (coerce-tool-arg-value pos-val (tool-parameter-type matched-param))))
+                      (setf args-plist (append args-plist (list key coerced-val)))))))
+              (multiple-value-bind (result success-p error-msg)
+                  (execute-tool tool-name args-plist)
+                (if success-p
+                    (format t "Result: ~A~%" result)
+                    (format t "Error: ~A~%" error-msg))))))))
+
 
 (define-command tools (args)
   "List available tools and their descriptions."
@@ -374,7 +419,7 @@ RESULTS is a list from execute-xml-tool-calls."
   (if (zerop (hash-table-count *defined-tools*))
       (format t "No tools defined.~%")
       (let ((output (with-output-to-string (s)
-                      (format s "Available tools (~A mode):~%" 
+                      (format s "Available tools (~A mode):~%"
                               (if *tools-in-system-prompt* "XML-in-system-prompt" "API"))
                       (format s "~%")
                       (maphash (lambda (name tool)
@@ -395,7 +440,11 @@ RESULTS is a list from execute-xml-tool-calls."
             (format t "~A" output)))))
 
 (define-command tools-mode (args)
-  "Toggle or set tools mode. Usage: /tools-mode [prompt|api]"
+  "Toggle how tools are exposed to an LLM. By default inside the prompt.
+Usage:
+  /tools-mode        - Toggle between 'prompt' and 'api' mode
+  /tools-mode prompt - Render tools as XML schemas inside the system prompt (good for models without native tool use)
+  /tools-mode api    - Expose tools natively via the LLM provider's function calling API"
   (cond
     ((null args)
      (setf *tools-in-system-prompt* (not *tools-in-system-prompt*)))
@@ -405,9 +454,9 @@ RESULTS is a list from execute-xml-tool-calls."
      (setf *tools-in-system-prompt* nil)))
   (format t "Tools mode: ~A~%" (if *tools-in-system-prompt* "XML-in-system-prompt" "API")))
 
-;;* Built-in Core Tools
+;;* builtin tools
 
-(deftool execute-command ((command :string 
+(deftool execute-command ((command :string
                            :description "The CLI command to execute"
                            :required t)
                          (requires-approval :boolean
@@ -418,7 +467,7 @@ RESULTS is a list from execute-xml-tool-calls."
   :permissions :confirm
   (let ((cmd (getf args :command))
         (needs-approval (getf args :requires-approval)))
-    (when (and needs-approval 
+    (when (and needs-approval
                (not (confirm-action (format nil "Execute command: ~A?" cmd))))
       (return-from tool-execute-command "Command execution denied by user."))
     (when (and *acp-mode* (acp-client-has-capability? '("terminal")))
@@ -437,7 +486,7 @@ RESULTS is a list from execute-xml-tool-calls."
                 (return-from tool-execute-command
                   (if (and exit-code (zerop exit-code))
                       (or output "")
-                      (format nil "Command failed (exit ~A):~%~A" 
+                      (format nil "Command failed (exit ~A):~%~A"
                               (or exit-code "unknown") (or output "")))))))
         (error (e)
           (acp-log "Terminal fallback to local exec: ~A" e))))
@@ -448,9 +497,9 @@ RESULTS is a list from execute-xml-tool-calls."
                               :error-output :string
                               :ignore-error-status t)
           (if (zerop exit-code)
-              (format nil "~A~@[~A~]" output (when (> (length error-output) 0) 
+              (format nil "~A~@[~A~]" output (when (> (length error-output) 0)
                                                (format nil "~%stderr: ~A" error-output)))
-              (format nil "Command failed (exit ~A):~%stdout: ~A~%stderr: ~A" 
+              (format nil "Command failed (exit ~A):~%stdout: ~A~%stderr: ~A"
                       exit-code output error-output)))
       (error (e)
         (format nil "Error executing command: ~A" e)))))
@@ -473,7 +522,7 @@ RESULTS is a list from execute-xml-tool-calls."
           (if (probe-file full-path)
               (progn
                 (add-file-to-context (uiop:native-namestring full-path))
-                (format nil "Added ~A~% to context" file-path))
+                (format nil "Added ~A to context" file-path))
               (format nil "Error: File not found: ~A" file-path)))
       (error (e)
         (format nil "Error reading file: ~A" e)))))

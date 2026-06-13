@@ -6,7 +6,6 @@
 (in-suite session-tests)
 
 ;;* Helpers
-
 (defmacro with-temp-session-env ((&key (files nil) (chat-history nil) (model-name nil)
                                        (stack nil) (auto-save nil))
                                  &body body)
@@ -40,7 +39,6 @@
             (hactar::*docs-meta-model* nil)
             (hactar::*name* "test-project")
             (hactar::*silent* t)
-            (hactar::*transcript-file* (merge-pathnames ".hactar.test.transcript.json" ,temp-dir))
             (hactar::*exposed-context-file* nil))
        (ensure-directories-exist ,sessions-dir)
        (ensure-directories-exist ,global-dir)
@@ -50,7 +48,6 @@
          (ignore-errors (uiop:delete-directory-tree ,temp-dir :validate t))))))
 
 ;;* Data Structures
-
 (test session-struct-creation
   "Test that hactar-session struct can be created with all fields."
   (let ((session (hactar::make-hactar-session
@@ -106,8 +103,6 @@
     (is (null (hactar::hactar-session-tool-use-enabled session)))
     (is (null (hactar::hactar-session-metadata session)))))
 
-;;* Capture Current State
-
 (test capture-current-session-basic
   "Test capturing the current hactar state into a session."
   (with-temp-session-env (:files '("/tmp/test.lisp")
@@ -143,8 +138,7 @@
       (is (null (hactar::hactar-session-git-autocommit session)))
       (is (null (hactar::hactar-session-tool-use-enabled session))))))
 
-;;* Session Directory
-
+;;* Dirs
 (test session-project-dir-returns-path
   "Test that session-project-dir returns a valid path when repo-root is set."
   (with-temp-session-env ()
@@ -181,8 +175,7 @@
       (is (search "global-sess.session.lisp" (namestring path)))
       (is (search "global-sessions/" (namestring path))))))
 
-;;* Save / Load Round-Trip
-
+;;* Save / Load
 (test session-save-creates-file
   "Test that session/save creates a session file on disk."
   (with-temp-session-env (:files '("/tmp/test.lisp"))
@@ -261,8 +254,7 @@
       (is (= 1 (length (hactar::hactar-session-files loaded))))
       (is (string= "/tmp/second.lisp" (first (hactar::hactar-session-files loaded)))))))
 
-;;* Session Load / Restore
-
+;;* Load / Restore
 (test session-load-restores-state
   "Test that session/load restores state into global variables."
   (with-temp-session-env (:files '("/tmp/original.lisp")
@@ -317,8 +309,7 @@
     (let ((loaded (hactar::session/find-and-load "both")))
       (is (string= "local version" (hactar::hactar-session-description loaded))))))
 
-;;* Session Delete
-
+;;* Delete
 (test session-delete-removes-file
   "Test that session/delete removes the session file."
   (with-temp-session-env ()
@@ -418,7 +409,7 @@
   (is (string= "test" (hactar::session-name-from-file #P"/some/path/test.session.lisp")))
   (is (string= ".autosave" (hactar::session-name-from-file #P".autosave.session.lisp"))))
 
-;;* Session List / Show
+;;* List / Show
 
 (test session-list-outputs-sessions
   "Test that session/list produces output without errors."
@@ -557,7 +548,6 @@
     (is (null (hactar::hactar-session-files session)))))
 
 ;;* Serialization / Deserialization
-
 (test serialize-deserialize-roundtrip
   "Test that serializing and deserializing a session preserves data."
   (with-temp-session-env ()
@@ -614,8 +604,7 @@
   (with-temp-session-env ()
     (is (null (hactar::deserialize-session-from-file #P"/tmp/nonexistent-session-12345.session.lisp")))))
 
-;;* Multiple Session Management
-
+;;* Multi Sessions
 (test multiple-sessions-independent
   "Test that multiple sessions are saved independently."
   (with-temp-session-env (:files '("/tmp/first.lisp"))
@@ -631,7 +620,6 @@
       (is (equal '("/tmp/second.lisp") (hactar::hactar-session-files s2))))))
 
 ;;* Edge Cases
-
 (test session-save-special-characters-in-name
   "Test saving a session with special characters in the name."
   (with-temp-session-env ()
@@ -648,11 +636,11 @@
       (is (null (hactar::hactar-session-chat-history loaded))))))
 
 (test session-save-without-repo-root
-  "Test that session/save returns nil when no repo root is set."
+  "Test that session/save succeeds (using global directory) when no repo root is set."
   (let ((hactar::*repo-root* nil)
         (hactar::*sessions-dir* nil)
         (hactar::*silent* t))
-    (is (null (hactar::session/save "no-repo")))))
+    (is (not (null (hactar::session/save "no-repo"))))))
 
 (test session-save-nil-no-error
   "Test that session/save handles nil paths gracefully."
@@ -667,7 +655,6 @@
         (fail (format nil "session/save errored with nil repo-root: ~A" e))))))
 
 ;;* Current Session Name Tracking
-
 (test session-name-tracking-on-save
   "Test that saving sets *current-session-name*."
   (with-temp-session-env ()
@@ -704,7 +691,6 @@
     (is (string= "keep-me" hactar::*current-session-name*))))
 
 ;;* Session Load Clears State
-
 (test session-load-clears-previous-state
   "Test that loading a session clears previous state before restoring."
   (with-temp-session-env ()

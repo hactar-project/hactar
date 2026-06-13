@@ -1,8 +1,5 @@
 (require :asdf)
-;; Load the ASDF system definition from the current directory
 (push (uiop:getcwd) asdf:*central-registry*)
-;; Load the systems
-(asdf:load-system :hactar-migrations)
 (asdf:load-system :hactar)
 (asdf:load-system :llm)
 

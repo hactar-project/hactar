@@ -2,8 +2,6 @@
 ;; Flexible, extensible permissions for Hactar's tool calling
 (in-package :hactar)
 
-;;* Data Structures
-
 (defstruct permission-rule
   "A rule that determines whether a tool call is allowed."
   (name "" :type string)
@@ -45,14 +43,11 @@
   "Clear all session overrides."
   (setf *session-overrides* '()))
 
-;;* Args Fingerprinting
-
 (defun fingerprint-args (args)
   "Create a fingerprint (hash) of tool arguments for exact-match overrides."
   (sxhash (prin1-to-string args)))
 
 ;;* Permission Resolution
-
 (defun check-session-overrides (tool-name args)
   "Check session overrides for a matching decision. Returns :allow, :deny, or NIL."
   (dolist (override *session-overrides*)
@@ -105,7 +100,6 @@
     (setf *permission-log* (subseq *permission-log* 0 *permission-log-max*))))
 
 ;;* Interactive Prompt
-
 (defun prompt-tool-permission (tool-name args)
   "Present multi-option confirmation for a tool call.
    In ACP mode, delegates to the Client via session/request_permission.
@@ -222,8 +216,7 @@
         (t
          (format t "~&Invalid choice. Please enter y, n, a, e, d, or ?.~%"))))))
 
-;;* defperm Macro
-
+;;* core
 (defmacro defperm (name (&key tool (priority 0) description (source :user)) &body body)
   "Define and register a named permission rule.
 
@@ -253,9 +246,7 @@ BODY: Code evaluated with TOOL-NAME (string) and ARGS (plist) bound.
          :source ,source))
        ',name))))
 
-;;* Built-in Predicates
-
-
+;;* Preds
 (defun path-is-readonly? (path)
   "Returns T if path is in a known read-only location (node_modules, .git, etc.)."
   (when path
@@ -295,8 +286,7 @@ BODY: Code evaluated with TOOL-NAME (string) and ARGS (plist) bound.
                    (equal pattern value)))))
          pattern-alist))
 
-;;* Safe Commands Registry
-
+;;* safe commands registry
 (defun register-safe-command (pattern)
   "Add a regex pattern to the safe commands list."
   (pushnew pattern *safe-command-patterns* :test #'string=))
@@ -306,8 +296,7 @@ BODY: Code evaluated with TOOL-NAME (string) and ARGS (plist) bound.
 (register-safe-command "^(node|python|ruby|sbcl)\\s+--version$")
 (register-safe-command "^(npm|yarn|cargo|mix|pip)\\s+(list|info|show|search)\\b")
 
-;;* Default Permission Rules
-
+;;* Defaults
 (defperm deny-dangerous-commands
   (:tool "execute_command" :priority 100 :source :system
    :description "Deny commands that could be destructive outside project scope")
@@ -371,7 +360,6 @@ BODY: Code evaluated with TOOL-NAME (string) and ARGS (plist) bound.
         :confirm)))
 
 ;;* Commands
-
 (define-command permissions (args)
   "View and manage tool permission rules. Usage: /permissions [clear|log|reset]"
   (cond
@@ -414,28 +402,83 @@ BODY: Code evaluated with TOOL-NAME (string) and ARGS (plist) bound.
                       *permission-rules*))
      (format t "~&Permission rules reset to system defaults. Session overrides cleared.~%"))
     (t
-     (format t "~&Usage: /permissions [clear|log|reset]~%"))))
+     (format t "~&Usage: /permissions [clear|log|reset]~%")))
+  :json (lambda (args)
+          (declare (ignore args))
+          (let ((rules (mapcar (lambda (rule)
+                                 `(("name" . ,(permission-rule-name rule))
+                                   ("priority" . ,(permission-rule-priority rule))
+                                   ("toolPattern" . ,(let ((tp (permission-rule-tool-pattern rule)))
+                                                       (if (eq tp :any) ":any" (princ-to-string tp))))
+                                   ("description" . ,(permission-rule-description rule))
+                                   ("source" . ,(string-downcase (symbol-name (permission-rule-source rule))))))
+                               *permission-rules*))
+                (overrides (mapcar (lambda (ov)
+                                     `(("toolName" . ,(session-override-tool-name ov))
+                                       ("matchType" . ,(string-downcase (symbol-name (session-override-match-type ov))))
+                                       ("decision" . ,(string-downcase (symbol-name (session-override-decision ov))))))
+                                   *session-overrides*)))
+            (to-json `(("rules" . ,(coerce rules 'vector))
+                       ("overrides" . ,(coerce overrides 'vector))))))
+  :yaml (lambda (args)
+          (declare (ignore args))
+          (with-output-to-string (s)
+            (format s "rules:~%")
+            (dolist (rule *permission-rules*)
+              (format s "  - name: ~A~%" (permission-rule-name rule))
+              (format s "    priority: ~D~%" (permission-rule-priority rule))
+              (format s "    toolPattern: ~A~%" (let ((tp (permission-rule-tool-pattern rule)))
+                                                 (if (eq tp :any) ":any" (princ-to-string tp))))
+              (format s "    description: ~A~%" (permission-rule-description rule))
+              (format s "    source: ~A~%" (string-downcase (symbol-name (permission-rule-source rule)))))
+            (format s "overrides:~%")
+            (dolist (ov *session-overrides*)
+              (format s "  - toolName: ~A~%" (session-override-tool-name ov))
+              (format s "    matchType: ~A~%" (string-downcase (symbol-name (session-override-match-type ov))))
+              (format s "    decision: ~A~%" (string-downcase (symbol-name (session-override-decision ov))))))))
+
+(defun %known-tool-names ()
+  "Return a list of known tool name strings."
+  (loop for k being the hash-keys of *defined-tools* collect k))
+
+(defun %select-or-validate-tool (args action)
+  "Return a validated tool name from ARGS, or pick one via fzf in the TUI.
+   Returns NIL (with a warning) if no valid tool is chosen."
+  (let ((tool-name (first args)))
+    (cond
+      ((and (null tool-name) *tui-running*)
+       (let ((names (%known-tool-names)))
+         (if names
+             (fuzzy-select names)
+             (progn (format t "~&No tools defined.~%") nil))))
+      ((null tool-name)
+       (format t "~&Usage: /~A <tool_name>~%" action)
+       nil)
+      ((gethash tool-name *defined-tools*)
+       tool-name)
+      (t
+       (format t "~&Warning: Unknown tool '~A'. Known tools: ~{~A~^, ~}~%"
+               tool-name (%known-tool-names))
+       nil))))
 
 (define-command allow (args)
   "Add a session override to always allow a tool. Usage: /allow <tool_name>"
-  (if (null args)
-      (format t "~&Usage: /allow <tool_name>~%")
-      (let ((tool-name (first args)))
-        (push (make-session-override
-               :tool-name tool-name
-               :match-type :tool-always
-               :decision :allow)
-              *session-overrides*)
-        (format t "~&Session override: always allow '~A'~%" tool-name))))
+  (let ((tool-name (%select-or-validate-tool args "allow")))
+    (when tool-name
+      (push (make-session-override
+             :tool-name tool-name
+             :match-type :tool-always
+             :decision :allow)
+            *session-overrides*)
+      (format t "~&Session override: always allow '~A'~%" tool-name))))
 
 (define-command deny (args)
   "Add a session override to always deny a tool. Usage: /deny <tool_name>"
-  (if (null args)
-      (format t "~&Usage: /deny <tool_name>~%")
-      (let ((tool-name (first args)))
-        (push (make-session-override
-               :tool-name tool-name
-               :match-type :tool-deny
-               :decision :deny)
-              *session-overrides*)
-        (format t "~&Session override: always deny '~A'~%" tool-name))))
+  (let ((tool-name (%select-or-validate-tool args "deny")))
+    (when tool-name
+      (push (make-session-override
+             :tool-name tool-name
+             :match-type :tool-deny
+             :decision :deny)
+            *session-overrides*)
+      (format t "~&Session override: always deny '~A'~%" tool-name))))

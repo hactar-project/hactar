@@ -15,8 +15,8 @@
 
 (defun render-markdown-to-html (markdown-string)
   "Render a MARKDOWN-STRING to an HTML string."
-  (libcmark:markdown-to-html markdown-string 
-                             (length (babel:string-to-octets markdown-string)) 
+  (libcmark:markdown-to-html markdown-string
+                             (length (babel:string-to-octets markdown-string))
                              0))
 
 (defun insert-md-sibling (node sibling)

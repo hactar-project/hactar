@@ -16,7 +16,7 @@
   "Test generation of images context string."
   (let ((hactar::*images* nil))
     (is (string= (hactar::images-context-string) "(No images added to context)")))
-  
+
   (let ((hactar::*images* '((:path #P"/path/to/image1.png" :text nil)
                             (:path #P"/path/to/image2.jpg" :text "A screenshot"))))
     (let ((result (hactar::images-context-string)))
@@ -29,7 +29,7 @@
   "Test generation of documentation context string."
   (let ((hactar::*docs-context* nil))
     (is (string= (hactar::docs-context-string) "(No documentation added to context)")))
-  
+
   (let ((hactar::*docs-context* '(((:title . "API Guide")
                                    (:source . "https://example.com/api")
                                    (:covers . ("api" "rest"))
@@ -44,7 +44,7 @@
   "Test generation of errors context string."
   (let ((hactar::*errors-context* nil))
     (is (string= (hactar::errors-context-string) "(No errors added to context)")))
-  
+
   (let ((hactar::*errors-context* '(((:title . "Connection Error")
                                      (:code . "CONN-001")
                                      (:message . "Failed to connect")
@@ -64,10 +64,10 @@
         (hactar::*silent* t))
     (hactar::add-doc-to-context '((:id . 1) (:title . "Doc 1") (:content . "Content 1")))
     (is (= 1 (length hactar::*docs-context*)))
-    
+
     (hactar::add-doc-to-context '((:id . 2) (:title . "Doc 2") (:content . "Content 2")))
     (is (= 2 (length hactar::*docs-context*)))
-    
+
     (hactar::add-doc-to-context '((:id . 1) (:title . "Doc 1 Updated") (:content . "Content 1 Updated")))
     (is (= 2 (length hactar::*docs-context*)))))
 
@@ -79,7 +79,7 @@
     (hactar::remove-doc-from-context 1)
     (is (= 1 (length hactar::*docs-context*)))
     (is (= 2 (cdr (assoc :id (first hactar::*docs-context*)))))
-    
+
     (hactar::remove-doc-from-context 999)
     (is (= 1 (length hactar::*docs-context*)))))
 
@@ -90,10 +90,10 @@
         (hactar::*silent* t))
     (hactar::add-error-to-context '((:code . "ERR-001") (:title . "Error 1")))
     (is (= 1 (length hactar::*errors-context*)))
-    
+
     (hactar::add-error-to-context '((:code . "ERR-002") (:title . "Error 2")))
     (is (= 2 (length hactar::*errors-context*)))
-    
+
     (hactar::add-error-to-context '((:code . "ERR-001") (:title . "Error 1 Updated")))
     (is (= 2 (length hactar::*errors-context*)))))
 
@@ -105,7 +105,7 @@
     (hactar::remove-error-from-context "ERR-001")
     (is (= 1 (length hactar::*errors-context*)))
     (is (string= "ERR-002" (cdr (assoc :code (first hactar::*errors-context*)))))
-    
+
     (hactar::remove-error-from-context "ERR-999")
     (is (= 1 (length hactar::*errors-context*)))))
 
@@ -116,11 +116,11 @@
     (with-dynamic-stubs ((hactar::check-image-size (lambda (path) (declare (ignore path)) nil)))
       (hactar::add-image-to-context "/path/to/image1.png" nil)
       (is (= 1 (length hactar::*images*)))
-      
+
       (hactar::add-image-to-context "/path/to/image2.jpg" "A screenshot")
       (is (= 2 (length hactar::*images*)))
-      
-      (let ((img2 (find "/path/to/image2.jpg" hactar::*images* 
+
+      (let ((img2 (find "/path/to/image2.jpg" hactar::*images*
                         :key (lambda (img) (getf img :path)) :test #'equal)))
         (is (string= "A screenshot" (getf img2 :text)))))))
 
@@ -131,7 +131,7 @@
     (hactar::drop-image-from-context "/path/to/image1.png")
     (is (= 1 (length hactar::*images*)))
     (is (string= "/path/to/image2.jpg" (getf (first hactar::*images*) :path)))
-    
+
     (hactar::drop-image-from-context "/nonexistent.png")
     (is (= 1 (length hactar::*images*)))))
 
@@ -146,16 +146,16 @@
         (hactar::*context-variable-changed-hook* (make-instance 'hactar::hook-context-variable-changed)))
     (hactar::set-context-variable :name "Test Project")
     (is (string= hactar::*name* "Test Project"))
-    
+
     (hactar::set-context-variable :author "Test Author")
     (is (string= hactar::*author* "Test Author"))
-    
+
     (hactar::set-context-variable :language "Common Lisp")
     (is (string= hactar::*language* "Common Lisp"))
-    
+
     (hactar::set-context-variable :shell "bash")
     (is (string= hactar::*shell* "bash"))
-    
+
     (hactar::set-context-variable :stack '("SBCL" "Quicklisp"))
     (is (equal hactar::*stack* '("SBCL" "Quicklisp")))))
 
@@ -194,7 +194,7 @@
         (is (search "Short content" content))
         (is (null skipped))
         (is (= 1 (length included))))
-      
+
       (multiple-value-bind (content skipped included)
           (hactar::files-context 1)
         (is (= 1 (length skipped)))
@@ -213,12 +213,12 @@
         (hactar::*docs-context* nil)
         (hactar::*errors-context* nil)
         (hactar::*images* nil))
-    (with-dynamic-stubs ((hactar::get-prompt-path 
-                          (lambda (name) 
+    (with-dynamic-stubs ((hactar::get-prompt-path
+                          (lambda (name)
                             (declare (ignore name))
                             ;; Return a simple template path that will be mocked
                             "/tmp/test-prompt.org"))
-                         (uiop:read-file-string 
+                         (uiop:read-file-string
                           (lambda (path)
                             (declare (ignore path))
                             "Name: {{name}}, Language: {{language}}")))
@@ -236,7 +236,7 @@
   "Test reading context from exposed file."
   (let ((hactar::*exposed-context-file* nil))
     (is (null (hactar::read-context-from-file))))
-  
+
   (uiop:with-temporary-file (:pathname p :stream s :direction :output :keep t)
     (write-string "* Files\nSome context content" s)
     (finish-output s)
@@ -245,7 +245,7 @@
         (is (search "Files" result))
         (is (search "Some context content" result))))
     (ignore-errors (delete-file p)))
-  
+
   (let ((hactar::*exposed-context-file* #P"/nonexistent/path/file.org"))
     (is (null (hactar::read-context-from-file)))))
 
@@ -269,11 +269,11 @@
         (hactar::*images* nil)
         (hactar::*exposed-context-file* nil))
     (clrhash hactar::*defined-tools*)
-    (with-dynamic-stubs ((hactar::get-prompt-path 
-                          (lambda (name) 
+    (with-dynamic-stubs ((hactar::get-prompt-path
+                          (lambda (name)
                             (declare (ignore name))
                             "/tmp/test-system-prompt.org"))
-                         (uiop:read-file-string 
+                         (uiop:read-file-string
                           (lambda (path)
                             (declare (ignore path))
                             "{{#tools_enabled}}TOOLS:{{tools}}{{/tools_enabled}}Context:{{context}}")))
@@ -306,11 +306,11 @@
            :parameters nil
            :permissions :auto
            :function (lambda (args) (declare (ignore args)) "result")))
-    (with-dynamic-stubs ((hactar::get-prompt-path 
-                          (lambda (name) 
+    (with-dynamic-stubs ((hactar::get-prompt-path
+                          (lambda (name)
                             (declare (ignore name))
                             "/tmp/test-system-prompt.org"))
-                         (uiop:read-file-string 
+                         (uiop:read-file-string
                           (lambda (path)
                             (declare (ignore path))
                             "{{#tools_enabled}}TOOLS:{{tools}}{{/tools_enabled}}Context:{{context}}")))
@@ -345,11 +345,11 @@
            :parameters nil
            :permissions :auto
            :function (lambda (args) (declare (ignore args)) "result")))
-    (with-dynamic-stubs ((hactar::get-prompt-path 
-                          (lambda (name) 
+    (with-dynamic-stubs ((hactar::get-prompt-path
+                          (lambda (name)
                             (declare (ignore name))
                             "/tmp/test-system-prompt.org"))
-                         (uiop:read-file-string 
+                         (uiop:read-file-string
                           (lambda (path)
                             (declare (ignore path))
                             "{{#tools_enabled}}TOOLS:{{tools}}{{/tools_enabled}}Context:{{context}}")))
@@ -363,26 +363,172 @@
   (let ((hactar::*cheap-model* nil)
         (*standard-output* (make-broadcast-stream)))
     (is (null (hactar::generate-commit-message))))
-  
+
   (let ((hactar::*cheap-model* "test-model"))
-    (with-dynamic-stubs ((hactar::get-prompt-path 
+    (with-dynamic-stubs ((hactar::get-prompt-path
                           (lambda (name) (declare (ignore name)) "dummy/path"))
-                         (uiop:read-file-string 
+                         (uiop:read-file-string
                           (lambda (path) (declare (ignore path)) "Diff: {{diff}}"))
-                         (hactar::run-git-command 
-                          (lambda (args &key ignore-error) 
-                            (declare (ignore args ignore-error)) 
+                         (hactar::run-git-command
+                          (lambda (args &key ignore-error)
+                            (declare (ignore args ignore-error))
                             "mock git diff"))
                          (hactar::find-model-by-name
                           (lambda (name)
                             (declare (ignore name))
-                            (hactar::make-model-config :provider "test-provider" 
-                                                       :model-name "test-model" 
+                            (hactar::make-model-config :provider "test-provider"
+                                                       :model-name "test-model"
                                                        :max-output-tokens 100)))
-                         (llm:complete 
-                          (lambda (provider messages &key model max-tokens system-prompt stream) 
+                         (llm:complete
+                          (lambda (provider messages &key model max-tokens system-prompt stream)
                             (declare (ignore provider messages max-tokens system-prompt stream))
                             (if (equal model "test-model")
                                 (format nil "feat: changes~%~%Body text")
                                 nil))))
       (is (string= "feat: changes" (hactar::generate-commit-message))))))
+
+(test parse-add-args-test
+  "parse-add-args separates files from -descriptions=."
+  (multiple-value-bind (files descs)
+      (hactar::parse-add-args '("a.lisp" "-descriptions=d1,d2" "b.png"))
+    (is (equal '("a.lisp" "b.png") files))
+    (is (equal '("d1" "d2") descs)))
+  (multiple-value-bind (files descs)
+      (hactar::parse-add-args '("only.lisp"))
+    (is (equal '("only.lisp") files))
+    (is (null descs))))
+
+(test add-file-to-context-basic-test
+  "add-file-to-context adds a file and fires the added hook."
+  (let ((hactar::*files* nil)
+        (hactar::*current-model* nil)
+        (hactar::*exposed-context-file* nil)
+        (hactar::*litmode-active* nil)
+        (fired nil)
+        (hactar::*context-file-added-hook*
+          (make-instance 'hactar::hook-context-file-added)))
+    (nhooks:add-hook hactar::*context-file-added-hook*
+                     (make-instance 'nhooks:handler
+                                    :fn (lambda (f) (setf fired f))
+                                    :name 'test-added-hook))
+    (hactar::add-file-to-context "/tmp/somefile.lisp")
+    (is (member "/tmp/somefile.lisp" hactar::*files* :test #'string=))
+    (is (string= "/tmp/somefile.lisp" fired))
+    ;; Adding again does not duplicate.
+    (hactar::add-file-to-context "/tmp/somefile.lisp")
+    (is (= 1 (length hactar::*files*)))))
+
+(test drop-file-from-context-basic-test
+  "drop-file-from-context removes a file and fires the dropped hook."
+  (let ((hactar::*files* (list "/tmp/a.lisp" "/tmp/b.lisp"))
+        (hactar::*exposed-context-file* nil)
+        (hactar::*litmode-active* nil)
+        (fired nil)
+        (hactar::*context-file-dropped-hook*
+          (make-instance 'hactar::hook-context-file-dropped)))
+    (nhooks:add-hook hactar::*context-file-dropped-hook*
+                     (make-instance 'nhooks:handler
+                                    :fn (lambda (f) (setf fired f))
+                                    :name 'test-dropped-hook))
+    (hactar::drop-file-from-context "/tmp/a.lisp")
+    (is (not (member "/tmp/a.lisp" hactar::*files* :test #'string=)))
+    (is (member "/tmp/b.lisp" hactar::*files* :test #'string=))
+    (is (string= "/tmp/a.lisp" fired))))
+
+(test expand-file-pattern-exact-test
+  "expand-file-pattern resolves an exact relative path to an absolute native path."
+  (uiop:with-temporary-file (:pathname p :stream s :direction :output :keep t)
+    (write-string "x" s) (finish-output s)
+    (let* ((hactar::*repo-root* (uiop:pathname-directory-pathname p))
+           (rel (uiop:native-namestring (uiop:enough-pathname p hactar::*repo-root*)))
+           (result (hactar::expand-file-pattern rel)))
+      (is (member (uiop:native-namestring p) result :test #'string=)))
+    (ignore-errors (delete-file p))))
+
+(test expand-file-pattern-missing-test
+  "expand-file-pattern returns NIL for a non-existent exact path."
+  (let ((hactar::*repo-root* (uiop:temporary-directory)))
+    (is (null (hactar::expand-file-pattern "definitely-not-here-12345.lisp")))))
+
+(test ls-command-plaintext-test
+  "Test that the /ls command lists files, images, and docs in plaintext."
+  (let ((hactar::*files* (list "/tmp/test-file.lisp"))
+        (hactar::*images* (list (list :path #P"/tmp/test-image.png" :text "test-desc")))
+        (hactar::*docs-context* (list (list (cons :id "doc1")
+                                            (cons :title "Doc Title")
+                                            (cons :source "docs/test-doc.md")))))
+    (let ((output (with-output-to-string (*standard-output*)
+                    (hactar::slash-cmd/ls nil))))
+      (is (search "Files in context:" output))
+      (is (search "/tmp/test-file.lisp" output))
+      (is (search "Images in context:" output))
+      (is (search "test-image.png" output))
+      (is (search "test-desc" output))
+      (is (search "Documentation in context:" output))
+      (is (search "Doc Title" output))
+      (is (search "doc1" output))
+      (is (search "docs/test-doc.md" output)))))
+
+(test ls-command-formats-test
+  "Test format handlers for /ls with docs in context."
+  (let ((hactar::*files* (list "/tmp/test-file.lisp"))
+        (hactar::*images* (list (list :path #P"/tmp/test-image.png" :text "test-desc")))
+        (hactar::*docs-context* (list (list (cons :id "doc1")
+                                            (cons :title "Doc Title")
+                                            (cons :source "docs/test-doc.md")))))
+    ;; Test JSON format
+    (let* ((json-handler (hactar::get-format-handler "/ls" :json))
+           (json-res (funcall json-handler nil)))
+      (is (search "\"path\": \"/tmp/test-file.lisp\"" json-res))
+      (is (search "\"type\": \"file\"" json-res))
+      (is (search "\"type\": \"image\"" json-res))
+      (is (search "test-image.png" json-res))
+      (is (search "\"type\": \"doc\"" json-res))
+      (is (search "\"id\": \"doc1\"" json-res))
+      (is (search "\"title\": \"Doc Title\"" json-res)))
+
+    ;; Test YAML format
+    (let* ((yaml-handler (hactar::get-format-handler "/ls" :yaml))
+           (yaml-res (funcall yaml-handler nil)))
+      (is (search "type: file" yaml-res))
+      (is (search "type: image" yaml-res))
+      (is (search "type: doc" yaml-res))
+      (is (search "id: doc1" yaml-res))
+      (is (search "title: Doc Title" yaml-res)))
+
+    ;; Test XML format
+    (let* ((xml-handler (hactar::get-format-handler "/ls" :xml))
+           (xml-res (funcall xml-handler nil)))
+      (is (search "<item type=\"file\">" xml-res))
+      (is (search "<item type=\"image\">" xml-res))
+      (is (search "<item type=\"doc\">" xml-res))
+      (is (search "<id>doc1</id>" xml-res))
+      (is (search "<title>Doc Title</title>" xml-res)))
+
+    ;; Test Markdown format
+    (let* ((md-handler (hactar::get-format-handler "/ls" :markdown))
+           (md-res (funcall md-handler nil)))
+      (is (search "## Files in context" md-res))
+      (is (search "## Images in context" md-res))
+      (is (search "## Documentation in context" md-res))
+      (is (search "Doc Title" md-res))
+      (is (search "doc1" md-res)))
+
+    ;; Test Org-mode format
+    (let* ((org-handler (hactar::get-format-handler "/ls" :org-mode))
+           (org-res (funcall org-handler nil)))
+      (is (search "* Files in context" org-res))
+      (is (search "* Images in context" org-res))
+      (is (search "* Documentation in context" org-res))
+      (is (search "Doc Title" org-res))
+      (is (search "doc1" org-res)))
+
+    ;; Test ACP format
+    (let* ((acp-handler (gethash "/ls" hactar::*acp-commands*))
+           (acp-res (funcall acp-handler nil)))
+      (is (string= "1 file(s), 1 image(s), and 1 doc(s) in context." (cdr (assoc "text" acp-res :test #'string=))))
+      (let ((data (cdr (assoc "data" acp-res :test #'string=))))
+        (is (= 3 (length data)))
+        (is (equal '(("path" . "/tmp/test-file.lisp") ("type" . "file")) (aref data 0)))
+        (is (equal `(("path" . ,(uiop:native-namestring #P"/tmp/test-image.png")) ("description" . "test-desc") ("type" . "image")) (aref data 1)))
+        (is (equal '(("id" . "doc1") ("title" . "Doc Title") ("source" . "docs/test-doc.md") ("type" . "doc")) (aref data 2)))))))

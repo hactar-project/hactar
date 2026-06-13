@@ -53,20 +53,20 @@
     (let* ((filename (car (last parts)))
            (title (stripe--normalize-filename filename))
            (leaf (stripe--get-or-create-child current title)))
-      (setf (stripe-doc-node-content leaf) 
+      (setf (stripe-doc-node-content leaf)
             (append (stripe-doc-node-content leaf) blocks)))))
 
 (defun stripe--print-tree (node level lang)
   (when (stripe-doc-node-name node)
     (format t "~A ~A~%" (make-string level :initial-element #\*) (stripe-doc-node-name node)))
-  
+
   (when (stripe-doc-node-content node)
     (dolist (block (stripe-doc-node-content node))
       (format t "#+begin_src ~A~%~A~%#+end_src~%~%" lang block)))
-  
+
   (let ((sorted-names (sort (alexandria:hash-table-keys (stripe-doc-node-children node)) #'string<)))
     (dolist (name sorted-names)
-      (stripe--print-tree (gethash name (stripe-doc-node-children node)) 
+      (stripe--print-tree (gethash name (stripe-doc-node-children node))
                           (if (stripe-doc-node-name node) (1+ level) level)
                           lang))))
 

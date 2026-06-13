@@ -76,7 +76,7 @@
 (test hyperfractal-cache-operations-test
   "Test cache put, get, and clear operations."
   (hactar::hyperfractal-cache-clear)
-  
+
   (is (null (hactar::hyperfractal-cache-get "https://test.com" "markdown")))
   (hactar::hyperfractal-cache-put "https://test.com" "markdown" "# Test Content")
   (is (string= (hactar::hyperfractal-cache-get "https://test.com" "markdown") "# Test Content"))
@@ -87,7 +87,7 @@
 (test hyperfractal-cache-lru-test
   "Test that cache maintains LRU order."
   (hactar::hyperfractal-cache-clear)
-  
+
   (hactar::hyperfractal-cache-put "https://first.com" "markdown" "first")
   (hactar::hyperfractal-cache-put "https://second.com" "markdown" "second")
   (hactar::hyperfractal-cache-put "https://third.com" "markdown" "third")
@@ -99,10 +99,10 @@
   "Test calculating cache size."
   (hactar::hyperfractal-cache-clear)
   (is (= 0 (hactar::hyperfractal-cache-size-bytes)))
-  
+
   (hactar::hyperfractal-cache-put "https://test.com" "md" "hello")  ; 5 bytes
   (is (= 5 (hactar::hyperfractal-cache-size-bytes)))
-  
+
   (hactar::hyperfractal-cache-put "https://test2.com" "md" "world!")  ; 6 bytes
   (is (= 11 (hactar::hyperfractal-cache-size-bytes))))
 
@@ -162,11 +162,11 @@
   "Test pushing URLs to navigation history."
   (setf hactar::*hyperfractal-history* '())
   (setf hactar::*hyperfractal-history-position* 0)
-  
+
   (hactar::hyperfractal-history-push "https://first.com")
   (is (= 1 (length hactar::*hyperfractal-history*)))
   (is (string= (first hactar::*hyperfractal-history*) "https://first.com"))
-  
+
   (hactar::hyperfractal-history-push "https://second.com")
   (is (= 2 (length hactar::*hyperfractal-history*)))
   (is (string= (first hactar::*hyperfractal-history*) "https://second.com")))
@@ -175,7 +175,7 @@
   "Test navigating back and forward in history."
   (setf hactar::*hyperfractal-history* '("https://third.com" "https://second.com" "https://first.com"))
   (setf hactar::*hyperfractal-history-position* 0)
-  
+
   (let ((url (hactar::hyperfractal-history-back)))
     (is (string= url "https://second.com"))
     (is (= hactar::*hyperfractal-history-position* 1)))
@@ -211,7 +211,7 @@
                             (declare (ignore output error-output ignore-error-status))
                             (setf called-args args)
                             (values "content" "" 0))))
-      (hactar::hyperfractal-fetch-with-curl "https://example.com" 
+      (hactar::hyperfractal-fetch-with-curl "https://example.com"
                                             :auth '((:user . "testuser") (:password . "testpass")))
       (is (member "-u" called-args :test #'string=))
       (is (member "testuser:testpass" called-args :test #'string=)))))
@@ -219,9 +219,9 @@
 ;;* HTML Conversion
 (test hyperfractal-html-to-markdown-test
   "Test converting HTML to Markdown (mocked LLM)."
-  (let ((hactar::*current-model* (hactar::make-model-config 
-                                   :name "test" 
-                                   :provider "ollama" 
+  (let ((hactar::*current-model* (hactar::make-model-config
+                                   :name "test"
+                                   :provider "ollama"
                                    :model-name "test"
                                    :max-output-tokens 4096)))
     (with-dynamic-stubs ((llm:complete
@@ -235,9 +235,9 @@ This is the main content extracted from the page.")))
 
 (test hyperfractal-html-to-org-test
   "Test converting HTML to Org-mode (mocked LLM)."
-  (let ((hactar::*current-model* (hactar::make-model-config 
-                                   :name "test" 
-                                   :provider "ollama" 
+  (let ((hactar::*current-model* (hactar::make-model-config
+                                   :name "test"
+                                   :provider "ollama"
                                    :model-name "test"
                                    :max-output-tokens 4096)))
     (with-dynamic-stubs ((llm:complete
@@ -251,9 +251,9 @@ This is the main content.")))
 
 (test hyperfractal-convert-html-dispatch-test
   "Test that convert-html dispatches based on format."
-  (let ((hactar::*current-model* (hactar::make-model-config 
-                                   :name "test" 
-                                   :provider "ollama" 
+  (let ((hactar::*current-model* (hactar::make-model-config
+                                   :name "test"
+                                   :provider "ollama"
                                    :model-name "test"
                                    :max-output-tokens 4096)))
     (with-dynamic-stubs ((llm:complete
@@ -264,7 +264,7 @@ This is the main content.")))
                                 "* Org"))))
       (let ((md-result (hactar::hyperfractal-convert-html "<html></html>" "https://test.com" :format "markdown")))
         (is (search "Markdown" md-result)))
-      
+
       (let ((org-result (hactar::hyperfractal-convert-html "<html></html>" "https://test.com" :format "org")))
         (is (search "Org" org-result))))))
 
@@ -277,7 +277,7 @@ This is the main content.")))
   "Test that browse returns cached content."
   (hactar::hyperfractal-cache-clear)
   (setf hactar::*hyperfractal-history* '())
-  
+
   (hactar::hyperfractal-cache-put "https://cached.com" "markdown" "# Cached Content")
   (let ((result (hactar::hyperfractal-browse "https://cached.com" :format "markdown")))
     (is (string= result "# Cached Content"))
@@ -287,12 +287,12 @@ This is the main content.")))
   "Test browsing without using cache."
   (hactar::hyperfractal-cache-clear)
   (setf hactar::*hyperfractal-history* '())
-  
+
   (hactar::hyperfractal-cache-put "https://cached.com" "markdown" "# Old Content")
-  
-  (let ((hactar::*current-model* (hactar::make-model-config 
-                                   :name "test" 
-                                   :provider "ollama" 
+
+  (let ((hactar::*current-model* (hactar::make-model-config
+                                   :name "test"
+                                   :provider "ollama"
                                    :model-name "test"
                                    :max-output-tokens 4096)))
     (with-dynamic-stubs ((hactar::hyperfractal-fetch-url
@@ -309,7 +309,7 @@ This is the main content.")))
 (test hyperfractal-browse-fetch-failure-test
   "Test browse returns nil when fetch fails."
   (hactar::hyperfractal-cache-clear)
-  
+
   (with-dynamic-stubs ((hactar::hyperfractal-fetch-url
                         (lambda (url)
                           (declare (ignore url))
@@ -344,9 +344,9 @@ This is the main content.")))
   "Test /hf-links command displays links."
   (setf hactar::*hyperfractal-history* '("https://test.com"))
   (hactar::hyperfractal-cache-clear)
-  (hactar::hyperfractal-cache-put "https://test.com" "markdown" 
+  (hactar::hyperfractal-cache-put "https://test.com" "markdown"
                                    "[Link 1](https://link1.com) and [Link 2](https://link2.com)")
-  
+
   (let* ((output (make-string-output-stream))
          (*standard-output* output)
          (hactar::*hyperfractal-default-format* "markdown")
@@ -362,7 +362,7 @@ This is the main content.")))
   "Test /hf-cache-clear command."
   (hactar::hyperfractal-cache-put "https://test.com" "md" "content")
   (is (> (hactar::hyperfractal-cache-size-bytes) 0))
-  
+
   (let* ((output (make-string-output-stream))
          (*standard-output* output)
          (cmd-fn (first (gethash "/hf-cache-clear" hactar::*commands*))))
@@ -374,7 +374,7 @@ This is the main content.")))
   "Test /hf-back when there's no history."
   (setf hactar::*hyperfractal-history* '())
   (setf hactar::*hyperfractal-history-position* 0)
-  
+
   (let* ((output (make-string-output-stream))
          (*standard-output* output)
          (cmd-fn (first (gethash "/hf-back" hactar::*commands*))))
@@ -385,7 +385,7 @@ This is the main content.")))
   "Test /hf-forward when there's no forward history."
   (setf hactar::*hyperfractal-history* '("https://current.com"))
   (setf hactar::*hyperfractal-history-position* 0)
-  
+
   (let* ((output (make-string-output-stream))
          (*standard-output* output)
          (cmd-fn (first (gethash "/hf-forward" hactar::*commands*))))
@@ -397,7 +397,7 @@ This is the main content.")))
   (setf hactar::*hyperfractal-history* '("https://test.com"))
   (hactar::hyperfractal-cache-clear)
   (hactar::hyperfractal-cache-put "https://test.com" "markdown" "[Link](https://link.com)")
-  
+
   (let* ((output (make-string-output-stream))
          (*standard-output* output)
          (hactar::*hyperfractal-default-format* "markdown")

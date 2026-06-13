@@ -21,7 +21,7 @@
     (is (string= (hactar::tag-kind tag2) "c"))
     (is (= (hactar::tag-line tag2) 5)))
 
-  (let* ((line3 (format nil "simple~Csimple.txt~C1" #\Tab #\Tab)) ; Basic format without extension fields
+  (let* ((line3 (format nil "simple~Csimple.txt~C1" #\Tab #\Tab))
          (tag3 (hactar::parse-tag-line line3)))
     (is (string= (hactar::tag-name tag3) "simple"))
     (is (string= (hactar::tag-file tag3) "simple.txt"))))
@@ -30,14 +30,13 @@
   "Test heuristic symbol extraction."
   (let ((text "def my_function():\n  x = ClassName()\n  return x.method()"))
     (let ((symbols (hactar::extract-symbols-from-text text)))
-      (is (member "def" symbols :test #'string=)) ; Short tokens included if >= 3
+      (is (member "def" symbols :test #'string=))
       (is (member "my_function" symbols :test #'string=))
       (is (member "ClassName" symbols :test #'string=))
       (is (member "return" symbols :test #'string=))
       (is (member "method" symbols :test #'string=))
       ;; Check for non-symbols
       (is (not (member "()" symbols :test #'string=))))))
-
 (test tags-search-functions-test
   "Test finding and filtering tags from cache."
   (let ((hactar::*tags-cache* (list
@@ -47,12 +46,12 @@
 
     ;; tags-find (fuzzy)
     (let ((res (hactar::tags-find "Alpha")))
-      (is (= 2 (length res))) ; Alpha and AlphaBeta
+      (is (= 2 (length res)))
       (is (find-if (lambda (t1) (string= (hactar::tag-name t1) "Alpha")) res))
       (is (find-if (lambda (t1) (string= (hactar::tag-name t1) "AlphaBeta")) res)))
 
     (let ((res (hactar::tags-find "beta")))
-      (is (= 2 (length res))) ; Beta and AlphaBeta
+      (is (= 2 (length res)))
       (is (find-if (lambda (t1) (string= (hactar::tag-name t1) "Beta")) res)))
 
     ;; tags-get (exact)
@@ -73,9 +72,8 @@
     ;; Mocking enough-pathname behavior is tricky without messing with globals or file system.
     ;; tags-for uses (uiop:parse-native-namestring targ) and (uiop:enough-pathname p *repo-root*).
     ;; Let's assume input is relative path string which bypasses the absolute path logic if we are careful.
-
     (with-dynamic-stubs ((uiop:parse-native-namestring (lambda (p) p)) ; Mock path parsing to keep it simple strings
-                         (uiop:absolute-pathname-p (lambda (p) (declare (ignore p)) nil))) ; Treat as relative
+                         (uiop:absolute-pathname-p (lambda (p) (declare (ignore p)) nil)))
 
       (let ((res (hactar::tags-for "src/target.lisp")))
         (is (= 1 (length res)))
@@ -109,3 +107,10 @@
       (let ((relevant-tags (hactar::tags-for-context)))
         (is (= 1 (length relevant-tags)))
         (is (string= (hactar::tag-name (first relevant-tags)) "used-function"))))))
+
+(test ensure-repo-root-test
+  "Test ensure-repo-root sets repo root when nil."
+  (let ((hactar::*repo-root* nil))
+    (is (not (null (hactar::ensure-repo-root))))
+    (is (pathnamep hactar::*repo-root*))))
+

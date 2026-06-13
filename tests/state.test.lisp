@@ -19,6 +19,7 @@
          (output (with-output-to-string (*standard-output*)
                    (hactar::execute-command "/state" '("*test-cmd-var*")))))
     (is-true (search "<var name=\"*TEST-CMD-VAR*\" type=\"string\">" output))
+    (is-true (search "<value>foo</value>" output))
     (is-true (search "<doc>A command test var</doc>" output))))
 
 (test state-command-notfound

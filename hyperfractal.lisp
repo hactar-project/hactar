@@ -2,7 +2,6 @@
 (in-package :hactar)
 
 ;;* configuration
-
 (defvar *hyperfractal-default-model* nil
   "Default LLM model for HTML conversion. Falls back to *current-model*.")
 
@@ -40,7 +39,7 @@
         (browser (uiop:getenv "HYPERFRACTAL_BROWSER"))
         (auth-file (uiop:getenv "HYPERFRACTAL_AUTH_FILE")))
     (when model (setf *hyperfractal-default-model* model))
-    (when cache-size 
+    (when cache-size
       (let ((size (parse-integer cache-size :junk-allowed t)))
         (when size (setf *hyperfractal-cache-size* size))))
     (when format (setf *hyperfractal-default-format* format))
@@ -90,7 +89,7 @@
             (cond
               ((string-equal token "machine")
                (when current-machine
-                 (push (cons current-machine 
+                 (push (cons current-machine
                              (list (cons :user current-login)
                                    (cons :password current-password)))
                        entries))
@@ -101,7 +100,7 @@
               ((null current-login) (setf current-login token))
               ((null current-password) (setf current-password token))))
           (when current-machine
-            (push (cons current-machine 
+            (push (cons current-machine
                         (list (cons :user current-login)
                               (cons :password current-password)))
                   entries))
@@ -116,7 +115,6 @@
     (cdr (assoc host entries :test #'string-equal))))
 
 ;;* caching
-
 (defun hyperfractal-cache-key (url format)
   "Generate a cache key for URL and format."
   (format nil "~A::~A" url format))
@@ -137,7 +135,7 @@
                      (> (hyperfractal-cache-size-bytes) max-bytes))
           do (let ((oldest-key (car (last *hyperfractal-cache-order*))))
                (remhash oldest-key *hyperfractal-cache*)
-               (setf *hyperfractal-cache-order* 
+               (setf *hyperfractal-cache-order*
                      (butlast *hyperfractal-cache-order*))))))
 
 (defun hyperfractal-cache-get (url format)
@@ -146,7 +144,7 @@
          (content (gethash key *hyperfractal-cache*)))
     (when content
       ;; Move to front of LRU list
-      (setf *hyperfractal-cache-order* 
+      (setf *hyperfractal-cache-order*
             (cons key (remove key *hyperfractal-cache-order* :test #'string=))))
     content))
 
@@ -165,11 +163,10 @@
   (setf *hyperfractal-cache-order* '()))
 
 ;;* URL fetching
-
 (defun hyperfractal-fetch-with-curl (url &key auth)
   "Fetch URL content using curl."
   (let* ((auth-args (when auth
-                      (list "-u" (format nil "~A:~A" 
+                      (list "-u" (format nil "~A:~A"
                                          (cdr (assoc :user auth))
                                          (cdr (assoc :password auth))))))
          (args (append (list "curl" "-sL" "-A" "Mozilla/5.0 (compatible; Hyperfractal/1.0)")
@@ -232,9 +229,7 @@
   (let* ((model (or (when (stringp *hyperfractal-default-model*)
                       (find-model-by-name *hyperfractal-default-model*))
                     *current-model*))
-         (prompt-path (get-prompt-path "html-to-markdown.mustache"))
-         (system-prompt (if (probe-file prompt-path)
-                            (uiop:read-file-string prompt-path)
+         (system-prompt (or (get-prompt 'html-to-markdown "html-to-markdown.mustache")
                             "You are an expert at converting HTML to clean, readable Markdown.
 Extract the main content from the HTML, ignoring navigation, ads, and boilerplate.
 Preserve important formatting: headings, lists, code blocks, links, and emphasis.
@@ -255,9 +250,7 @@ Output ONLY the Markdown content, no explanations or preamble."))
   (let* ((model (or (when (stringp *hyperfractal-default-model*)
                       (find-model-by-name *hyperfractal-default-model*))
                     *current-model*))
-         (prompt-path (get-prompt-path "html-to-org.mustache"))
-         (system-prompt (if (probe-file prompt-path)
-                            (uiop:read-file-string prompt-path)
+         (system-prompt (or (get-prompt 'html-to-org "html-to-org.mustache")
                             "You are an expert at converting HTML to clean, readable Org-mode format.
 Extract the main content from the HTML, ignoring navigation, ads, and boilerplate.
 Use proper Org-mode syntax: * for headings, - for lists, #+begin_src for code, [[url][text]] for links.
@@ -318,7 +311,7 @@ Output ONLY the Org-mode content, no explanations or preamble."))
   "Push URL to navigation history."
   ;; Truncate forward history if we're not at the end
   (when (> *hyperfractal-history-position* 0)
-    (setf *hyperfractal-history* 
+    (setf *hyperfractal-history*
           (nthcdr *hyperfractal-history-position* *hyperfractal-history*))
     (setf *hyperfractal-history-position* 0))
   (push url *hyperfractal-history*))
@@ -360,11 +353,11 @@ Output ONLY the Org-mode content, no explanations or preamble."))
       (when cached
         (hyperfractal-history-push url)
         (return-from hyperfractal-browse cached))))
-  
+
   (let ((html (hyperfractal-fetch-url url)))
     (unless html
       (return-from hyperfractal-browse nil))
-    
+
     (let ((content (hyperfractal-convert-html html url :format format)))
       (when content
         (hyperfractal-cache-put url format content)
@@ -383,28 +376,28 @@ Output ONLY the Org-mode content, no explanations or preamble."))
 (define-sub-command hyperfractal (args)
   "Fetch URL and convert to plaintext.
    Usage: hactar hyperfractal [options] <url>
-   
+
    Options:
      -m, --model MODEL      LLM model to use
      -f, --format FORMAT    Output format (markdown/org)
      --clear-cache          Clear the cache"
   (hyperfractal-init)
-  
+
   (let* ((model-opt (getf args :model))
          (format-opt (or (getf args :format) *hyperfractal-default-format*))
          (clear-cache (getf args :clear-cache))
          (url (first (uiop:ensure-list (getf args :args)))))
-    
+
     (when clear-cache
       (hyperfractal-cache-clear)
       (format t "~&Cache cleared.~%"))
-    
+
     (when model-opt
       (let ((model (find-model-by-name model-opt)))
         (if model
             (setf *hyperfractal-default-model* model-opt)
             (format t "~&Warning: Model '~A' not found, using default.~%" model-opt))))
-    
+
     (cond
       ((and clear-cache (not url))
        nil)  ; Already printed cache cleared message, nothing more to do
@@ -412,7 +405,7 @@ Output ONLY the Org-mode content, no explanations or preamble."))
        (hyperfractal-browse-and-print url :format format-opt))
       (t
        (format t "~&Usage: hactar hyperfractal [options] <url>~%"))))
-  
+
   :cli-options ((:short "m" :long "model" :description "LLM model to use")
                 (:short "f" :long "format" :description "Output format (markdown/org)")
                 (:long "clear-cache" :description "Clear the cache")))
@@ -489,7 +482,11 @@ Output ONLY the Org-mode content, no explanations or preamble."))
 ;;* web command integration
 
 (defwebcommand browse
-  "Browse web pages as plaintext."
+  "Browse web pages as plaintext.
+
+Examples:
+  hactar browse https://example.com
+  hactar browse https://example.com --format markdown"
 
   (defwebroute browse-url "Fetch and convert a URL to plaintext"
     (url &rest args) (url args)
@@ -504,4 +501,4 @@ Output ONLY the Org-mode content, no explanations or preamble."))
 
   (def-default-route ()
     (lambda ()
-      (format t "Browse Commands:~%  browse <url> [--format markdown|org] - Convert webpage to plaintext~%"))))
+      (format t "Browse Commands:~%  browse <url> [--format markdown|org] - Convert webpage to plaintext~%~%Examples:~%  hactar browse https://example.com~%  hactar browse https://example.com --format markdown~%"))))

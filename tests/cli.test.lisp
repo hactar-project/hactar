@@ -26,7 +26,7 @@
   "Positional arguments survive flag parsing."
   (hactar::register-hactar-flags)
   (clrhash hactar::*cli-opts*)
-  (let ((rest (hactar::parse-cli-input '("--model" "m" "hactar.init" "--name" "x"))))
+  (let ((rest (hactar::parse-cli-input '("--model" "m" "hactar.init" "--project-name" "x"))))
     (is (equal rest '("hactar.init")))
     (is (string= (hactar::cli-opt :model) "m"))
     (is (string= (hactar::cli-opt :name) "x"))))
@@ -36,3 +36,22 @@
   (clrhash hactar::*cli-opts*)
   (setf (hactar::cli-opt :my-custom-opt) "my-value")
   (is (string= (hactar::cli-opt :my-custom-opt) "my-value")))
+
+(test cli-query-subcommand-test
+  "Test that the query subcommand is registered."
+  (is-true (gethash "query" hactar::*sub-commands*)))
+
+(test cli-execute-subcommand-test
+  "Test that the execute subcommand is registered."
+  (is-true (gethash "execute" hactar::*sub-commands*)))
+
+(test cli-copilotapi-subcommand-test
+  "Test that the copilotapi subcommand is registered."
+  (is-true (gethash "copilotapi" hactar::*sub-commands*)))
+
+(test cli-copilotapi-help-test
+  "Test that copilotapi help prints help instructions."
+  (let ((output (with-output-to-string (*standard-output*)
+                  (funcall (first (gethash "copilotapi" hactar::*sub-commands*)) '("help")))))
+    (is-true (search "Usage: hactar copilotapi" output))
+    (is-true (search "help       - Display this help message" output))))

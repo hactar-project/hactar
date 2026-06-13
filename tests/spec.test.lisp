@@ -84,3 +84,46 @@
     (is (search "commands" output))
     (is (search "subcommands" output))
     (is (search "flags" output))))
+
+(test find-flag-by-string-test
+  "find-flag-by-string can locate flags by name, aliases, and keyword symbols."
+  (hactar::register-hactar-flags)
+  (let ((flag (hactar::find-flag-by-string "model")))
+    (is (not (null flag)))
+    (is (eq :model (hactar::flag-name flag))))
+  (let ((flag (hactar::find-flag-by-string "--model")))
+    (is (not (null flag)))
+    (is (eq :model (hactar::flag-name flag))))
+  (let ((flag (hactar::find-flag-by-string "-m")))
+    (is (not (null flag)))
+    (is (eq :model (hactar::flag-name flag))))
+  (let ((flag (hactar::find-flag-by-string ":model")))
+    (is (not (null flag)))
+    (is (eq :model (hactar::flag-name flag))))
+  (let ((flag (hactar::find-flag-by-string "non-existent-flag-name")))
+    (is (null flag))))
+
+(test build-flag-spec-test
+  "build-flag-spec generates correct spec shape for a flag."
+  (hactar::register-hactar-flags)
+  (let* ((flag (hactar::find-flag-by-string "model"))
+         (spec (hactar::build-flag-spec flag)))
+    (is (not (null spec)))
+    (is (vectorp (cdr (assoc "name" spec :test #'string=))))
+    (is (string= "string" (cdr (assoc "type" spec :test #'string=))))
+    (is (stringp (cdr (assoc "description" spec :test #'string=))))
+    (is (vectorp (cdr (assoc "examples" spec :test #'string=))))))
+
+(test find-symbol-by-name-test
+  "find-symbol-by-name can locate symbols in various packages."
+  (let ((sym (hactar::find-symbol-by-name "*hactar-version*")))
+    (is (not (null sym)))
+    (is (eq 'hactar::*hactar-version* sym)))
+  (let ((sym (hactar::find-symbol-by-name "hactar:*hactar-version*")))
+    (is (not (null sym)))
+    (is (eq 'hactar::*hactar-version* sym)))
+  (let ((sym (hactar::find-symbol-by-name "cl:*print-base*")))
+    (is (not (null sym)))
+    (is (eq 'cl:*print-base* sym)))
+  (let ((sym (hactar::find-symbol-by-name "non-existent-symbol")))
+    (is (null sym))))

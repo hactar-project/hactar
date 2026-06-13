@@ -204,110 +204,167 @@
   "Compute a checksum for content string."
   (org-mode:compute-content-checksum content))
 
+;;** In-Memory Monolith Registries & Macros
+(defvar *concepts* (make-hash-table :test 'equal))
+(defvar *projects* (make-hash-table :test 'equal))
+(defvar *journal-entries* (make-hash-table :test 'equal))
+(defvar *edges* nil)
+(defvar *code-blocks* (make-hash-table :test 'equal))
+(defvar *tangle-history* nil)
+
+(defmacro defconcept (id &rest plist)
+  `(setf (gethash ,id *concepts*)
+         (make-org-concept
+          :id ,id
+          :title ,(getf plist :title)
+          :path ,(let ((p (getf plist :path))) (when p `(pathname ,p)))
+          :maturity ,(getf plist :maturity :seedling)
+          :languages ',(getf plist :languages)
+          :content ,(getf plist :content)
+          :last-modified ,(getf plist :last-modified)
+          :last-modified ,(getf plist :last-modified))))
+
+(defmacro defproject (id &rest plist)
+  `(setf (gethash ,id *projects*)
+         (make-org-project
+          :id ,id
+          :name ,(getf plist :name)
+          :path ,(let ((p (getf plist :path))) (when p `(pathname ,p)))
+          :repos ',(getf plist :repos)
+          :sync-config ',(getf plist :sync-config))))
+
+(defmacro defjournal-entry (id &rest plist)
+  `(setf (gethash ,id *journal-entries*)
+         (make-org-journal-entry
+          :id ,id
+          :date ,(getf plist :date)
+          :path ,(let ((p (getf plist :path))) (when p `(pathname ,p)))
+          :insights ',(getf plist :insights))))
+
+(defmacro defedge (from-id to-id relation &rest plist)
+  `(push (make-org-edge
+          :from-id ,from-id
+          :to-id ,to-id
+          :relation ,relation
+          :metadata ',(getf plist :metadata))
+         *edges*))
+
+(defmacro defcode-block (id &rest plist)
+  `(setf (gethash ,id *code-blocks*)
+         (make-org-code-block
+          :id ,id
+          :concept-id ,(getf plist :concept-id)
+          :language ,(getf plist :language)
+          :content ,(getf plist :content)
+          :tangle-target ,(getf plist :tangle-target)
+          :project ,(getf plist :project)
+          :checksum ,(getf plist :checksum)
+          :line-start ,(getf plist :line-start)
+          :line-end ,(getf plist :line-end))))
+
+(defmacro deftangle-history (code-block-id target-path tangled-at checksum)
+  `(push (list :code-block-id ,code-block-id
+               :target-path ,target-path
+               :tangled-at ,tangled-at
+               :checksum ,checksum)
+         *tangle-history*))
+
+(defun persist-monolith ()
+  "Serialize the in-memory monolith state into the .hactar.monolith.lisp file."
+  (let ((lisp-path (merge-pathnames ".hactar.monolith.lisp" *monolith-path*)))
+    (with-open-file (s lisp-path :direction :output :if-exists :supersede :if-does-not-exist :create)
+      (format s ";;; Hactar Monolith State (generated automatically)~%~%")
+      ;; Write concepts
+      (maphash (lambda (id c)
+                 (format s "(hactar-monolith::defconcept ~S~%  :title ~S~%  :path ~S~%  :maturity ~S~%  :languages '~S~%  :content ~S~%  :last-modified ~S)~%~%"
+                         id
+                         (org-concept-title c)
+                         (when (org-concept-path c) (namestring (org-concept-path c)))
+                         (org-concept-maturity c)
+                         (org-concept-languages c)
+                         (org-concept-content c)
+                         (org-concept-last-modified c)))
+               *concepts*)
+      ;; Write projects
+      (maphash (lambda (id p)
+                 (format s "(hactar-monolith::defproject ~S~%  :name ~S~%  :path ~S~%  :repos '~S~%  :sync-config '~S)~%~%"
+                         id
+                         (org-project-name p)
+                         (when (org-project-path p) (namestring (org-project-path p)))
+                         (org-project-repos p)
+                         (org-project-sync-config p)))
+               *projects*)
+      ;; Write journal entries
+      (maphash (lambda (id j)
+                 (format s "(hactar-monolith::defjournal-entry ~S~%  :date ~S~%  :path ~S~%  :insights '~S)~%~%"
+                         id
+                         (org-journal-entry-date j)
+                         (when (org-journal-entry-path j) (namestring (org-journal-entry-path j)))
+                         (org-journal-entry-insights j)))
+               *journal-entries*)
+      ;; Write edges
+      (dolist (e *edges*)
+        (format s "(hactar-monolith::defedge ~S ~S ~S~%  :metadata '~S)~%~%"
+                (org-edge-from-id e)
+                (org-edge-to-id e)
+                (org-edge-relation e)
+                (org-edge-metadata e)))
+      ;; Write code blocks
+      (maphash (lambda (id cb)
+                 (format s "(hactar-monolith::defcode-block ~S~%  :concept-id ~S~%  :language ~S~%  :content ~S~%  :tangle-target ~S~%  :project ~S~%  :checksum ~S~%  :line-start ~S~%  :line-end ~S)~%~%"
+                         id
+                         (org-code-block-concept-id cb)
+                         (org-code-block-language cb)
+                         (org-code-block-content cb)
+                         (org-code-block-tangle-target cb)
+                         (org-code-block-project cb)
+                         (org-code-block-checksum cb)
+                         (org-code-block-line-start cb)
+                         (org-code-block-line-end cb)))
+               *code-blocks*)
+      ;; Write tangle history
+      (dolist (h *tangle-history*)
+        (format s "(hactar-monolith::deftangle-history ~S ~S ~S ~S)~%~%"
+                (getf h :code-block-id)
+                (getf h :target-path)
+                (getf h :tangled-at)
+                (getf h :checksum))))))
+
 ;;** Monolith Initialization
 
 (defun init-monolith (path)
   "Initialize a new knowledge monolith at PATH."
   (let ((root (uiop:ensure-directory-pathname path)))
     (setf *monolith-path* root)
-    (setf *monolith-db-path* (merge-pathnames ".hactar-monolith.db" root))
-    
+    (setf *monolith-db-path* (merge-pathnames ".hactar.monolith.lisp" root))
+
     (dolist (dir-spec *monolith-structure*)
       (let ((dir-path (merge-pathnames (cdr dir-spec) root)))
         (ensure-directories-exist dir-path)
         (format t "Created: ~A~%" (uiop:native-namestring dir-path))))
-    
+
     (let ((gitignore (merge-pathnames ".gitignore" root)))
       (unless (probe-file gitignore)
         (with-open-file (s gitignore :direction :output :if-does-not-exist :create)
-          (format s ".hactar-monolith.db~%"))))
-    
+          (format s ".hactar.monolith.lisp~%"))))
+
     (init-monolith-db)
-    
+    (persist-monolith)
+
     (format t "~&Monolith initialized at: ~A~%" (uiop:native-namestring root))
     root))
 
 (defun init-monolith-db ()
-  "Initialize the SQLite database for the knowledge graph."
-  (when *monolith-db-path*
-    (sqlite:with-open-database (db *monolith-db-path*)
-      (sqlite:execute-non-query db
-        "CREATE TABLE IF NOT EXISTS concepts (
-           id TEXT PRIMARY KEY,
-           title TEXT NOT NULL,
-           path TEXT NOT NULL,
-           maturity TEXT DEFAULT 'seedling',
-           languages TEXT,
-           content TEXT,
-           embedding BLOB,
-           last_modified INTEGER,
-           last_extracted INTEGER
-         )")
-      
-      (sqlite:execute-non-query db
-        "CREATE TABLE IF NOT EXISTS projects (
-           id TEXT PRIMARY KEY,
-           name TEXT NOT NULL,
-           path TEXT NOT NULL,
-           repos TEXT,
-           sync_config TEXT
-         )")
-      
-      (sqlite:execute-non-query db
-        "CREATE TABLE IF NOT EXISTS journal_entries (
-           id TEXT PRIMARY KEY,
-           date TEXT NOT NULL,
-           path TEXT NOT NULL,
-           insights TEXT,
-           embedding BLOB
-         )")
-      
-      (sqlite:execute-non-query db
-        "CREATE TABLE IF NOT EXISTS edges (
-           id INTEGER PRIMARY KEY AUTOINCREMENT,
-           from_id TEXT NOT NULL,
-           to_id TEXT NOT NULL,
-           relation TEXT NOT NULL,
-           metadata TEXT,
-           created_at INTEGER DEFAULT (strftime('%s', 'now'))
-         )")
-      
-      (sqlite:execute-non-query db
-        "CREATE TABLE IF NOT EXISTS code_blocks (
-           id TEXT PRIMARY KEY,
-           concept_id TEXT,
-           language TEXT NOT NULL,
-           content TEXT NOT NULL,
-           tangle_target TEXT,
-           project TEXT,
-           checksum TEXT,
-           line_start INTEGER,
-           line_end INTEGER
-         )")
-      
-      (sqlite:execute-non-query db
-        "CREATE TABLE IF NOT EXISTS tangle_history (
-           id INTEGER PRIMARY KEY AUTOINCREMENT,
-           code_block_id TEXT,
-           target_path TEXT NOT NULL,
-           tangled_at INTEGER DEFAULT (strftime('%s', 'now')),
-           checksum TEXT
-         )")
-      
-      (sqlite:execute-non-query db 
-        "CREATE INDEX IF NOT EXISTS idx_concepts_maturity ON concepts(maturity)")
-      (sqlite:execute-non-query db 
-        "CREATE INDEX IF NOT EXISTS idx_concepts_path ON concepts(path)")
-      (sqlite:execute-non-query db 
-        "CREATE INDEX IF NOT EXISTS idx_edges_from ON edges(from_id)")
-      (sqlite:execute-non-query db 
-        "CREATE INDEX IF NOT EXISTS idx_edges_to ON edges(to_id)")
-      (sqlite:execute-non-query db 
-        "CREATE INDEX IF NOT EXISTS idx_edges_relation ON edges(relation)")
-      (sqlite:execute-non-query db 
-        "CREATE INDEX IF NOT EXISTS idx_code_blocks_concept ON code_blocks(concept_id)")
-      (sqlite:execute-non-query db 
-        "CREATE INDEX IF NOT EXISTS idx_code_blocks_language ON code_blocks(language)"))))
+  "Initialize the in-memory monolith registries and load persisted state."
+  (clrhash *concepts*)
+  (clrhash *projects*)
+  (clrhash *journal-entries*)
+  (setf *edges* nil)
+  (clrhash *code-blocks*)
+  (setf *tangle-history* nil)
+  (let ((lisp-path (merge-pathnames ".hactar.monolith.lisp" *monolith-path*)))
+    (when (and lisp-path (probe-file lisp-path))
+      (load lisp-path))))
 
 ;;** Indexing
 
@@ -316,46 +373,47 @@
   (declare (ignore force))
   (unless *monolith-path*
     (error "Monolith not initialized. Run /monolith-init first."))
-  
+
   (format t "~&Indexing monolith at ~A...~%" (uiop:native-namestring *monolith-path*))
-  
+
   (let ((org-files (directory (merge-pathnames "**/*.org" *monolith-path*)))
         (concepts-indexed 0)
         (projects-indexed 0)
         (journal-indexed 0)
         (code-blocks-indexed 0))
-    
+
     (dolist (file org-files)
       (let* ((relative-path (uiop:enough-pathname file *monolith-path*))
              (dir-name (second (pathname-directory relative-path)))
              (parsed (parse-org-file file)))
-        
+
         (cond
           ;; Concepts
           ((string-equal dir-name "Concepts")
            (index-concept-file parsed)
            (incf concepts-indexed))
-          
+
           ;; Projects
           ((string-equal dir-name "Projects")
            (index-project-file parsed)
            (incf projects-indexed))
-          
+
           ;; Journal
           ((string-equal dir-name "Journal")
            (index-journal-file parsed)
            (incf journal-indexed)))
-        
+
         ;; Index code blocks from all files
         (dolist (block (getf parsed :code-blocks))
           (index-code-block block (getf parsed :path))
           (incf code-blocks-indexed))))
-    
+
+    (persist-monolith)
     (format t "~&Indexed: ~A concepts, ~A projects, ~A journal entries, ~A code blocks~%"
             concepts-indexed projects-indexed journal-indexed code-blocks-indexed)))
 
 (defun index-concept-file (parsed)
-  "Index a concept file into the database."
+  "Index a concept file structurally."
   (let* ((props (getf parsed :properties))
          (path (getf parsed :path))
          (headings (getf parsed :headings))
@@ -364,27 +422,29 @@
                  (format nil "~A" (uuid:make-v4-uuid))))
          (title (or (getf first-heading :title)
                     (pathname-name path)))
-         (maturity (or (cdr (assoc :MATURITY props)) "seedling"))
+         (maturity-str (or (cdr (assoc :MATURITY props)) "seedling"))
+         (maturity (intern (string-upcase maturity-str) :keyword))
          (languages-str (cdr (assoc :LANGUAGES props)))
          (languages (when languages-str
                       (mapcar (lambda (s) (string-trim '(#\Space #\Tab) s))
                               (str:split #\, languages-str))))
          (content (getf first-heading :content)))
-    
-    (sqlite:with-open-database (db *monolith-db-path*)
-      (sqlite:execute-non-query db
-        "INSERT OR REPLACE INTO concepts 
-         (id, title, path, maturity, languages, content, last_modified)
-         VALUES (?, ?, ?, ?, ?, ?, ?)"
-        id title (namestring path) maturity 
-        (when languages (cl-json:encode-json-to-string languages))
-        content (get-universal-time)))
-    
+
+    (setf (gethash id *concepts*)
+          (make-org-concept
+           :id id
+           :title title
+           :path path
+           :maturity maturity
+           :languages languages
+           :content content
+           :last-modified (get-universal-time)))
+
     (dolist (link (getf parsed :links))
       (index-edge id (cdr link) (car link)))))
 
 (defun index-project-file (parsed)
-  "Index a project file into the database."
+  "Index a project file structurally."
   (let* ((props (getf parsed :properties))
          (path (getf parsed :path))
          (headings (getf parsed :headings))
@@ -397,63 +457,51 @@
          (repos (when repos-str
                   (mapcar (lambda (s) (string-trim '(#\Space #\Tab) s))
                           (str:split #\, repos-str)))))
-    
-    (sqlite:with-open-database (db *monolith-db-path*)
-      (sqlite:execute-non-query db
-        "INSERT OR REPLACE INTO projects (id, name, path, repos)
-         VALUES (?, ?, ?, ?)"
-        id name (namestring path)
-        (when repos (cl-json:encode-json-to-string repos))))
-    
+
+    (setf (gethash id *projects*)
+          (make-org-project
+           :id id
+           :name name
+           :path path
+           :repos repos))
+
     (dolist (link (getf parsed :links))
       (when (eq (car link) :semantic)
         (index-edge id (cdr link) :implements)))))
 
 (defun index-journal-file (parsed)
-  "Index a journal entry into the database."
+  "Index a journal entry structurally."
   (let* ((props (getf parsed :properties))
          (path (getf parsed :path))
          (id (or (cdr (assoc :ID props))
                  (format nil "~A" (uuid:make-v4-uuid))))
          (date (or (cdr (assoc :DATE props))
                    (pathname-name path))))
-    
-    (sqlite:with-open-database (db *monolith-db-path*)
-      (sqlite:execute-non-query db
-        "INSERT OR REPLACE INTO journal_entries (id, date, path)
-         VALUES (?, ?, ?)"
-        id date (namestring path)))
-    
+
+    (setf (gethash id *journal-entries*)
+          (make-org-journal-entry
+           :id id
+           :date date
+           :path path))
+
     (dolist (link (getf parsed :links))
       (index-edge id (cdr link) :mentions))))
 
 (defun index-code-block (block source-path)
-  "Index a code block into the database."
+  "Index a code block structurally."
   (declare (ignore source-path))
-  (sqlite:with-open-database (db *monolith-db-path*)
-    (sqlite:execute-non-query db
-      "INSERT OR REPLACE INTO code_blocks 
-       (id, language, content, tangle_target, project, checksum, line_start, line_end)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
-      (org-code-block-id block)
-      (org-code-block-language block)
-      (org-code-block-content block)
-      (org-code-block-tangle-target block)
-      (org-code-block-project block)
-      (org-code-block-checksum block)
-      (org-code-block-line-start block)
-      (org-code-block-line-end block))))
+  (setf (gethash (org-code-block-id block) *code-blocks*) block))
 
 (defun index-edge (from-id to-id relation)
   "Index an edge between nodes."
-  (sqlite:with-open-database (db *monolith-db-path*)
-    (let ((existing (sqlite:execute-to-list db
-                      "SELECT id FROM edges WHERE from_id = ? AND to_id = ? AND relation = ?"
-                      from-id to-id (string relation))))
-      (unless existing
-        (sqlite:execute-non-query db
-          "INSERT INTO edges (from_id, to_id, relation) VALUES (?, ?, ?)"
-          from-id to-id (string relation))))))
+  (let ((rel-keyword (intern (string-upcase (string relation)) :keyword)))
+    (unless (some (lambda (e)
+                    (and (string= (org-edge-from-id e) from-id)
+                         (string= (org-edge-to-id e) to-id)
+                         (eq (org-edge-relation e) rel-keyword)))
+                  *edges*)
+      (push (make-org-edge :from-id from-id :to-id to-id :relation rel-keyword)
+            *edges*))))
 
 ;;** Tangling
 
@@ -461,73 +509,69 @@
   "Tangle all code blocks for a project."
   (unless *monolith-path*
     (error "Monolith not initialized."))
-  
+
   (format t "~&Tangling project: ~A~%" project-name)
-  
-  (sqlite:with-open-database (db *monolith-db-path*)
-    (let* ((query (if lang
-                      "SELECT * FROM code_blocks WHERE project = ? AND language = ? AND tangle_target IS NOT NULL"
-                      "SELECT * FROM code_blocks WHERE project = ? AND tangle_target IS NOT NULL"))
-           (rows (if lang
-                     (sqlite:execute-to-list db query project-name lang)
-                     (sqlite:execute-to-list db query project-name)))
-           (result (make-tangle-result :success-p t)))
-      
-      (dolist (row rows)
-        (let* ((block-id (first row))
-               (content (fourth row))
-               (tangle-target (fifth row))
-               (checksum (seventh row))
-               (target-path (resolve-tangle-target tangle-target project-name)))
-          
-          (if dry-run
-              (format t "  Would write: ~A~%" target-path)
-              (handler-case
-                  (progn
-                    (ensure-directories-exist target-path)
-                    (with-open-file (s target-path 
-                                       :direction :output 
-                                       :if-exists :supersede
-                                       :if-does-not-exist :create)
-                      (write-string content s))
-                    (push target-path (tangle-result-files-written result))
-                    (push (cons target-path checksum) (tangle-result-checksums result))
-                    
-                    ;; Record in history
-                    (sqlite:execute-non-query db
-                      "INSERT INTO tangle_history (code_block_id, target_path, checksum)
-                       VALUES (?, ?, ?)"
-                      block-id (namestring target-path) checksum)
-                    
-                    (format t "  ✓ ~A~%" target-path))
-                (error (e)
-                  (push (format nil "~A: ~A" target-path e) 
-                        (tangle-result-errors result))
-                  (setf (tangle-result-success-p result) nil))))))
-      
-      (nhooks:run-hook *tangle-completed-hook* result)
-      result)))
+
+  (let ((result (make-tangle-result :success-p t)))
+    (maphash (lambda (block-id block)
+               (when (and (string= (org-code-block-project block) project-name)
+                          (org-code-block-tangle-target block)
+                          (or (null lang) (string= (org-code-block-language block) lang)))
+                 (let* ((content (org-code-block-content block))
+                        (tangle-target (org-code-block-tangle-target block))
+                        (checksum (org-code-block-checksum block))
+                        (target-path (resolve-tangle-target tangle-target project-name)))
+                   (if dry-run
+                       (format t "  Would write: ~A~%" target-path)
+                       (handler-case
+                           (progn
+                             (ensure-directories-exist target-path)
+                             (with-open-file (s target-path
+                                                :direction :output
+                                                :if-exists :supersede
+                                                :if-does-not-exist :create)
+                               (write-string content s))
+                             (push target-path (tangle-result-files-written result))
+                             (push (cons target-path checksum) (tangle-result-checksums result))
+
+                             ;; Record in history
+                             (push (list :code-block-id block-id
+                                         :target-path (namestring target-path)
+                                         :tangled-at (get-universal-time)
+                                         :checksum checksum)
+                                   *tangle-history*)
+
+                             (format t "  ✓ ~A~%" target-path))
+                         (error (e)
+                           (push (format nil "~A: ~A" target-path e)
+                                 (tangle-result-errors result))
+                           (setf (tangle-result-success-p result) nil)))))))
+             *code-blocks*)
+    (unless dry-run
+      (persist-monolith))
+    (nhooks:run-hook *tangle-completed-hook* result)
+    result))
 
 (defun tangle-file (file-path &key dry-run)
   "Tangle code blocks from a single org file."
   (let* ((parsed (parse-org-file file-path))
          (blocks (getf parsed :code-blocks))
          (result (make-tangle-result :success-p t)))
-    
+
     (dolist (block blocks)
       (when (org-code-block-tangle-target block)
-        (let* ((target (resolve-tangle-target 
+        (let* ((target (resolve-tangle-target
                         (org-code-block-tangle-target block)
                         (org-code-block-project block)))
                (content (org-code-block-content block)))
-          
+
           (if dry-run
               (format t "  Would write: ~A~%" target)
               (handler-case
                   (progn
                     (ensure-directories-exist target)
-                    (with-open-file (s target 
-                                       :direction :output 
+                    (with-open-file (s target
+                                       :direction :output
                                        :if-exists :supersede
                                        :if-does-not-exist :create)
                       (write-string content s))
@@ -537,7 +581,7 @@
                   (push (format nil "~A: ~A" target e)
                         (tangle-result-errors result))
                   (setf (tangle-result-success-p result) nil)))))))
-    
+
     (nhooks:run-hook *tangle-completed-hook* result)
     result))
 
@@ -556,89 +600,88 @@
   "Detect drift between org source and tangled files."
   (unless *monolith-path*
     (error "Monolith not initialized."))
-  
-  (let ((drifts nil))
-    (sqlite:with-open-database (db *monolith-db-path*)
-      (let* ((query (cond
-                      (project "SELECT cb.*, th.target_path, th.checksum as tangled_checksum
-                                FROM code_blocks cb
-                                JOIN tangle_history th ON cb.id = th.code_block_id
-                                WHERE cb.project = ?
-                                GROUP BY th.target_path
-                                HAVING th.tangled_at = MAX(th.tangled_at)")
-                      (all "SELECT cb.*, th.target_path, th.checksum as tangled_checksum
-                            FROM code_blocks cb
-                            JOIN tangle_history th ON cb.id = th.code_block_id
-                            GROUP BY th.target_path
-                            HAVING th.tangled_at = MAX(th.tangled_at)")))
-             (rows (if project
-                       (sqlite:execute-to-list db query project)
-                       (sqlite:execute-to-list db query))))
-        
-        (dolist (row rows)
-          (let* ((org-checksum (seventh row))       ; cb.checksum
-                 (target-path (tenth row))           ; th.target_path
-                 (tangled-checksum (nth 10 row)))    ; th.checksum (tangled_checksum)
-            
-            (when (probe-file target-path)
-              (let* ((file-content (uiop:read-file-string target-path))
-                     (current-checksum (compute-checksum file-content)))
-                (unless (string= current-checksum tangled-checksum)
-                  (push (make-drift-info
-                         :file target-path
-                         :org-checksum org-checksum
-                         :file-checksum current-checksum
-                         :drift-type :modified)
-                        drifts))))))))
-    
+  (let ((drifts nil)
+        (latest-tangles (make-hash-table :test 'equal)))
+    ;; Group tangle history by target path and keep the one with max tangled-at
+    (dolist (th *tangle-history*)
+      (let* ((target-path (getf th :target-path))
+             (existing (gethash target-path latest-tangles)))
+        (if existing
+            (when (> (getf th :tangled-at) (getf existing :tangled-at))
+              (setf (gethash target-path latest-tangles) th))
+            (setf (gethash target-path latest-tangles) th))))
+
+    (maphash (lambda (target-path th)
+               (let* ((cb-id (getf th :code-block-id))
+                      (cb (gethash cb-id *code-blocks*)))
+                 (when cb
+                   (when (or all (and project (string= (org-code-block-project cb) project)))
+                     (let* ((org-checksum (org-code-block-checksum cb))
+                            (tangled-checksum (getf th :checksum)))
+                       (when (probe-file target-path)
+                         (let* ((file-content (uiop:read-file-string target-path))
+                                (current-checksum (compute-checksum file-content)))
+                           (unless (string= current-checksum tangled-checksum)
+                             (push (make-drift-info
+                                    :file target-path
+                                    :org-checksum org-checksum
+                                    :file-checksum current-checksum
+                                    :drift-type :modified)
+                                   drifts)))))))))
+             latest-tangles)
     (when drifts
       (nhooks:run-hook *drift-detected-hook* drifts))
-    
     drifts))
 
 ;;** Concept Operations
 
 (defun find-concepts (query &key maturity language limit)
   "Find concepts matching a query."
-  (unless *monolith-db-path*
-    (error "Monolith not initialized."))
-  
-  (sqlite:with-open-database (db *monolith-db-path*)
-    (let* ((where-clauses (list "1=1"))
-           (params nil))
-      
-      (when query
-        (push "title LIKE ?" where-clauses)
-        (push (format nil "%~A%" query) params))
-      
-      (when maturity
-        (push "maturity = ?" where-clauses)
-        (push (string maturity) params))
-      
-      (when language
-        (push "languages LIKE ?" where-clauses)
-        (push (format nil "%\"~A\"%" language) params))
-      
-      (let ((sql (format nil "SELECT id, title, path, maturity, languages 
-                              FROM concepts 
-                              WHERE ~{~A~^ AND ~}
-                              ~@[LIMIT ~A~]"
-                         (nreverse where-clauses)
-                         limit)))
-        (apply #'sqlite:execute-to-list db sql (nreverse params))))))
+  (let ((results nil))
+    (maphash (lambda (id c)
+               (let ((title (org-concept-title c))
+                     (content (org-concept-content c))
+                     (mat (org-concept-maturity c))
+                     (langs (org-concept-languages c)))
+                 (when (and (or (null query)
+                                (search query title :test #'char-equal)
+                                (and content (search query content :test #'char-equal)))
+                            (or (null maturity)
+                                (eq (intern (string-upcase (string maturity)) :keyword)
+                                    (intern (string-upcase (string mat)) :keyword)))
+                            (or (null language)
+                                (member language langs :test #'string-equal)))
+                   (push (list id
+                               title
+                               (when (org-concept-path c) (namestring (org-concept-path c)))
+                               (string-downcase (string mat))
+                               (when langs (cl-json:encode-json-to-string langs)))
+                         results))))
+             *concepts*)
+    (if limit
+        (subseq results 0 (min limit (length results)))
+        results)))
 
 (defun get-concept (id)
   "Get a concept by ID."
-  (sqlite:with-open-database (db *monolith-db-path*)
-    (first (sqlite:execute-to-list db
-             "SELECT * FROM concepts WHERE id = ?" id))))
+  (let ((c (gethash id *concepts*)))
+    (when c
+      (list (org-concept-id c)
+            (org-concept-title c)
+            (when (org-concept-path c) (namestring (org-concept-path c)))
+            (string-downcase (string (org-concept-maturity c)))
+            (when (org-concept-languages c) (cl-json:encode-json-to-string (org-concept-languages c)))
+            (org-concept-content c)
+            nil ; embedding
+            (org-concept-last-modified c)
+            (org-concept-last-modified c)))))
 
 (defun create-concept (title &key maturity languages content path)
   "Create a new concept."
   (let* ((id (format nil "~A" (uuid:make-v4-uuid)))
          (maturity (or maturity *default-maturity*))
-         (path (or path 
-                   (merge-pathnames 
+         (path (or path
+                   (merge-pathnames
                     (format nil "Concepts/~A.org" (hactar::kebab-case title))
                     *monolith-path*)))
          (concept (make-org-concept
@@ -649,62 +692,51 @@
                    :languages languages
                    :content content
                    :last-modified (get-universal-time))))
-    
+
     (ensure-directories-exist path)
-    (with-open-file (s path :direction :output 
+    (with-open-file (s path :direction :output
                        :if-does-not-exist :create
                        :if-exists :supersede)
       (format s "#+TITLE: ~A~%" title)
       (format s "~%:PROPERTIES:~%")
       (format s ":ID: ~A~%" id)
-      (format s ":MATURITY: ~A~%" maturity)
+      (format s ":MATURITY: ~A~%" (string-downcase (string maturity)))
       (when languages
         (format s ":LANGUAGES: ~{~A~^, ~}~%" languages))
       (format s ":END:~%~%")
       (when content
         (format s "~A~%" content)))
-    
-    (sqlite:with-open-database (db *monolith-db-path*)
-      (sqlite:execute-non-query db
-        "INSERT INTO concepts (id, title, path, maturity, languages, content, last_modified)
-         VALUES (?, ?, ?, ?, ?, ?, ?)"
-        id title (namestring path) (string maturity)
-        (when languages (cl-json:encode-json-to-string languages))
-        content (get-universal-time)))
-    
+
+    (setf (gethash id *concepts*) concept)
+    (persist-monolith)
+
     (nhooks:run-hook *concept-created-hook* concept)
     concept))
 
 (defun update-concept-maturity (id new-maturity)
   "Update a concept's maturity level."
-  (sqlite:with-open-database (db *monolith-db-path*)
-    (let* ((concept-row (first (sqlite:execute-to-list db
-                                 "SELECT maturity, path FROM concepts WHERE id = ?" id)))
-           (old-maturity (first concept-row))
-           (path (second concept-row)))
-      
-      (when concept-row
-        (sqlite:execute-non-query db
-          "UPDATE concepts SET maturity = ?, last_modified = ? WHERE id = ?"
-          (string new-maturity) (get-universal-time) id)
-        
-        (when (probe-file path)
+  (let* ((c (gethash id *concepts*)))
+    (when c
+      (let ((old-maturity (org-concept-maturity c))
+            (path (org-concept-path c)))
+        (setf (org-concept-maturity c) new-maturity)
+        (setf (org-concept-last-modified c) (get-universal-time))
+
+        (when (and path (probe-file path))
           (let* ((content (uiop:read-file-string path))
-                 (new-content (cl-ppcre:regex-replace 
+                 (new-content (cl-ppcre:regex-replace
                                ":MATURITY: \\w+"
                                content
-                               (format nil ":MATURITY: ~A" new-maturity))))
+                               (format nil ":MATURITY: ~A" (string-downcase (string new-maturity))))))
             (with-open-file (s path :direction :output :if-exists :supersede)
               (write-string new-content s))))
-        
-        (let ((concept (make-org-concept
-                        :id id
-                        :maturity new-maturity
-                        :path (pathname path))))
-          (nhooks:run-hook *concept-matured-hook* 
-                           concept 
-                           (intern (string-upcase old-maturity) :keyword)
-                           new-maturity))))))
+
+        (persist-monolith)
+
+        (nhooks:run-hook *concept-matured-hook*
+                         c
+                         (intern (string-upcase (string old-maturity)) :keyword)
+                         new-maturity)))))
 
 ;;** Graph Queries
 
@@ -713,53 +745,60 @@
   (let ((depth (or depth 1))
         (visited (make-hash-table :test 'equal))
         (results nil))
-    
+
     (labels ((traverse (current-id current-depth)
                (when (and (> current-depth 0)
                           (not (gethash current-id visited)))
                  (setf (gethash current-id visited) t)
-                 (sqlite:with-open-database (db *monolith-db-path*)
-                   (let* ((query (if relation
-                                     "SELECT to_id, relation FROM edges WHERE from_id = ? AND relation = ?"
-                                     "SELECT to_id, relation FROM edges WHERE from_id = ?"))
-                          (rows (if relation
-                                    (sqlite:execute-to-list db query current-id (string relation))
-                                    (sqlite:execute-to-list db query current-id))))
-                     (dolist (row rows)
-                       (let ((to-id (first row))
-                             (rel (second row)))
-                         (push (list :from current-id :to to-id :relation rel) results)
-                         (traverse to-id (1- current-depth)))))))))
+                 (dolist (e *edges*)
+                   (when (and (string= (org-edge-from-id e) current-id)
+                              (or (null relation)
+                                  (string-equal (string (org-edge-relation e)) (string relation))))
+                     (let ((to-id (org-edge-to-id e))
+                           (rel (string (org-edge-relation e))))
+                       (push (list :from current-id :to to-id :relation rel) results)
+                       (traverse to-id (1- current-depth))))))))
       (traverse id depth))
-    
+
     (nreverse results)))
 
 (defun query-graph (query-string)
   "Execute a natural language query against the knowledge graph."
-  ;; Parse common query patterns
   (cond
     ;; "concepts never implemented"
     ((search "never implemented" query-string)
-     (sqlite:with-open-database (db *monolith-db-path*)
-       (sqlite:execute-to-list db
-         "SELECT c.id, c.title, c.maturity 
-          FROM concepts c
-          WHERE c.id NOT IN (
-            SELECT from_id FROM edges WHERE relation = 'IMPLEMENTS'
-          )")))
-    
+     (let ((results nil))
+       (maphash (lambda (id c)
+                  (unless (some (lambda (e)
+                                  (and (eq (org-edge-relation e) :implements)
+                                       (string= (org-edge-from-id e) id)))
+                                *edges*)
+                    (push (list id (org-concept-title c) (string-downcase (string (org-concept-maturity c))))
+                          results)))
+                *concepts*)
+       results))
+
     ((search "sharing concepts" query-string)
-     (sqlite:with-open-database (db *monolith-db-path*)
-       (sqlite:execute-to-list db
-         "SELECT p1.name, p2.name, COUNT(*) as shared
-          FROM edges e1
-          JOIN edges e2 ON e1.to_id = e2.to_id AND e1.from_id != e2.from_id
-          JOIN projects p1 ON e1.from_id = p1.id
-          JOIN projects p2 ON e2.from_id = p2.id
-          WHERE e1.relation = 'IMPLEMENTS' AND e2.relation = 'IMPLEMENTS'
-          GROUP BY p1.id, p2.id
-          ORDER BY shared DESC")))
-    
+     (let ((project-shares (make-hash-table :test 'equal))
+           (results nil))
+       (dolist (e1 *edges*)
+         (when (eq (org-edge-relation e1) :implements)
+           (dolist (e2 *edges*)
+             (when (and (eq (org-edge-relation e2) :implements)
+                        (string= (org-edge-to-id e1) (org-edge-to-id e2))
+                        (not (string= (org-edge-from-id e1) (org-edge-from-id e2))))
+               (let* ((p1 (gethash (org-edge-from-id e1) *projects*))
+                      (p2 (gethash (org-edge-from-id e2) *projects*)))
+                 (when (and p1 p2)
+                   (let* ((name1 (org-project-name p1))
+                          (name2 (org-project-name p2))
+                          (pair (if (string< name1 name2) (cons name1 name2) (cons name2 name1))))
+                     (incf (gethash pair project-shares 0)))))))))
+       (maphash (lambda (pair count)
+                  (push (list (car pair) (cdr pair) (/ count 2)) results))
+                project-shares)
+       (sort results #'> :key #'third)))
+
     (t
      (find-concepts query-string))))
 
@@ -776,39 +815,37 @@ Usage: /monolith-init [path]"
 
 (define-command monolith-status (args)
   "Show status of the knowledge monolith."
-  (declare (ignore args))
   (if (not hactar-monolith::*monolith-path*)
     (format t "~&Monolith not initialized. Run /monolith-init first.~%")
     (progn
       (format t "~&Monolith Status~%")
       (format t "===============~%")
       (format t "Path: ~A~%" (uiop:native-namestring hactar-monolith::*monolith-path*))
-      
-      (sqlite:with-open-database (db hactar-monolith::*monolith-db-path*)
-        (let ((concept-count (caar (sqlite:execute-to-list db 
-                                     "SELECT COUNT(*) FROM concepts")))
-              (project-count (caar (sqlite:execute-to-list db
-                                     "SELECT COUNT(*) FROM projects")))
-              (journal-count (caar (sqlite:execute-to-list db
-                                     "SELECT COUNT(*) FROM journal_entries")))
-              (block-count (caar (sqlite:execute-to-list db
-                                   "SELECT COUNT(*) FROM code_blocks")))
-              (edge-count (caar (sqlite:execute-to-list db
-                                  "SELECT COUNT(*) FROM edges"))))
-          
+
+      (let ((concept-count (hash-table-count hactar-monolith::*concepts*))
+            (project-count (hash-table-count hactar-monolith::*projects*))
+            (journal-count (hash-table-count hactar-monolith::*journal-entries*))
+            (block-count (hash-table-count hactar-monolith::*code-blocks*))
+            (edge-count (length hactar-monolith::*edges*)))
+
           (format t "~%Counts:~%")
           (format t "  Concepts: ~A~%" concept-count)
           (format t "  Projects: ~A~%" project-count)
           (format t "  Journal Entries: ~A~%" journal-count)
           (format t "  Code Blocks: ~A~%" block-count)
           (format t "  Graph Edges: ~A~%" edge-count)
-          
+
           ;; Maturity distribution
           (format t "~%Concept Maturity:~%")
-          (let ((maturity-dist (sqlite:execute-to-list db
-                                 "SELECT maturity, COUNT(*) FROM concepts GROUP BY maturity")))
-            (dolist (row maturity-dist)
-              (format t "  ~A: ~A~%" (first row) (second row)))))))))
+          (let ((maturity-counts (make-hash-table :test 'equal)))
+            (maphash (lambda (id c)
+                       (declare (ignore id))
+                       (let ((m (string-downcase (string (org-concept-maturity c)))))
+                         (incf (gethash m maturity-counts 0))))
+                     hactar-monolith::*concepts*)
+            (maphash (lambda (m count)
+                       (format t "  ~A: ~A~%" m count))
+                     maturity-counts))))))
 
 (define-command monolith-index (args)
   "Index the knowledge monolith.
@@ -816,66 +853,14 @@ Usage: /monolith-index [--force]"
   (let ((force (member "--force" args :test #'string=)))
     (hactar-monolith::index-monolith :force force)))
 
-;;*** Concept Commands
 
-(define-command concept-new (args)
-  "Create a new concept.
-Usage: /concept-new <title> [--maturity <level>] [--lang <languages>]"
-  (let* ((title (first args))
-         (maturity (let ((pos (position "--maturity" args :test #'string=)))
-                     (when pos (intern (string-upcase (nth (1+ pos) args)) :keyword))))
-         (languages (let ((pos (position "--lang" args :test #'string=)))
-                      (when pos 
-                        (str:split #\, (nth (1+ pos) args))))))
-    (if title
-        (let ((concept (hactar-monolith::create-concept title 
-                                                        :maturity maturity
-                                                        :languages languages)))
-          (format t "~&Created concept: ~A~%" (hactar-monolith::org-concept-title concept))
-          (format t "  ID: ~A~%" (hactar-monolith::org-concept-id concept))
-          (format t "  Path: ~A~%" (hactar-monolith::org-concept-path concept)))
-        (format t "~&Usage: /concept-new <title> [--maturity <level>] [--lang <languages>]~%"))))
-
-(define-command concept-find (args)
-  "Find concepts.
-Usage: /concept-find <query> [--maturity <level>] [--lang <language>]"
-  (let* ((query (first args))
-         (maturity (let ((pos (position "--maturity" args :test #'string=)))
-                     (when pos (intern (string-upcase (nth (1+ pos) args)) :keyword))))
-         (language (let ((pos (position "--lang" args :test #'string=)))
-                     (when pos (nth (1+ pos) args))))
-         (results (hactar-monolith::find-concepts query 
-                                                  :maturity maturity 
-                                                  :language language
-                                                  :limit 20)))
-    (if results
-        (progn
-          (format t "~&Found ~A concept(s):~%" (length results))
-          (dolist (row results)
-            (format t "  [~A] ~A (~A)~%" 
-                    (fourth row)  ; maturity
-                    (second row)  ; title
-                    (third row)))) ; path
-        (format t "~&No concepts found.~%"))))
-
-(define-command concept-mature (args)
-  "Promote a concept to a higher maturity level.
-Usage: /concept-mature <id-or-title> --to <maturity>"
-  (let* ((id-or-title (first args))
-         (new-maturity (let ((pos (position "--to" args :test #'string=)))
-                         (when pos (intern (string-upcase (nth (1+ pos) args)) :keyword)))))
-    (if (and id-or-title new-maturity)
-        (progn
-          (hactar-monolith::update-concept-maturity id-or-title new-maturity)
-          (format t "~&Updated maturity to: ~A~%" new-maturity))
-        (format t "~&Usage: /concept-mature <id-or-title> --to <maturity>~%"))))
 
 ;;*** Tangling Commands
 
-(define-command tangle (args)
+(define-command lit.tangle (args)
   "Extract code from org files.
-Usage: /tangle --project <name> [--lang <language>] [--dry-run]
-       /tangle --file <path> [--dry-run]"
+Usage: /lit.tangle --project <name> [--lang <language>] [--dry-run]
+       /lit.tangle --file <path> [--dry-run]"
   (let* ((project (let ((pos (position "--project" args :test #'string=)))
                     (when pos (nth (1+ pos) args))))
          (file (let ((pos (position "--file" args :test #'string=)))
@@ -897,108 +882,30 @@ Usage: /tangle --project <name> [--lang <language>] [--dry-run]
              (format t "~&Tangling complete.~%")
              (format t "~&Tangling had errors.~%"))))
       (t
-       (format t "~&Usage: /tangle --project <name> | --file <path> [options]~%")))))
-
-(define-command drift (args)
-  "Detect drift between org and tangled code.
-Usage: /drift --project <name>
-       /drift --all"
-  (let* ((project (let ((pos (position "--project" args :test #'string=)))
-                    (when pos (nth (1+ pos) args))))
-         (all (member "--all" args :test #'string=))
-         (drifts (hactar-monolith::detect-drift :project project :all all)))
-    (if drifts
-        (progn
-          (format t "~&Detected ~A file(s) with drift:~%" (length drifts))
-          (dolist (drift drifts)
-            (format t "  ~A (~A)~%"
-                    (hactar-monolith::drift-info-file drift)
-                    (hactar-monolith::drift-info-drift-type drift))))
-        (format t "~&No drift detected.~%"))))
-
-;;*** Graph Commands
-
-(define-command graph-query (args)
-  "Query the knowledge graph.
-Usage: /graph-query <natural language query>"
-  (let ((query (format nil "~{~A~^ ~}" args)))
-    (if (string= query "")
-        (format t "~&Usage: /graph-query <query>~%")
-        (let ((results (hactar-monolith::query-graph query)))
-          (if results
-              (progn
-                (format t "~&Results:~%")
-                (dolist (row results)
-                  (format t "  ~A~%" row)))
-              (format t "~&No results.~%"))))))
-
-;;*** Quick Capture
-
-(define-command remember (args)
-  "Quick capture of ideas with auto-linking.
-Usage: /remember <thought>
-       /remember --link-to <concept> <thought>"
-  (let* ((link-to (let ((pos (position "--link-to" args :test #'string=)))
-                    (when pos (nth (1+ pos) args))))
-         (thought-args (if link-to
-                           (subseq args (+ 2 (position "--link-to" args :test #'string=)))
-                           args))
-         (thought (format nil "~{~A~^ ~}" thought-args)))
-    
-    (if (not hactar-monolith::*monolith-path*)
-      (format t "~&Monolith not initialized.~%")
-    
-    (let* ((today (multiple-value-bind (sec min hour day month year)
-                      (decode-universal-time (get-universal-time))
-                    (declare (ignore sec min hour))
-                    (format nil "~4,'0D-~2,'0D-~2,'0D" year month day)))
-           (journal-path (merge-pathnames 
-                          (format nil "Journal/~A.org" today)
-                          hactar-monolith::*monolith-path*)))
-      
-      (ensure-directories-exist journal-path)
-      
-      (with-open-file (s journal-path 
-                         :direction :output 
-                         :if-exists :append
-                         :if-does-not-exist :create)
-        (when (zerop (file-length s))
-          (format s "#+TITLE: Journal ~A~%~%" today))
-        (format s "~%* ~A~%" 
-                (multiple-value-bind (_sec min hour)
-                    (decode-universal-time (get-universal-time))
-                  (declare (ignore _sec))
-                  (format nil "~2,'0D:~2,'0D" hour min)))
-        (format s "~A~%" thought)
-        (when link-to
-          (format s "~%Related: [[~A]]~%" link-to)))
-      
-      (format t "~&Captured to Journal/~A.org~%" today)
-      (when link-to
-        (format t "  Linked to: ~A~%" link-to))))))
+       (format t "~&Usage: /lit.tangle --project <name> | --file <path> [options]~%")))))
 
 ;;*** Synthesis
 
-(define-command synthesize (args)
+(define-command "code.synthesize" (args)
   "Generate new code by composing existing concepts.
-Usage: /synthesize <description> --draw-from <glob patterns>"
+Usage: /code.synthesize <description> --draw-from <glob patterns>"
   (let* ((draw-from-pos (position "--draw-from" args :test #'string=))
-         (description (format nil "~{~A~^ ~}" 
+         (description (format nil "~{~A~^ ~}"
                               (if draw-from-pos
                                   (subseq args 0 draw-from-pos)
                                   args)))
          (draw-from (when draw-from-pos
                       (subseq args (1+ draw-from-pos)))))
-    
+
     (if (not hactar-monolith::*monolith-path*)
       (format t "~&Monolith not initialized.~%")
-    
+
     (let ((relevant-concepts nil))
       (dolist (pattern draw-from)
         (let ((files (directory (merge-pathnames pattern hactar-monolith::*monolith-path*))))
           (dolist (file files)
             (push (hactar-monolith::parse-org-file file) relevant-concepts))))
-      
+
       (let ((context (with-output-to-string (s)
                        (format s "Drawing from these concepts in the knowledge base:~%~%")
                        (dolist (concept relevant-concepts)
@@ -1006,7 +913,7 @@ Usage: /synthesize <description> --draw-from <glob patterns>"
                          (dolist (heading (getf concept :headings))
                            (format s "~A~%" (getf heading :content)))
                          (format s "~%")))))
-        
+
         (format t "~&Synthesizing from ~A concept(s)...~%~%" (length relevant-concepts))
         (get-llm-response (format nil "~A~%~%Task: ~A~%~%Generate code that draws from and composes the patterns and implementations shown in these concepts."
                                   context description)))))))
@@ -1072,7 +979,7 @@ Usage: hactar monolith.tangle --project <name> [--lang <language>] [--dry-run]"
         (let ((result (hactar-monolith::tangle-project project :dry-run dry-run :lang lang)))
           (if (hactar-monolith::tangle-result-success-p result)
               (progn
-                (format t "Tangled ~A file(s)~%" 
+                (format t "Tangled ~A file(s)~%"
                         (length (hactar-monolith::tangle-result-files-written result)))
                 (uiop:quit 0))
               (progn
@@ -1117,18 +1024,18 @@ Usage: hactar monolith.concept new <title> [--maturity <level>]
              (let ((concept (hactar-monolith::create-concept title :maturity maturity)))
                (format t "Created: ~A~%" (hactar-monolith::org-concept-path concept)))
              (format t "Usage: hactar monolith.concept new <title>~%"))))
-      
+
       ((string= subcommand "find")
        (let* ((query (format nil "~{~A~^ ~}" rest-args))
               (results (hactar-monolith::find-concepts query :limit 20)))
          (dolist (row results)
            (format t "~A [~A] ~A~%" (second row) (fourth row) (third row)))))
-      
+
       ((string= subcommand "list")
        (let ((results (hactar-monolith::find-concepts nil :limit 100)))
          (dolist (row results)
            (format t "~A [~A]~%" (second row) (fourth row)))))
-      
+
       (t
        (format t "Usage: hactar monolith.concept <new|find|list> [args]~%")))))
 
@@ -1142,25 +1049,25 @@ Usage: hactar monolith.synthesize <description> --draw-from <patterns...>"
                                   args)))
          (draw-from (when draw-from-pos
                       (subseq args (1+ draw-from-pos)))))
-    
+
     (unless hactar-monolith::*monolith-path*
       (format t "Monolith not initialized.~%")
       (uiop:quit 1))
-    
+
     ;; Find and gather concepts
     (let ((relevant-concepts nil))
       (dolist (pattern draw-from)
         (let ((files (directory (merge-pathnames pattern hactar-monolith::*monolith-path*))))
           (dolist (file files)
             (push (hactar-monolith::parse-org-file file) relevant-concepts))))
-      
+
       (let ((context (with-output-to-string (s)
                        (dolist (concept relevant-concepts)
                          (format s "~%=== ~A ===~%" (getf concept :path))
                          (dolist (heading (getf concept :headings))
                            (format s "~A~%" (getf heading :content)))))))
-        
-        (let ((response (get-llm-response 
+
+        (let ((response (get-llm-response
                          (format nil "~A~%~%Task: ~A" context description)
                          :stream nil)))
           (format t "~A~%" response))))))
@@ -1180,15 +1087,15 @@ Usage: /agent <name> <task>
 Available agents: librarian, architect, implementer, critic"
   (let* ((agent-name (first args))
          (task (format nil "~{~A~^ ~}" (rest args)))
-         (agent-info (assoc (intern (string-upcase agent-name) :keyword) 
+         (agent-info (assoc (intern (string-upcase agent-name) :keyword)
                             *monolith-agents*)))
     (if agent-info
         (progn
-          (format t "~&[~A Agent] ~A~%~%" 
+          (format t "~&[~A Agent] ~A~%~%"
                   (string-capitalize agent-name)
                   (cdr agent-info))
           ;; Build agent context and prompt
-          (let* ((system-prompt 
+          (let* ((system-prompt
                    (format nil "You are the ~A agent for a knowledge monolith system.
 Your role: ~A
 

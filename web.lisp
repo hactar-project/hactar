@@ -267,9 +267,38 @@ Otherwise, return VALUE as-is."
                 (format-hn-items-markdown items))
         (format t "Failed to fetch HN front page.~%"))))
 
+(defun get-hn-json (args)
+  "Fetch HN items and return them as an alist structure suitable for JSON encoding."
+  (let ((subcmd (first args))
+        (sub-args (rest args))
+        (limit 25))
+    ;; Parse args for --limit
+    (loop for arg in args
+          for i from 0
+          when (string= arg "--limit")
+          do (let ((limit-val (parse-integer (nth (1+ i) args) :junk-allowed t)))
+               (when limit-val (setf limit limit-val))))
+    (let* ((feed-path (cond
+                        ((and subcmd (string-equal subcmd "newest")) "/newest")
+                        ((and subcmd (string-equal subcmd "top")) "/frontpage")
+                        (t "/frontpage")))
+           (items (fetch-hn-feed feed-path :limit limit)))
+      (coerce
+       (loop for item in items
+             collect `(("title" . ,(cdr (assoc :title item)))
+                       ("link" . ,(cdr (assoc :link item)))
+                       ("comments" . ,(or (cdr (assoc :comments item)) ""))
+                       ("pubDate" . ,(or (cdr (assoc :pubdate item)) ""))))
+       'vector))))
+
 ;; Define the HN web command
 (defwebcommand hn
-  "Fetch news from news.ycombinator.com (Hacker News)."
+  "Fetch news from news.ycombinator.com (Hacker News).
+
+Examples:
+  hactar hn
+  hactar hn top
+  hactar hn newest"
 
   (defwebroute hn-newest "Fetch newest posts from Hacker News"
     ("newest" &rest args) (args)
@@ -281,5 +310,18 @@ Otherwise, return VALUE as-is."
     :priority 10
     (lambda () (get-hn-top args)))
 
+  (defwebroute hn-help "Display help for the hn command"
+    ("help") ()
+    :priority 15
+    (lambda ()
+      (format t "HN Commands:~%  hn - Get the front page~%  hn top - Get top posts~%  hn newest - Get newest posts~%  hn help - Display this help message~%~%Examples:~%  hactar hn~%  hactar hn top~%  hactar hn newest~%")))
+
   (def-default-route ()
-    (lambda () (get-hn-front-page-md))))
+    (lambda ()
+      (format t "HN Commands:~%  hn - Get the front page~%  hn top - Get top posts~%  hn newest - Get newest posts~%~%Examples:~%  hactar hn~%  hactar hn top~%  hactar hn newest~%")
+      (get-hn-front-page-md))))
+
+(register-format-handler "/hn" :json
+  (lambda (args)
+    (let ((clean-args (remove-if (lambda (arg) (or (str:starts-with-p "-" arg) (string= arg "--format"))) args)))
+      (to-json (get-hn-json clean-args)))))

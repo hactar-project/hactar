@@ -2,7 +2,6 @@
 ;; usually they are just detecting a type of file e.g a react componenent and then passing it off via hooks to modes
 (in-package :hactar)
 ;; FS Watcher implementation adapted from cl-fs-watcher
-
 (defclass fs-watcher ()
   ((dir :reader dir
         :initarg :dir
@@ -274,7 +273,8 @@
     (cffi:foreign-free size)
     (uiop:ensure-absolute-pathname
      (uiop:ensure-directory-pathname
-      (escape-wildcards result)))))
+      (escape-wildcards result))
+     (uiop:getcwd))))
 
 (defgeneric watcher-callback (watcher handle namestring renamed-p changed-p)
   (:documentation "the main callback which gets called if a Event
@@ -366,7 +366,8 @@
   (with-slots (dir) watcher
     (setf dir (uiop:ensure-absolute-pathname
                (uiop:ensure-directory-pathname
-                dir)))
+                dir)
+               (uiop:getcwd)))
     (unless (escaped-directory-exists-p dir)
       (error "ERROR: The directory '~a' does not exist."
              dir))))
@@ -451,6 +452,11 @@
 (nhooks:define-hook-type file-event (function (pathname symbol) t)
                          "Hook for file system events. Handler takes pathname and event type symbol.")
 (defvar *file-event-hook* (make-instance 'hook-file-event))
+
+(defvar *raw-file-event-hook* (make-instance 'hook-file-event)
+  "Hook for ALL file system events, regardless of git tracking.
+   Used by interface watchers whose files live under the (git-ignored)
+   instance directory and therefore never appear in *file-event-hook*.")
 
 (defmacro defwatcher (name command help &key (daemon nil))
   "Define a watcher process.
@@ -550,6 +556,9 @@
   (let ((path-string (ignore-errors (namestring pathname))))
     (unless path-string
       (return-from handle-file-event nil))
+    ;; Always fire the raw hook so interface watchers (whose files live under the
+    ;; git-ignored .hactar/<id>/ instance dir) can sync external edits back into state.
+    (nhooks:run-hook *raw-file-event-hook* pathname event-type)
     ;; git-check-ignore returns T if file is NOT tracked (ignored/untracked)
     ;; We only want to process tracked files
     (unless (ignore-errors (git-check-ignore pathname *repo-root*))
@@ -593,6 +602,8 @@
 (defun get-watcher-output (active-watcher)
   "Returns the accumulated output of the watcher."
   (get-output-stream-string (active-watcher-output-buffer active-watcher)))
+
+;;* Commands
 (define-command watch (args)
                 "List available watchers and start the selected one."
                 (declare (ignore args))
@@ -603,13 +614,14 @@
                                                           (watcher-definition-help d)))
                                       definitions)))
                   (when items
-                    (let* ((selected-line (select-with-fzf items))
+                    (let* ((selected-line (fuzzy-select items))
                            (selected-name-str (when selected-line (first (str:split #\Tab selected-line)))))
                       (when selected-name-str
-                        (let* ((selected-name (ignore-errors (read-from-string selected-name-str)))
-                               (watcher-def (when selected-name (gethash selected-name *watcher-definitions*))))
+                        (let* ((watcher-def (find selected-name-str definitions
+                                                  :key (lambda (d) (format nil "~A" (watcher-definition-name d)))
+                                                  :test #'string-equal)))
                           (if watcher-def
-                            (start-watcher watcher-def)
+                              (start-watcher watcher-def)
                             (format t "Invalid watcher selected.~%"))))
                       (unless selected-line (format t "No watcher selected.~%")))))
                 (unless (alexandria:hash-table-values *watcher-definitions*)
@@ -626,7 +638,7 @@
                                                            (uiop:process-info-pid (active-watcher-process-info aw))))
                                       active-daemon-watchers)))
                   (if items
-                    (let* ((selected-item (select-with-fzf items))
+                    (let* ((selected-item (fuzzy-select items))
                            (selected-pid-str (when selected-item
                                                (cadr (ppcre:all-matches-as-strings "\\(PID: (\\d+)\\)" selected-item)))))
                       (when selected-pid-str
@@ -638,25 +650,3 @@
                             (format t "Could not find active watcher with PID ~A.~%" selected-pid))))
                       (unless selected-item (format t "No watcher selected to stop.~%")))
                     (format t "No active daemon watchers to stop.~%"))))
-
-(define-command rerun (args)
-                "Re-run a non-daemon watcher command."
-                (declare (ignore args))
-                (let* ((non-daemon-defs (remove-if #'watcher-definition-daemon-p
-                                                   (alexandria:hash-table-values *watcher-definitions*)))
-                       (items (mapcar (lambda (d) (format nil "~A~C~A"
-                                                          (watcher-definition-name d)
-                                                          #\Tab
-                                                          (watcher-definition-help d)))
-                                      non-daemon-defs)))
-                  (if items
-                    (let* ((selected-line (select-with-fzf items))
-                           (selected-name-str (when selected-line (first (str:split #\Tab selected-line)))))
-                      (when selected-name-str
-                        (let* ((selected-name (ignore-errors (read-from-string selected-name-str)))
-                               (watcher-def (when selected-name (gethash selected-name *watcher-definitions*))))
-                          (if watcher-def
-                            (start-watcher watcher-def)
-                            (format t "Invalid watcher selected.~%"))))
-                      (unless selected-line (format t "No watcher selected to rerun.~%")))
-                    (format t "No non-daemon watchers defined to rerun.~%"))))

@@ -107,13 +107,14 @@
         packages.default = hactar;
 
         devShells.default = pkgs.mkShell {
-          buildInputs = [ sbcl pkgs.sqlite-utils pkgs.rlwrap pkgs.cmark ] ++ nativeLibs;
+          buildInputs = [ sbcl pkgs.sqlite-utils pkgs.rlwrap pkgs.cmark pkgs.gnumake ] ++ nativeLibs;
 
           shellHook = ''
             export CL_SOURCE_REGISTRY=$(pwd)''${CL_SOURCE_REGISTRY:+:$CL_SOURCE_REGISTRY}
             export LD_LIBRARY_PATH=${
               pkgs.lib.makeLibraryPath nativeLibs
             }:$LD_LIBRARY_PATH
+            export SBCL_HOME="${sbcl}/lib/sbcl"
           '';
         };
       });

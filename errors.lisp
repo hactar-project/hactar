@@ -11,8 +11,8 @@
           (cdr (assoc :cause err))
           (cdr (assoc :solution err))))
 
-(defun select-error-with-fzf (errors)
-  "Select an error from a list using fzf."
+(defun fuzzy-select-error (errors)
+  "Select an error from a list using fuzzy-select."
   (let* ((items (loop for err in errors
                       collect `((:item . ,(format nil "~A (Code: ~A)" (cdr (assoc :title err)) (cdr (assoc :code err))))
                                 (:preview . ,(format-error-for-preview err)))))
@@ -37,7 +37,7 @@
      doc
      (lambda (node)
        (when (and (typep node 'org-mode-parser:org-heading)
-                  (member "error" (org-mode-parser:heading-tags node) :test #'string-equal))
+                   (member "error" (org-mode-parser:heading-tags node) :test #'string-equal))
          (let ((title (org-mode-parser:heading-title node))
                (tags (remove "error" (org-mode-parser:heading-tags node) :test #'string-equal))
                (children (org-mode-parser:node-children node))
@@ -81,9 +81,7 @@
     (nreverse errors)))
 
 (defmacro deferror (title &rest args)
-  "Define an error document.
-   Required keys: :code :stack :message :cause :solution.
-   Optional keys: :slug :tags"
+  "Define an error document registered under 'errors:' protocol."
   (let ((code (getf args :code))
         (stack (getf args :stack))
         (slug (getf args :slug))
@@ -93,32 +91,45 @@
         (tags (getf args :tags)))
     (unless (and title code stack message cause solution)
       (error "deferror: title, code, stack, message, cause, and solution are required."))
-    `(let* ((final-slug (or ,slug (if ,stack (format nil "~A:~A" ,stack ,code) ,code)))
-            (error-obj (list (cons :title ,title)
-                             (cons :code ,code)
-                             (cons :stack ,stack)
-                             (cons :slug final-slug)
-                             (cons :message ,message)
-                             (cons :cause ,cause)
-                             (cons :solution ,solution)
-                             (cons :tags ,tags))))
-       (setf *errors* (remove ,code *errors* :key (lambda (e) (cdr (assoc :code e))) :test #'string=))
-       (push error-obj *errors*))))
+    (let* ((final-slug (or slug (if stack (format nil "~A:~A" stack code) code)))
+           (uri (format nil "errors:~A" final-slug))
+           (content (format nil "Message: ~A~%~%Cause: ~A~%~%Solution: ~A" message cause solution)))
+      `(register-hypertext ,uri
+                           (list :title ,title
+                                 :content ,content
+                                 :tags ,tags
+                                 :covers (uiop:ensure-list ,stack)
+                                 :metadata (list (cons :code ,code)
+                                                 (cons :stack ,stack)
+                                                 (cons :slug ,final-slug)
+                                                 (cons :message ,message)
+                                                 (cons :cause ,cause)
+                                                 (cons :solution ,solution)))))))
+
+(defun get-all-registered-errors ()
+  "Get all registered errors as alists."
+  (let ((results '()))
+    (dolist (proto '("errors" "error"))
+      (let ((dispatcher (gethash proto *protocol-dispatchers*)))
+        (when dispatcher
+          (maphash (lambda (path err-plist)
+                     (declare (ignore path))
+                     (push (hypertext-to-error-alist err-plist) results))
+                   (protocol-dispatcher-registry dispatcher)))))
+    results))
 
 (define-command errors (args)
   "Find and select errors relevant to the current project/context."
   (declare (ignore args))
-  (let ((results (if *errors*
-                     *errors*
-                     (errors-find :limit 20)))) ; Fallback to all errors if no stack/context specific filter yet
+  (let ((results (get-all-registered-errors)))
     (if results
-        (let ((selected (select-error-with-fzf results)))
+        (let ((selected (fuzzy-select-error results)))
           (when selected
             (add-error-to-context selected)))
         (format t "No errors found.~%"))))
 
 (define-command errors-add (args)
-  "Add a new error entry manually.
+  "Add a new error entry by emitting a (deferror ...) lisp file under errors/ and loading it.
    Usage: /errors-add --code CODE --title TITLE --message MSG --cause CAUSE --solution SOL --stack STACK --slug SLUG"
   (let* ((cli-string (format nil "errors-add ~{~A~^ ~}" args))
          (parsed (parse-cli-args-s cli-string)))
@@ -131,87 +142,78 @@
           (solution (getf parsed :solution))
           (tags (uiop:ensure-list (getf parsed :tags))))
       (if (and code title message cause solution)
-          (progn
-            (errors-create :code code :stack stack :slug slug :title title :message message :cause cause :solution solution :tags tags)
-            (format t "Error '~A' added.~%" title))
+          (let* ((final-slug (or slug (if stack (format nil "~A:~A" stack code) code)))
+                 (out-file (uiop:native-namestring
+                            (merge-pathnames
+                             (format nil "errors/~A.lisp" final-slug)
+                             (or *repo-root* (uiop:getcwd)))))
+                 (form `(deferror ,title
+                            :code ,code
+                            :stack ,stack
+                            :slug ,final-slug
+                            :message ,message
+                            :cause ,cause
+                            :solution ,solution
+                            :tags ',tags)))
+            (ensure-directories-exist out-file)
+            (with-open-file (s out-file :direction :output
+                                        :if-exists :supersede
+                                        :if-does-not-exist :create
+                                        :external-format :utf-8)
+              (format s ";;; Created error doc~%(in-package :hactar)~%~%")
+              (let ((*print-case* :downcase))
+                (prin1 form s))
+              (terpri s))
+            (load out-file)
+            (format t "Error '~A' added and written to ~A~%" title out-file))
           (format t "Missing required arguments. Need --code, --title, --message, --cause, --solution.~%")))))
-
-(defun run-errors-lookup (args)
-  "Common logic for errors-find and errors-lookup."
-  (let* ((format-opt (getf args :format))
-         (pos-args (append (uiop:ensure-list (getf args :subcommand))
-                           (uiop:ensure-list (getf args :args))))
-         (query (format nil "~{~A~^ ~}" pos-args)))
-    (if (string= query "")
-        (format t "Usage: /errors-lookup query [--format=json]~%")
-        (let ((results (errors-find :text query :limit 20)))
-          (if (string-equal format-opt "json")
-              (let ((json-str (format nil "#+begin_src json :type errors-lookup-output~%~A~%#+end_src~%" (to-json (coerce results 'vector)))))
-                (editor-output json-str :type "json" :success "true"))
-              (if results
-                  (let ((selected (select-error-with-fzf results)))
-                    (when selected
-                      (add-error-to-context selected)))
-                  (format t "No errors found matching query: ~A~%" query)))))))
-
-(define-command errors-find (args)
-  "Search in DB using a query and add selected to context.
-   Usage: /errors-find <query> [--format=json]"
-  (run-errors-lookup args)
-  :cli-options ((:long "format" :description "Output format (json)")))
-
-(define-command errors-lookup (args)
-  "Lookup errors by text query.
-Usage: /errors-lookup query [--format=json]"
-  (run-errors-lookup args)
-  :cli-options ((:long "format" :description "Output format (json)")))
 
 (define-command errors-add-to-context (args)
   "Select and add a known error to context (from *errors*)."
   (declare (ignore args))
   (if *errors*
-      (let ((selected (select-error-with-fzf *errors*)))
+      (let ((selected (fuzzy-select-error *errors*)))
         (when selected
           (add-error-to-context selected)))
       (format t "No errors in *errors* list.~%")))
 
-(defun run-errors-db (args)
-  (declare (ignore args))
-  (let ((results (errors-find :limit 500)))
-    (if results
-        (let ((selected (select-error-with-fzf results)))
-          (when selected
-            (add-error-to-context selected)))
-        (format t "No errors found in database.~%"))))
-
-(define-command errors-db (args)
-  "List all known error docs and select one to add to context."
-  (run-errors-db args))
-
-(define-sub-command errors.db (args)
-  "Alias to errors-db."
-  (run-errors-db args))
+(defun errors-import->lisp (errors out-file source)
+  "Emit (deferror ...) forms for ERRORS to OUT-FILE and return the path."
+  (ensure-directories-exist out-file)
+  (with-open-file (s out-file :direction :output
+                              :if-exists :supersede
+                              :if-does-not-exist :create
+                              :external-format :utf-8)
+    (format s ";;; Imported errors from ~A~%(in-package :hactar)~%~%" source)
+    (let ((*print-case* :downcase))
+      (dolist (err errors)
+        (prin1 `(deferror ,(cdr (assoc :title err))
+                    :code ,(cdr (assoc :code err))
+                    :stack ,(cdr (assoc :stack err))
+                    :slug ,(cdr (assoc :slug err))
+                    :message ,(cdr (assoc :message err))
+                    :cause ,(cdr (assoc :cause err))
+                    :solution ,(cdr (assoc :solution err))
+                    :tags ',(cdr (assoc :tags err)))
+               s)
+        (terpri s) (terpri s))))
+  out-file)
 
 (defun errors-import (args)
   (let ((filename (if (keywordp (first args))
                       (first (getf args :args))
                       (first args))))
     (if (and filename (probe-file filename))
-        (let ((errors (parse-errors-from-org-file filename))
-              (count 0))
+        (let ((errors (parse-errors-from-org-file filename)))
           (if errors
-              (progn
-                (dolist (err errors)
-                  (errors-create :code (cdr (assoc :code err))
-                                 :stack (cdr (assoc :stack err))
-                                 :slug (cdr (assoc :slug err))
-                                 :title (cdr (assoc :title err))
-                                 :message (cdr (assoc :message err))
-                                 :cause (cdr (assoc :cause err))
-                                 :solution (cdr (assoc :solution err))
-                                 :tags (cdr (assoc :tags err)))
-                  (incf count))
-                (format t "Imported ~A errors from ~A~%" count filename))
+              (let ((out-file (uiop:native-namestring
+                               (merge-pathnames
+                                (format nil "errors/~A.lisp" (pathname-name filename))
+                                (or *repo-root* (uiop:getcwd))))))
+                (errors-import->lisp errors out-file filename)
+                (load out-file)
+                (format t "Imported ~A errors from ~A -> ~A~%"
+                        (length errors) filename out-file))
               (format t "No valid errors found in ~A~%" filename)))
         (format t "File not found: ~A~%" filename))))
 
@@ -219,8 +221,3 @@ Usage: /errors-lookup query [--format=json]"
   "Import an error document (Org format).
    Usage: hactar errors.import <file.org>"
   (errors-import args))
-
-(define-command errors-db-clear (args)
-  "Clear database of errors."
-  (declare (ignore args))
-  (errors-clear-database))

@@ -144,10 +144,10 @@
            (setf in-drawer nil))
           ((and in-drawer (str:starts-with? ":" trimmed))
            (let* ((colon-pos (position #\: trimmed :start 1))
-                  (key (when colon-pos 
+                  (key (when colon-pos
                          (string-upcase (subseq trimmed 1 colon-pos))))
                   (value (when colon-pos
-                           (string-trim '(#\Space #\Tab) 
+                           (string-trim '(#\Space #\Tab)
                                         (subseq trimmed (1+ colon-pos))))))
              (when (and key value)
                (push (cons (intern key :keyword) value) props)))))))
@@ -208,7 +208,7 @@
                            (setf tangle-target val)))
                         ((string= key ":project")
                          (setf project val))))
-             (setf current-block (list :id (format nil "~A:~A" 
+             (setf current-block (list :id (format nil "~A:~A"
                                                    (or file-path "unknown") line-num)
                                        :language lang
                                        :tangle-target tangle-target
@@ -217,7 +217,7 @@
                                        :line-start line-num
                                        :line-end nil
                                        :checksum nil))))
-          
+
           ;; End of code block
           ((and in-block (str:starts-with? "#+END_SRC" trimmed))
            (setf in-block nil)
@@ -228,11 +228,11 @@
                  (compute-content-checksum (getf current-block :content)))
            (push current-block blocks)
            (setf current-block nil))
-          
+
           ;; Inside code block
           (in-block
            (setf (getf current-block :content)
-                 (concatenate 'string 
+                 (concatenate 'string
                               (getf current-block :content)
                               line
                               (string #\Newline)))))))
@@ -247,7 +247,7 @@
          (headings nil)
          (current-heading nil)
          (heading-content (make-string-output-stream)))
-    
+
     ;; Parse headings
     (dolist (line (str:lines content))
       (let ((heading (parse-org-heading-line line)))
@@ -263,14 +263,14 @@
               (setf current-heading heading))
             (when current-heading
               (write-line line heading-content)))))
-    
+
     ;; Save last heading
     (when current-heading
       (push (list :level (car current-heading)
                   :title (cdr current-heading)
                   :content (get-output-stream-string heading-content))
             headings))
-    
+
     (list :path file-path
           :properties props
           :links links
@@ -668,16 +668,16 @@ for each error in ERRORS-PLISTS."
                   (sol-p (make-instance 'org-mode-parser:org-paragraph
                                         :type :paragraph
                                         :content solution)))
-              
+
               (org-mode-parser:add-child h props)
               (org-mode-parser:add-child h msg-block)
-              
+
               (org-mode-parser:add-child cause-h cause-p)
               (org-mode-parser:add-child h cause-h)
-              
+
               (org-mode-parser:add-child sol-h sol-p)
               (org-mode-parser:add-child h sol-h)
-              
+
               (org-mode-parser:add-child errors-heading h))))
         (string-right-trim '(#\Newline) (org-mode-parser:org-to-string doc)))
     (error (e)

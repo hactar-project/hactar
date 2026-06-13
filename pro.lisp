@@ -159,6 +159,7 @@
 (define-sub-command pro.update (args)
   "Update the Pro repository by running 'git pull'. Clones first if missing."
   (declare (ignore args))
+  (format t "Updating Hactar Pro repository from ~A to ~A...~%" (pro--repo-url) (uiop:native-namestring *hactar-pro-path*))
   (if (pro--git-repo-p *hactar-pro-path*)
       (multiple-value-bind (out err code)
           (uiop:run-program (list "git" "-C" (uiop:native-namestring (uiop:ensure-directory-pathname *hactar-pro-path*)) "pull" "--ff-only")

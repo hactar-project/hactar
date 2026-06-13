@@ -1,7 +1,7 @@
 (in-package :hactar-tests)
 (in-suite hactar-tests)
 
-;;* helpers 
+;;* helpers
 (defun get-doc-by-id (id)
   (car (hactar::docs-find :id id)))
 
@@ -9,7 +9,7 @@
   "Creates a list of floats of the specified dimension."
   (make-list dimensions :initial-element (float value)))
 
-;;* tests 
+;;* tests
 (test model-changed-hook-fires
       "Test that *model-changed-hook* fires when set-current-model is called."
       (let ((hactar::*available-models*
@@ -405,7 +405,7 @@ File two:
                                      :cause "Bad input"
                                      :solution "Fix input"
                                      :tags '("ui" "input"))))
-      (is (integerp id))
+      (is (stringp id))
       (let ((err (car (hactar::errors-find :code "ERR001"))))
         (is (string= (cdr (assoc :code err)) "ERR001"))
         (is (string= (cdr (assoc :title err)) "Something went wrong"))
@@ -443,7 +443,7 @@ File two:
       (hactar::parse-add-args '("file1.txt" "-descriptions=desc1,desc2" "file2.jpg"))
     (is (equal files '("file1.txt" "file2.jpg")))
     (is (equal descriptions '("desc1" "desc2"))))
-  
+
   (multiple-value-bind (files descriptions)
       (hactar::parse-add-args '("src/*.lisp"))
     (is (equal files '("src/*.lisp")))
@@ -472,18 +472,18 @@ File two:
             (write-string "test3" s))
           (with-open-file (s p4 :direction :output :if-exists :supersede)
             (write-string "test4" s))
-          
+
           ;; Test exact match (absolute path)
           (let ((res (hactar::expand-file-pattern (uiop:native-namestring p1) test-subdir)))
             (is (member (uiop:native-namestring p1) res :test #'string=)))
-          
+
           ;; Test glob match with wildcard in filename (relative pattern)
           (let* ((res (hactar::expand-file-pattern "test_file_*.txt" test-subdir)))
             (is (member (uiop:native-namestring p1) res :test #'string=))
             (is (member (uiop:native-namestring p2) res :test #'string=))
             ;; Should NOT include other.lisp
             (is (not (member (uiop:native-namestring p3) res :test #'string=))))
-          
+
           ;; Test directory glob pattern like "*" from root
           (let* ((res (hactar::expand-file-pattern "*" test-subdir)))
             ;; Should include all files in the directory
@@ -492,7 +492,7 @@ File two:
             (is (member (uiop:native-namestring p3) res :test #'string=))
             ;; Should NOT include files in nested subdirectory (single * doesn't recurse)
             (is (not (member (uiop:native-namestring p4) res :test #'string=))))
-          
+
           ;; Test recursive glob pattern like "**/*.txt"
           (let* ((res (hactar::expand-file-pattern "**/*.txt" test-subdir)))
             ;; Should include all .txt files including nested
@@ -501,13 +501,13 @@ File two:
             (is (member (uiop:native-namestring p4) res :test #'string=))
             ;; Should NOT include .lisp files
             (is (not (member (uiop:native-namestring p3) res :test #'string=))))
-          
+
           ;; Test nested directory glob like "nested/*"
           (let* ((res (hactar::expand-file-pattern "nested/*" test-subdir)))
             ;; Should only include files in nested directory
             (is (member (uiop:native-namestring p4) res :test #'string=))
             (is (not (member (uiop:native-namestring p1) res :test #'string=))))
-          
+
           ;; Test non-existent exact file returns nil
           (let ((res (hactar::expand-file-pattern "nonexistent.txt" test-subdir)))
             (is (null res))))

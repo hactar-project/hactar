@@ -693,7 +693,7 @@ Create a new component.
 ***** component.list
 List all components.
 ***** copilotapi
-GitHub Copilot API commands: models, authorize, complete.
+GitHub Copilot API commands: models, authorize, complete, help.
 ***** create
 Create a new project from a starter.
 
@@ -981,6 +981,8 @@ List available models.
 Authorize GitHub Copilot.
 ***** copilotapi complete <query>
 Generate completion.
+***** copilotapi help
+Display help information.
 **** Hacker News Commands
 ***** hn newest [--limit N]
 Fetch newest posts from Hacker News.
@@ -1017,13 +1019,6 @@ Ask questions about the code base without editing any files.
 Manually trigger assistant screen analysis with an optional prompt.
 ***** /autocommit
 Toggle git autocommit on/off.
-***** /brief
-Alias for =/ruhe-summary=.
-
-Usage:
-#+begin_src
-  /brief [length]
-#+end_src
 ***** /cheap-model
 Set the cheap model to use when cost is a concern.
 ***** /check

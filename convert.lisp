@@ -46,17 +46,18 @@
      nil)
     (t
      (let* ((project-path (uiop:ensure-directory-pathname
-                            (uiop:parse-native-namestring project-path-str)))
-            (prompt-path (get-prompt-path "redwood-to-lisp.org")))
-       (cond
-         ((not (probe-file project-path))
-          (format t "Error: project path not found: ~A~%" project-path-str)
-          nil)
-         ((not (probe-file prompt-path))
-          (format t "Error: prompt file not found: ~A~%" (uiop:native-namestring prompt-path))
-          nil)
-         (t
-          (let* ((system-prompt (uiop:read-file-string prompt-path))
+                             (uiop:ensure-absolute-pathname
+                               (uiop:parse-native-namestring project-path-str)
+                               *default-pathname-defaults*))))
+        (cond
+          ((not (probe-file project-path))
+           (format t "Error: project path not found: ~A~%" project-path-str)
+           nil)
+          ((not (get-prompt 'redwood-to-lisp))
+           (format t "Error: prompt not found: redwood-to-lisp~%")
+           nil)
+          (t
+           (let* ((system-prompt (get-prompt 'redwood-to-lisp))
                  (file-pairs (redwood-collect-source-files project-path))
                  (_ (format t "Found ~A files in ~A~%" (length file-pairs) project-path-str))
                  (user-message (redwood-build-user-message file-pairs))
@@ -84,16 +85,17 @@
        `(("text" . "Usage: /convert.redwood <project-path> [-o output.lisp]")))
       (t
        (let* ((project-path (uiop:ensure-directory-pathname
-                              (uiop:parse-native-namestring project-path-str)))
+                              (uiop:ensure-absolute-pathname
+                                (uiop:parse-native-namestring project-path-str)
+                                *default-pathname-defaults*)))
               (prompt-path (get-prompt-path "redwood-to-lisp.org")))
          (cond
            ((not (probe-file project-path))
             `(("text" . ,(format nil "Error: project path not found: ~A" project-path-str))))
-           ((not (probe-file prompt-path))
-            `(("text" . ,(format nil "Error: prompt file not found: ~A"
-                                  (uiop:native-namestring prompt-path)))))
+           ((not (get-prompt 'redwood-to-lisp))
+            `(("text" . "Error: prompt not found: redwood-to-lisp")))
            (t
-            (let* ((system-prompt (uiop:read-file-string prompt-path))
+            (let* ((system-prompt (get-prompt 'redwood-to-lisp))
                    (file-pairs (redwood-collect-source-files project-path))
                    (user-message (redwood-build-user-message file-pairs))
                    (response (get-llm-response user-message

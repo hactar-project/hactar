@@ -1,7 +1,7 @@
 (in-package :hactar-tests)
 
 (def-suite preset-tests
-  :description "Tests for preset.lisp - context preset and snapshot system.")
+  :description "Tests for preset.lisp - context preset system.")
 
 (in-suite preset-tests)
 
@@ -192,15 +192,6 @@
     ;; Should have 2 unique requirements (case-insensitive dedup)
     (is (= 2 (length reqs)))))
 
-(test expand-single-glob-literal-test
-  "Test expanding a literal (non-glob) file path."
-  (uiop:with-temporary-file (:pathname p :keep t)
-    (let* ((base-dir (uiop:pathname-directory-pathname p))
-           (filename (file-namestring p)))
-      (let ((result (hactar::expand-single-glob filename base-dir)))
-        (is (= 1 (length result)))
-        (is (string= (first result) (uiop:native-namestring p)))))))
-
 (test preset-load-with-files-test
   "Test loading a preset with actual files."
   (let* ((temp-dir (make-temp-dir))
@@ -377,3 +368,122 @@
       (hactar::preset/load 'stack-warn-test)
       (let ((out (get-output-stream-string output)))
         (is (search "requires 'react'" out))))))
+
+(test preset-commands-format-test
+  "Test formatting output for preset commands."
+  (let ((hactar::*repo-root* (uiop:parse-native-namestring "/tmp/"))
+        (hactar::*files* '())
+        (hactar::*active-presets* '())
+        (hactar::*exposed-context-file* nil))
+    (hactar::clear-presets)
+
+    ;; Register two test presets
+    (eval '(hactar::defpreset test-fmt-1
+             "First format test preset"
+             :files ("src/one.ts")
+             :docs ("doc-one")))
+
+    (eval '(hactar::defpreset test-fmt-2
+             "Second format test preset"
+             :files ("src/two.ts")
+             :extends test-fmt-1))
+
+    ;; Ensure they are loaded and in list
+    (is-true (hactar::get-preset 'test-fmt-1))
+    (is-true (hactar::get-preset 'test-fmt-2))
+
+    ;; 1. Test /preset formats
+    (let* ((json-res (hactar::execute-format-command "/preset" :json nil))
+           (yaml-res (hactar::execute-format-command "/preset" :yaml nil))
+           (xml-res (hactar::execute-format-command "/preset" :xml nil)))
+      (is (stringp json-res))
+      (is (search "test-fmt-1" json-res))
+      (is (search "test-fmt-2" json-res))
+      (is (stringp yaml-res))
+      (is (search "test-fmt-1" yaml-res))
+      (is (search "test-fmt-2" yaml-res))
+      (is (stringp xml-res))
+      (is (search "<name>test-fmt-1</name>" xml-res))
+      (is (search "<name>test-fmt-2</name>" xml-res)))
+
+    ;; 2. Test /preset.list formats
+    (let* ((json-res (hactar::execute-format-command "/preset.list" :json nil))
+           (yaml-res (hactar::execute-format-command "/preset.list" :yaml nil))
+           (xml-res (hactar::execute-format-command "/preset.list" :xml nil))
+           (md-res (hactar::execute-format-command "/preset.list" :markdown nil)))
+      (is (stringp json-res))
+      (is (search "\"files\"" json-res))
+      (is (search "src/one.ts" json-res))
+      (is (search "\"extends\": \"test-fmt-1\"" json-res))
+      (is (stringp yaml-res))
+      (is (search "extends: test-fmt-1" yaml-res))
+      (is (search "  - src/one.ts" yaml-res))
+      (is (stringp xml-res))
+      (is (search "<file>src/one.ts</file>" xml-res))
+      (is (search "<extends>test-fmt-1</extends>" xml-res))
+      (is (stringp md-res))
+      (is (search "*Files:*" md-res))
+      (is (search "## test-fmt-1" md-res)))
+
+    ;; 3. Test /preset.show formats
+    (let* ((json-res (hactar::execute-format-command "/preset.show" :json '("test-fmt-2")))
+           (yaml-res (hactar::execute-format-command "/preset.show" :yaml '("test-fmt-2")))
+           (xml-res (hactar::execute-format-command "/preset.show" :xml '("test-fmt-2"))))
+      (is (stringp json-res))
+      (is (search "\"name\": \"test-fmt-2\"" json-res))
+      (is (search "\"extends\": \"test-fmt-1\"" json-res))
+      (is (stringp yaml-res))
+      (is (search "name: test-fmt-2" yaml-res))
+      (is (search "extends: test-fmt-1" yaml-res))
+      (is (stringp xml-res))
+      (is (search "<name>test-fmt-2</name>" xml-res))
+      (is (search "<extends>test-fmt-1</extends>" xml-res)))
+
+    ;; 4. Test /preset.active formats (no presets active)
+    (let ((json-res (hactar::execute-format-command "/preset.active" :json nil)))
+      (is (string= "[]" json-res)))
+
+    ;; Activate test-fmt-1
+    (hactar::preset/load 'test-fmt-1 :quiet t)
+
+    ;; Test /preset.active formats (with one active)
+    (let* ((json-res (hactar::execute-format-command "/preset.active" :json nil))
+           (yaml-res (hactar::execute-format-command "/preset.active" :yaml nil)))
+      (is (search "test-fmt-1" json-res))
+      (is (search "\"active\": true" json-res))
+      (is (search "name: test-fmt-1" yaml-res)))
+
+    ;; Cleanup active preset
+    (hactar::preset/unload 'test-fmt-1 :quiet t)))
+
+(test watch-command-test
+  "Test the /watch command starts the selected watcher by string-equal match"
+  (let* ((hactar::*watcher-definitions* (make-hash-table :test 'equal))
+         (start-watcher-called nil)
+         (watch-cmd (first (gethash "/watch" hactar::*commands*))))
+    ;; Register a fake watcher
+    (setf (gethash 'test-watcher-fake hactar::*watcher-definitions*)
+          (hactar::make-watcher-definition
+           :name 'test-watcher-fake
+           :command '("echo" "fake")
+           :help "A fake watcher for testing"
+           :daemon-p nil
+           :hook-var '*watcher-test-watcher-fake-output-hook*))
+
+    ;; Verify the command exists
+    (is-true watch-cmd)
+
+    ;; Stub fuzzy-select to return the fake watcher name + tab + help
+    ;; and start-watcher to record calls
+    (with-dynamic-stubs ((hactar::fuzzy-select (lambda (items &key multi)
+                                                 (declare (ignore multi))
+                                                 ;; It should contain the formatted item
+                                                 (is (member "TEST-WATCHER-FAKE	A fake watcher for testing"
+                                                             items :test #'string=))
+                                                 "TEST-WATCHER-FAKE	A fake watcher for testing"))
+                         (hactar::start-watcher (lambda (watcher-def)
+                                                  (setf start-watcher-called t)
+                                                  (is (eq (hactar::watcher-definition-name watcher-def) 'test-watcher-fake))
+                                                  nil)))
+      (funcall watch-cmd nil)
+      (is-true start-watcher-called))))

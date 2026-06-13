@@ -1,8 +1,7 @@
 (in-package :hactar-tests)
 
 (def-suite lisp-mode-tests
-  :description "Tests for lisp-mode.lisp - Lisp-only response mode."
-  )
+	   :description "Tests for lisp-mode.lisp - Lisp-only response mode.")
 
 (in-suite lisp-mode-tests)
 
@@ -177,13 +176,13 @@ That's it."))
                         (funcall cmd-fn '("on")))))
           (declare (ignore output))
           (is-true hactar::*lisp-mode-enabled*))
-        
+
         ;; Turn off
         (let ((output (with-output-to-string (*standard-output*)
                         (funcall cmd-fn '("off")))))
           (declare (ignore output))
           (is (null hactar::*lisp-mode-enabled*)))
-        
+
         ;; Check status
         (let ((output (with-output-to-string (*standard-output*)
                         (funcall cmd-fn '()))))
@@ -199,7 +198,7 @@ That's it."))
   (let ((hactar::*lisp-mode-enabled* t)
         (hactar::*chat-history* '()))
     ;; Mock get-llm-response to return valid Lisp
-    (with-dynamic-stubs ((hactar::get-llm-response 
+    (with-dynamic-stubs ((hactar::get-llm-response
                           (lambda (prompt &key stream add-to-history custom-system-prompt)
                             (declare (ignore prompt stream add-to-history custom-system-prompt))
                             "(+ 1 2)"))
@@ -211,7 +210,7 @@ That's it."))
 (test handle-lisp-mode-response-eval-test
   "Test handling response when user chooses to eval."
   (let ((hactar::*chat-history* '()))
-    (with-dynamic-stubs ((hactar::get-llm-response 
+    (with-dynamic-stubs ((hactar::get-llm-response
                           (lambda (prompt &key stream add-to-history custom-system-prompt)
                             (declare (ignore prompt stream add-to-history custom-system-prompt))
                             "(* 6 7)"))
@@ -224,7 +223,7 @@ That's it."))
 
 (test handle-lisp-mode-response-reject-test
   "Test handling response when user chooses to reject."
-  (with-dynamic-stubs ((hactar::get-llm-response 
+  (with-dynamic-stubs ((hactar::get-llm-response
                         (lambda (prompt &key stream add-to-history custom-system-prompt)
                           (declare (ignore prompt stream add-to-history custom-system-prompt))
                           "(dangerous-operation)"))
@@ -234,7 +233,7 @@ That's it."))
 
 (test handle-lisp-mode-response-no-code-test
   "Test handling when LLM returns no code."
-  (with-dynamic-stubs ((hactar::get-llm-response 
+  (with-dynamic-stubs ((hactar::get-llm-response
                         (lambda (prompt &key stream add-to-history custom-system-prompt)
                           (declare (ignore prompt stream add-to-history custom-system-prompt))
                           nil)))
@@ -246,7 +245,7 @@ That's it."))
 
 (test handle-lisp-mode-response-invalid-syntax-test
   "Test handling when LLM returns invalid Lisp."
-  (with-dynamic-stubs ((hactar::get-llm-response 
+  (with-dynamic-stubs ((hactar::get-llm-response
                         (lambda (prompt &key stream add-to-history custom-system-prompt)
                           (declare (ignore prompt stream add-to-history custom-system-prompt))
                           "(defun broken (")))
@@ -260,16 +259,16 @@ That's it."))
   "Test copy action in the eval/reject loop."
   (let ((copied-text nil)
         (call-count 0))
-    (with-dynamic-stubs ((hactar::get-llm-response 
+    (with-dynamic-stubs ((hactar::get-llm-response
                           (lambda (prompt &key stream add-to-history custom-system-prompt)
                             (declare (ignore prompt stream add-to-history custom-system-prompt))
                             "(list 1 2 3)"))
-                         (hactar::prompt-eval-or-reject 
-                          (lambda () 
+                         (hactar::prompt-eval-or-reject
+                          (lambda ()
                             (incf call-count)
                             (if (= call-count 1) :copy :reject)))
-                         (hactar::copy-to-clipboard 
-                          (lambda (text) 
+                         (hactar::copy-to-clipboard
+                          (lambda (text)
                             (setf copied-text text))))
       (hactar::handle-lisp-mode-response "test")
       (is (string= copied-text "(list 1 2 3)")))))
@@ -278,16 +277,16 @@ That's it."))
   "Test view action redisplays the code."
   (let ((display-count 0)
         (call-count 0))
-    (with-dynamic-stubs ((hactar::get-llm-response 
+    (with-dynamic-stubs ((hactar::get-llm-response
                           (lambda (prompt &key stream add-to-history custom-system-prompt)
                             (declare (ignore prompt stream add-to-history custom-system-prompt))
                             "(+ 1 1)"))
-                         (hactar::prompt-eval-or-reject 
-                          (lambda () 
+                         (hactar::prompt-eval-or-reject
+                          (lambda ()
                             (incf call-count)
                             (if (= call-count 1) :view :reject)))
-                         (hactar::display-lisp-code 
-                          (lambda (code) 
+                         (hactar::display-lisp-code
+                          (lambda (code)
                             (declare (ignore code))
                             (incf display-count))))
       (hactar::handle-lisp-mode-response "test")
@@ -299,8 +298,8 @@ That's it."))
   (let ((cmd-info (gethash "/lisp" hactar::*commands*)))
     (is-true cmd-info)
     (let ((cmd-fn (first cmd-info)))
-      (with-dynamic-stubs ((hactar::handle-lisp-mode-response 
-                            (lambda (prompt) 
+      (with-dynamic-stubs ((hactar::handle-lisp-mode-response
+                            (lambda (prompt)
                               (is (string= prompt "calculate something"))
                               42)))
         (let ((result (funcall cmd-fn '("calculate" "something"))))
@@ -349,7 +348,7 @@ Second block:
       (hactar::validate-lisp-syntax "'(1 2 3)")
     (is-true valid-p)
     (is (= 1 (length forms))))
-  
+
   (multiple-value-bind (valid-p forms)
       (hactar::validate-lisp-syntax "#'car")
     (is-true valid-p)
@@ -373,3 +372,80 @@ Second block:
     (is (eq result 'done))
     (is (null error))
     (is (eq *side-effect-test-var* 'modified))))
+
+(test validate-json-syntax-test
+  "Test JSON syntax validation with valid and invalid JSON."
+  (multiple-value-bind (valid-p parsed)
+      (hactar::validate-response-syntax "{\"key\": \"val\"}" :json)
+    (is-true valid-p)
+    (is (string= "val" (gethash "key" parsed))))
+
+  (multiple-value-bind (valid-p err)
+      (hactar::validate-response-syntax "{\"key\": broken}" :json)
+    (is (null valid-p))
+    (is (stringp err))))
+
+(test validate-xml-syntax-test
+  "Test XML syntax validation with valid and invalid XML."
+  (multiple-value-bind (valid-p parsed)
+      (hactar::validate-response-syntax "<root><child>text</child></root>" :xml)
+    (is-true valid-p)
+    (is-true parsed))
+
+  (multiple-value-bind (valid-p err)
+      (hactar::validate-response-syntax "<root><child></root>" :xml)
+    (is (null valid-p))
+    (is (stringp err))))
+
+(test validate-yaml-syntax-test
+  "Test YAML syntax validation with valid and invalid YAML."
+  (multiple-value-bind (valid-p parsed)
+      (hactar::validate-response-syntax "key: value" :yaml)
+    (is-true valid-p)
+    (is (string= "value" (gethash "key" parsed))))
+
+  (multiple-value-bind (valid-p err)
+      (hactar::validate-response-syntax "key: [unclosed" :yaml)
+    (is (null valid-p))
+    (is (stringp err))))
+
+(test response-mode-commands-test
+  "Test toggling and setting response modes via commands."
+  (let ((hactar::*response-mode* nil)
+        (hactar::*lisp-mode-enabled* nil)
+        (hactar::*lisp-response-mode-enabled* nil)
+        (hactar::*json-response-mode-enabled* nil))
+    (let ((lisp-resp-cmd (first (gethash "/lisp-response-mode" hactar::*commands*)))
+          (json-resp-cmd (first (gethash "/json-response-mode" hactar::*commands*)))
+          (resp-mode-cmd (first (gethash "/response-mode" hactar::*commands*))))
+
+      ;; Test /lisp-response-mode
+      (funcall lisp-resp-cmd '("on"))
+      (is (eq hactar::*response-mode* :lisp))
+      (is-true hactar::*lisp-mode-enabled*)
+      (is-true hactar::*lisp-response-mode-enabled*)
+
+      (funcall lisp-resp-cmd '("off"))
+      (is (null hactar::*response-mode*))
+      (is (null hactar::*lisp-mode-enabled*))
+
+      ;; Test /json-response-mode
+      (funcall json-resp-cmd '("on"))
+      (is (eq hactar::*response-mode* :json))
+      (is-true hactar::*json-response-mode-enabled*)
+
+      (funcall json-resp-cmd '("off"))
+      (is (null hactar::*response-mode*))
+
+      ;; Test /response-mode setting xml
+      (funcall resp-mode-cmd '("xml"))
+      (is (eq hactar::*response-mode* :xml))
+      (is (null hactar::*lisp-mode-enabled*))
+
+      ;; Test /response-mode setting yaml
+      (funcall resp-mode-cmd '("yaml"))
+      (is (eq hactar::*response-mode* :yaml))
+
+      ;; Test /response-mode off
+      (funcall resp-mode-cmd '("off"))
+      (is (null hactar::*response-mode*)))))

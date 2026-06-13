@@ -9,18 +9,13 @@ exec ros -Q -- $0 "$@"
                                                   (merge-pathnames
                                                    (make-pathname :directory '(:relative :up))
                                                    (make-pathname :directory (pathname-directory *load-truename*)))))))
-    (push project-root asdf:*central-registry*)
-    (dolist (sub '("migrations/"))
-      (let ((sub-dir (merge-pathnames (make-pathname :directory `(:relative ,@(uiop:split-string sub :separator "/")))
-                                      project-root)))
-        (when (uiop:directory-exists-p sub-dir)
-          (push sub-dir asdf:*central-registry*)))))
+    (push project-root asdf:*central-registry*))
   #-quicklisp
   (let ((quicklisp-init (merge-pathnames "quicklisp/setup.lisp" (user-homedir-pathname))))
     (when (probe-file quicklisp-init)
       (load quicklisp-init)))
   #+quicklisp
-  (ql:quickload '(:hactar-migrations :hactar) :silent t))
+  (ql:quickload :hactar :silent t))
 
 (defpackage :ros.script.hactar-init
   (:use :cl))

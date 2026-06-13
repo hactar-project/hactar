@@ -226,3 +226,7 @@
          (result (org-mode:upsert-docs-section input docs :heading-title "Docs" :level 2))
          (expected (format nil "* Root~%R~%** Docs~%*** Inner One~%:PROPERTIES:~%:SOURCE_ID: i1~%:END:~%#+begin_src text~%Line A~%#+end_src")))
     (is (string= result expected))))
+
+(test format-tag-name-org-mode
+  "format-tag-name preserves hyphenated org-mode format names."
+  (is (string= "org-mode" (hactar::format-tag-name :org-mode))))

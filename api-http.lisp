@@ -2,7 +2,7 @@
 (defvar *app* (make-instance 'ningle:app)
               "The Ningle application instance.")
 
-;;*** middleware 
+;;* middleware
 (defun localhost-only-middleware (app)
   "Middleware to reject requests not originating from localhost."
   (lambda (env)
@@ -13,7 +13,7 @@
         (progn
           (debug-log "Rejected request from non-localhost address:" remote-addr)
           '(403 (:content-type "text/plain") ("Forbidden: Access allowed only from localhost.")))))))
-;;*** core
+;;* core
 (defun write-port-file (port)
   "Writes the port number to the .hactar.port file using UTF-8."
   (let ((port-file (merge-pathnames ".hactar.port" *repo-root*)))
@@ -42,11 +42,10 @@
                      (setf port p)
                      (unless *silent* (format t "Found available port: ~A. Using this instead.~%" port))
                      (return))
-                finally (progn ; If loop finishes without finding a port
+                finally (progn
                           (unless *silent* (format t "Error: Could not find an available port starting from ~A.~%" (1+ original-port)))
-                          (return-from start-http-server nil))))) ; Exit if no port found
+                          (return-from start-http-server nil)))))
 
-      ;; Update the global *http-port* with the final chosen port
       (setf *http-port* port)
 
       (unless *silent* (format t "Attempting to start HTTP server on http://localhost:~A~%" *http-port*))
@@ -79,7 +78,7 @@
       (when (probe-file port-file)
         (ignore-errors (delete-file port-file))))
     (format t "HTTP server stopped.~%")))
-;;*** routes
+;;* routes
 (setf (ningle:route *app* "/api/complete" :method :POST)
       #'(lambda (params)
           (declare (ignore params))
@@ -101,7 +100,7 @@
                   ("{\"error\": \"Missing 'text' field in JSON body or invalid JSON.\"}")))
               (t
                 (handler-case
-                    (let* ((prompt-template (uiop:read-file-string (get-prompt-path "complete-text.mustache")))
+                    (let* ((prompt-template (get-prompt 'complete-text "complete-text.mustache"))
                            (prompt (mustache:render* prompt-template `((:text . ,input-text))))
                            (provider-type (intern (string-upcase (model-config-provider *completion-model*)) :keyword))
                            ;; Use the *completion-model* for this specific task
@@ -112,7 +111,7 @@
                                              :model (model-config-model-name *completion-model*)
                                              :max-tokens (model-config-max-output-tokens *completion-model*)
                                              :system-prompt (system-prompt)
-                                             :max-context (model-config-max-input-tokens *completion-model*) ; Pass max input tokens as max-context
+                                             :max-context (model-config-max-input-tokens *completion-model*)
                                              :extra-headers (when (model-config-extra-params *completion-model*)
                                                               (gethash "extra_headers" (model-config-extra-params *completion-model*)))
                                              :stream nil)))
@@ -203,3 +202,75 @@
                         (list (to-json `((:result . ,search-result-string)))))
                 (list 500 '(:content-type "application/json")
                       (list (to-json `((:error . ,(or search-result-string "Failed to perform search.")))))))))))
+
+(setf (ningle:route *app* "/api/docs/*")
+      #'(lambda (params)
+          (declare (ignore params))
+          (let* ((req ningle:*request*)
+                 (path-info (lack.request:request-path-info req)))
+            (if (and (>= (length path-info) 10)
+                     (string= (subseq path-info 0 10) "/api/docs/"))
+                (let* ((subpath (subseq path-info 10))
+                       (uri (format nil "docs:~A" subpath)))
+                  (multiple-value-bind (content mime-type metadata)
+                      (resolve-hypertext-uri uri)
+                    (declare (ignore metadata))
+                    (if content
+                        (list 200
+                              (list :content-type mime-type)
+                              (list content))
+                        '(404 (:content-type "application/json")
+                          ("{\"error\": \"Documentation URI not found.\"}")))))
+                '(400 (:content-type "application/json")
+                  ("{\"error\": \"Invalid request path.\"}"))))))
+
+(defun start-http ()
+  "Start the HTTP server if not already running."
+  (if *http-server*
+      (progn
+        (unless *silent*
+          (if *lisp-rpc-mode*
+              (rpc-log :info "HTTP server already running" :port *http-port*)
+              (format t "HTTP server already running on port ~A.~%" *http-port*)))
+        *http-port*)
+      (handler-case
+          (progn
+            (with-suppressed-output-if-rpc
+              (start-http-server :port *http-port*))
+            (when *lisp-rpc-mode*
+              (rpc-log :info "HTTP server started" :port *http-port*))
+            (unless *silent*
+              (format t "HTTP server running on port ~A.~%" *http-port*))
+            *http-port*)
+        (error (e)
+          (if *lisp-rpc-mode*
+              (rpc-error (format nil "Failed to start HTTP server: ~A" e))
+              (format *error-output* "~&Error starting HTTP server: ~A~%" e))
+          nil))))
+
+(define-command http (args)
+  "Start the HTTP API server manually (if not already running)."
+  (declare (ignore args))
+  (let ((port (start-http)))
+    (when port
+      (format t "HTTP server running on port ~A.~%" port)))
+  :acp (lambda (cmd-args)
+         (declare (ignore cmd-args))
+         (let ((port (start-http)))
+           (if port
+               `(("text" . ,(format nil "HTTP server running on port ~A." port))
+                 ("data" . (("port" . ,port))))
+               `(("text" . "Failed to start HTTP server."))))))
+
+(define-command http.stop (args)
+  "Stop the HTTP API server if it is running."
+  (declare (ignore args))
+  (if *http-server*
+      (stop-http-server)
+      (format t "HTTP server is not running.~%"))
+  :acp (lambda (cmd-args)
+         (declare (ignore cmd-args))
+         (if *http-server*
+             (progn (stop-http-server)
+                    `(("text" . "HTTP server stopped.")))
+             `(("text" . "HTTP server is not running.")))))

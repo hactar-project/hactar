@@ -1,5 +1,5 @@
 (in-package :hactar)
-;;** Model configuration
+;;* Model configuration
 (defstruct model-config
   name
   provider
@@ -43,11 +43,11 @@
                 (when author
                   (setf *author* author)
                   (unless *silent* (format t "  Set author from config: ~A~%" *author*)))
-                (when stack ;; Convert stack from vector (if parsed as such) to list
+                (when stack
                   (setf *stack* (if (vectorp stack) (coerce stack 'list) stack))
                   (unless *silent* (format t "  Set stack from config: ~{~A~^, ~}~%" *stack*)))
                 (when test-cmd
-                  (setf *test-command* test-cmd) ; Set the test command variable
+                  (setf *test-command* test-cmd)
                   (unless *silent* (format t "  Set test command from config: ~A~%" *test-command*))
                   ;; Update the existing test-watcher definition if it exists
                   (let ((test-watcher-def (gethash 'test-watcher *watcher-definitions*)))
@@ -64,16 +64,12 @@
                 (when test-agent-cmd
                   (setf *test-agent-command* test-agent-cmd)
                   (unless *silent* (format t "  Set test command from config: ~A~%" *test-agent-command*)))
-                ;; Load guide extension
                 (when (and guide-ext (stringp guide-ext) (not (string= guide-ext "")))
                   (setf *guide-file-extension* (string-downcase guide-ext))
                   (unless *silent* (format t "  Set guide file extension from config: ~A~%" *guide-file-extension*)))
-                ;; Load guide exclude tags
                 (when (and guide-exclude (vectorp guide-exclude)) ; TOML arrays are often parsed as vectors
                   (setf *guide-exclude-tags* (coerce guide-exclude 'list))
                   (unless *silent* (format t "  Set guide exclude tags from config: ~A~%" *guide-exclude-tags*)))
-
-                ;; Load guide path
                 (when guide-path
                   (setf *hactar-guide-path* guide-path)
                   (unless *silent* (format t "  Set guide path from config: ~A~%" *hactar-guide-path*)))))
@@ -102,14 +98,14 @@
                   (unless (null suggest-commands) (setf *auto-suggest-commands* suggest-commands) (unless *silent* (format t "  Set auto-suggest-commands from config: ~A~%" suggest-commands)))
                   (unless (null cmds) (setf *auto-cmds* cmds) (unless *silent* (format t "  Set auto-cmds from config: ~A~%" cmds)))
                   (when limits (setf *agent-retry-limit* limits) (unless *silent* (format t "  Set agent retry limit from config: ~A~%" limits))))))
-            ;; Load embedding model configuration
+            ;; Embedding model configuration
             (let ((embedding-table (gethash "embedding" config-data)))
               (when embedding-table
                 (let ((model (gethash "model" embedding-table)))
                   (when model
                     (setf *embedding-model* model)
                     (unless *silent* (format t "  Set embedding model from config: ~A~%" *embedding-model*))))))
-            ;; Load paths
+            ;; paths
             (let ((paths-table (gethash "paths" config-data)))
               (when paths-table
                 (let ((pro (gethash "pro" paths-table))
@@ -119,6 +115,8 @@
 		      (hactar-repo-dir (gethash "hactar_repo_dir" paths-table))
                       (database (gethash "database" paths-table))
                       (piper-model (gethash "piper_model" paths-table))
+                      (proxy-upstream-url (or (gethash "proxy_upstream_url" paths-table)
+                                              (gethash "proxy_upstream" paths-table)))
                       (templates (gethash "templates" paths-table)))
                   (when pro (setf *hactar-pro-path* pro))
 		  (when hactar-config (setf *hactar-config-path* hactar-config))
@@ -127,13 +125,14 @@
 		  (when hactar-repo-dir (setf *hactar-repo-dir* hactar-repo-dir))
                   (when database (setf *db-path* database))
                   (when piper-model (setf *piper-model-path* piper-model))
+                  (when proxy-upstream-url (setf *proxy-upstream-url* proxy-upstream-url))
                   (when templates
                     (setf *template-search-paths*
                           (mapcar #'uiop:ensure-directory-pathname
                                   (if (vectorp templates)
                                       (coerce templates 'list)
                                       (list templates))))))))
-            ;; Load API keys
+            ;; API keys
             (let ((api-keys-table (gethash "api_keys" config-data)))
               (when api-keys-table
                 (let ((openai (gethash "openai" api-keys-table))
@@ -144,14 +143,14 @@
                   (when anthropic (setf llm:*anthropic-api-key* anthropic))
                   (when gemini (setf llm:*gemini-api-key* gemini))
                   (when openrouter (setf llm:*openrouter-api-key* openrouter)))))
-            ;; Load analyzer settings
+            ;; Analyzer settings
             (let ((analyzer-settings (gethash "analyzers" config-data)))
-              (when (and analyzer-settings (listp analyzer-settings)) ; Ensure it's a TOML array (parsed as list)
+              (when (and analyzer-settings (listp analyzer-settings))
                 (dolist (analyzer-spec analyzer-settings)
-                  (when (hash-table-p analyzer-spec) ; Ensure it's a table
+                  (when (hash-table-p analyzer-spec)
                     (let ((name-str (gethash "name" analyzer-spec))
                           (enable (gethash "enable" analyzer-spec)))
-                      (when (and name-str (stringp name-str) (not (null enable))) ; Check type and presence
+                      (when (and name-str (stringp name-str) (not (null enable)))
                         (let ((analyzer-sym (ignore-errors (intern (string-upcase name-str) :hactar))))
                           (if (and analyzer-sym (gethash analyzer-sym *analyzer-registry*))
                               (progn
@@ -189,13 +188,23 @@
 
     (unless (gethash "cache_control" model-data)
       (setf (gethash "cache_control" model-data) t))
-
     ;; Apply cost defaults if not specified
     (unless (gethash "input_cost_per_token" model-data)
-      (setf (gethash "input_cost_per_token" model-data) 0.0000011)) ; Default input cost
-
+      (let* ((slash-pos (position #\/ name))
+             (provider (if slash-pos (subseq name 0 slash-pos) "ollama"))
+             (is-free (or (string-equal provider "ollama")
+                          (string-equal provider "copilot")
+                          (str:ends-with? ":free" name))))
+        (setf (gethash "input_cost_per_token" model-data)
+              (if is-free 0.0 0.0000011))))
     (unless (gethash "output_cost_per_token" model-data)
-      (setf (gethash "output_cost_per_token" model-data) 0.0000044)) ; Default output cost
+      (let* ((slash-pos (position #\/ name))
+             (provider (if slash-pos (subseq name 0 slash-pos) "ollama"))
+             (is-free (or (string-equal provider "ollama")
+                          (string-equal provider "copilot")
+                          (str:ends-with? ":free" name))))
+        (setf (gethash "output_cost_per_token" model-data)
+              (if is-free 0.0 0.0000044))))
 
     ;; Ensure 'supports' is a list (default to empty)
     (unless (gethash "supports" model-data)
@@ -215,32 +224,36 @@
 
 (defun load-models-config (config-path)
   "Load model configurations from the specified path."
-  (when (probe-file config-path)
-    (with-open-file (stream config-path)
-      (let* ((file-content (uiop:read-file-string stream))
-             (config (cl-yaml:parse file-content)))
-        (setf *available-models*
-              (loop for model-data in config
-                    for validated-data = (handler-case
-                                             (validate-model-config model-data)
-                                           (error (e)
-                                             (format t "Error in model config: ~A~%" e)
-                                            nil))
-                    when validated-data
-                    collect (make-model-config
-                              :name (gethash "name" validated-data)
-                              :provider (first (cl-ppcre:split "/" (gethash "name" validated-data)))
-                              :model-name (gethash "model_name" validated-data)
-                              :edit-format (gethash "edit_format" validated-data)
-                              :use-repo-map (gethash "use_repo_map" validated-data)
-                              :examples-as-sys-msg (gethash "examples_as_sys_msg" validated-data)
-                              :extra-params (gethash "extra_params" validated-data)
-                              :max-output-tokens (gethash "max_output_tokens" validated-data)
-                              :max-input-tokens (gethash "max_input_tokens" validated-data)
-                              :cache-control (gethash "cache_control" validated-data)
-			      :input-cost-per-token (gethash "input_cost_per_token" validated-data)
-                              :output-cost-per-token (gethash "output_cost_per_token" validated-data)
-                              :supports (gethash "supports" validated-data))))))))
+  (if (probe-file config-path)
+      (handler-case
+          (with-open-file (stream config-path)
+            (let* ((file-content (uiop:read-file-string stream))
+                   (config (cl-yaml:parse file-content)))
+              (setf *available-models*
+                    (loop for model-data in config
+                          for validated-data = (handler-case
+                                                   (validate-model-config model-data)
+                                                 (error (e)
+                                                   (format t "Error in model config: ~A~%" e)
+                                                   nil))
+                          when validated-data
+                          collect (make-model-config
+                                    :name (gethash "name" validated-data)
+                                    :provider (first (cl-ppcre:split "/" (gethash "name" validated-data)))
+                                    :model-name (gethash "model_name" validated-data)
+                                    :edit-format (gethash "edit_format" validated-data)
+                                    :use-repo-map (gethash "use_repo_map" validated-data)
+                                    :examples-as-sys-msg (gethash "examples_as_sys_msg" validated-data)
+                                    :extra-params (gethash "extra_params" validated-data)
+                                    :max-output-tokens (gethash "max_output_tokens" validated-data)
+                                    :max-input-tokens (gethash "max_input_tokens" validated-data)
+                                    :cache-control (gethash "cache_control" validated-data)
+                                    :input-cost-per-token (gethash "input_cost_per_token" validated-data)
+                                    :output-cost-per-token (gethash "output_cost_per_token" validated-data)
+                                    :supports (gethash "supports" validated-data))))))
+        ((or error yaml.error:parsing-error) (e)
+          (log-warning "Failed to load config from ~A: ~A" config-path e)))
+      (log-warning "Configuration file specified does not exist: ~A" config-path)))
 (defun %toml-escape (s)
   "Escape a string for TOML (quotes and backslashes)."
   (when s

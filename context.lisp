@@ -1,21 +1,25 @@
 (in-package :hactar)
 
 ;;* Context Handling for Hactar
-;;; Stuff like adding documentation, generating the system prompt, removing and adding files etc
-
-;; Hooks for context file add/drop events
+;;** Hooks
 (nhooks:define-hook-type context-file-added (function (string) t)
-  "Hook run when a file is added to the context. Handler is called with the file path (string).")
+			 "Hook run when a file is added to the context. Handler is called with the file path (string).")
 (defvar *context-file-added-hook* (make-instance 'hook-context-file-added))
-
 (nhooks:define-hook-type context-file-dropped (function (string) t)
   "Hook run when a file is removed from the context. Handler is called with the file path (string).")
 (defvar *context-file-dropped-hook* (make-instance 'hook-context-file-dropped))
 
-;; Hook for project variable changes
 (nhooks:define-hook-type context-variable-changed (function (keyword t) t)
   "Hook run when a project variable changes. Handler is called with var name (keyword) and new value.")
 (defvar *context-variable-changed-hook* (make-instance 'hook-context-variable-changed))
+
+(nhooks:define-hook-type context-doc-added (function (list) t)
+  "Hook run when a doc is added to the context. Handler is called with the doc plist/alist.")
+(defvar *context-doc-added-hook* (make-instance 'hook-context-doc-added))
+
+(nhooks:define-hook-type context-doc-dropped (function (t) t)
+  "Hook run when a doc is removed from the context. Handler is called with the doc id.")
+(defvar *context-doc-dropped-hook* (make-instance 'hook-context-doc-dropped))
 
 (defun get-active-guide-content ()
   "Reads the content of the active guide file, performing size checks."
@@ -31,45 +35,21 @@
            ((> content-len *guide-warn-chars*)
             (format t "~&Warning: Active guide file '~A' is large (~A > ~A chars). Including in prompt.~%"
                     (uiop:native-namestring *active-guide-file*) content-len *guide-warn-chars*)
-	    ;; Filter content before returning
-            (org-mode:filter-headlines content *guide-exclude-tags*))
+	    (org-mode:filter-headlines content *guide-exclude-tags*))
            (t
-	    ;; Filter content before returning
-            (org-mode:filter-headlines content *guide-exclude-tags*))))
+	    (org-mode:filter-headlines content *guide-exclude-tags*))))
       (error (e)
              (format t "~&Error reading or processing active guide file '~A': ~A~%" (uiop:native-namestring *active-guide-file*) e)
 	     nil))))
 
-(defun dot-system-prompt ()
-  "Generate the system prompt for dot commands."
-  (let* ((mustache:*escape-tokens* nil)
-	 (template-string (handler-case (uiop:read-file-string (get-prompt-path "system.dot-command.org"))
-                            (error (e)
-				   (format t "Error reading dot command system prompt: ~A~%" e)
-				   "Error: Could not load dot command system prompt. Commands: {{commands}}. Rules: {{rules}}. Context: {{context}}.")))
-         (context-string (generate-context))
-         (rules-string (with-output-to-string (s)
-					      (maphash (lambda (key value)
-							 (declare (ignore key))
-							 (format s "~A~%~%" value))
-						       *active-rules*)))
-         (commands-string (with-output-to-string (s)
-						 (maphash (lambda (cmd-name cmd-info)
-							    (format s "command: ~A~% ~A~%" cmd-name (second cmd-info)))
-							  *dot-commands*))))
-    (mustache:render* template-string
-                      `((:commands . ,commands-string)
-                        (:rules . ,(if (string= rules-string "") "(No active rules)" rules-string))
-                        (:context . ,context-string)))))
-
 (defun default-system-prompt ()
   "Generate the system prompt by combining templates, rules, context, and the active guide."
   (let* ((mustache:*escape-tokens* nil)
-         (base-prompt-name (if (and (fboundp 'litmode-active-p)
-                                    (funcall 'litmode-active-p))
-                               "system.litmode.org"
-                               "system.default.org"))
-	 (base-prompt (uiop:read-file-string (get-prompt-path base-prompt-name)))
+         (prompt-key (if (and (fboundp 'litmode-active-p)
+                              (funcall 'litmode-active-p))
+                         'system.litmode
+                         'system.default))
+         (base-prompt (get-prompt prompt-key))
          (context (generate-context))
          (guide-content (get-active-guide-content))
          (rules-text (with-output-to-string (s)
@@ -93,10 +73,8 @@
 (defun assistant-mode-system-prompt ()
   "Generate the system prompt for assistant mode."
   (handler-case
-      (let ((template-string (uiop:read-file-string (get-prompt-path "system.assistant.org"))))
-        ;; Currently, system.assistant.org has no placeholders,
-        ;; but we use mustache for consistency and future-proofing.
-        (mustache:render* template-string '())) ; Empty alist for no variables
+      (let ((template-string (get-prompt 'system.assistant "system.assistant.org")))
+        (mustache:render* template-string '()))
     (error (e)
       (format t "Error reading assistant system prompt: ~A~%" e)
       "Error: Could not load assistant system prompt.")))
@@ -109,35 +87,6 @@
          (lisp-rpc-system-prompt))
         (t
          (default-system-prompt))))
-
-(defun generate-commit-message ()
-  "Asks the LLM to generate a commit message based on the staged git diff."
-  (unless *cheap-model*
-    (format t "No LLM model selected. Cannot generate commit message.~%")
-    (return-from generate-commit-message nil))
-  (let ((model-config (find-model-by-name *cheap-model*)))
-    (unless model-config
-      (format t "Model '~A' not found.~%" *cheap-model*)
-      (return-from generate-commit-message nil))
-    (let* ((prompt-template (uiop:read-file-string (get-prompt-path "git-commit.mustache")))
-           (diff (run-git-command '("diff" "--staged") :ignore-error nil))
-           (prompt (mustache:render* prompt-template `((:diff . ,diff))))
-           (messages `(((:role . "user") (:content . ,prompt))))
-           (provider (intern (string-upcase (model-config-provider model-config)) :keyword)))
-      (handler-case
-          (multiple-value-bind (response _)
-			       (llm:complete provider messages
-					     :model (model-config-model-name model-config)
-					     :max-tokens (model-config-max-output-tokens model-config)
-					     :system-prompt "You generate commit messages."
-					     :stream nil)
-			       (declare (ignore _))
-			       (when response
-				 (let ((first-line (first (str:lines response))))
-				   (string-trim '(#\Space #\Tab #\Newline #\Return) first-line))))
-        (error (e)
-               (format t "Error generating commit message: ~A~%" e)
-               nil)))))
 
 (defun language ()
   "Return the current language"
@@ -190,7 +139,7 @@
   "Generates the context string excluding the file content part."
   (let ((mustache:*escape-tokens* nil))
     (mustache:render*
-     (uiop:read-file-string (get-prompt-path "context.org"))
+     (get-prompt 'context "context.org")
      `((:repo-map . ,*repo-map*)
        (:files . "")
        (:stack . ,(format nil "~{~A~^, ~}" *stack*))
@@ -215,11 +164,9 @@
 (defun generate-context (&optional (raw-context nil))
   "Generate full context string by reading from the context file if it exists, otherwise build traditionally."
   (if (and *exposed-context-file* (probe-file *exposed-context-file*) (not raw-context))
-      ;; Use context file as source of truth
       (or (read-context-from-file) "")
-      ;; Fallback to traditional context generation
-      (let* ((mustache:*escape-tokens* nil)
-	     (base-context-template (uiop:read-file-string (get-prompt-path "context.org")))
+    (let* ((mustache:*escape-tokens* nil)
+	     (base-context-template (get-prompt 'context "context.org"))
              (docs-string (docs-context-string))
              (errors-string (errors-context-string))
              (repo-map-string (if *repo-map* *repo-map* ""))
@@ -355,7 +302,7 @@ When litmode is active, also upsert the file as an org src block under
                    (uiop:enough-pathname file-path *repo-root*) file-tokens max-input)))))))
 (defun add-image-to-context (image-path &optional text)
   "Add an image to the context window."
-  (check-image-size image-path) ; Warn if too large
+  (check-image-size image-path)
   (pushnew `(:path ,image-path :text ,text) *images* :test #'equal :key (lambda (img) (getf img :path)))
   (format t "Added image to context: ~A~@[ with description: ~A~]~%" (uiop:native-namestring image-path) text))
 
@@ -367,7 +314,6 @@ When litmode is active, also removes the file's src block from .hactar.org."
     (when was-present
       (context-expose-upsert-files-section)
       (nhooks:run-hook *context-file-dropped-hook* file-path)
-
       ;; In litmode, remove the file from .hactar.org under ** Files
       (when (and (fboundp 'litmode-active-p)
                  (funcall 'litmode-active-p)
@@ -448,6 +394,7 @@ Also updates the exposed context docs section if active."
   (unless (member (cdr (assoc :id doc-plist)) *docs-context* :key (lambda (d) (cdr (assoc :id d))))
     (push doc-plist *docs-context*)
     (format t "Added doc to context: ~A~%" (cdr (assoc :title doc-plist)))
+    (nhooks:run-hook *context-doc-added-hook* doc-plist)
     (when *exposed-context-file*
       (context-expose-upsert-docs-section))))
 
@@ -455,6 +402,7 @@ Also updates the exposed context docs section if active."
   "Removes a documentation plist from *docs-context* by ID.
 Also updates the exposed context docs section if active."
   (setf *docs-context* (remove doc-id *docs-context* :key (lambda (d) (cdr (assoc :id d)))))
+  (nhooks:run-hook *context-doc-dropped-hook* doc-id)
   (when *exposed-context-file*
     (context-expose-upsert-docs-section)))
 
@@ -482,6 +430,85 @@ Also updates the exposed context docs section if active."
             (setf descriptions (uiop:split-string val :separator ",")))
           (push arg files)))
     (values (nreverse files) descriptions)))
+
+(defun list-add-candidate-files ()
+  "Return candidate files for /add.
+Prefers git-tracked files; falls back to fd when git returns no files."
+  (let ((tracked (and *repo-root* (list-git-tracked-files *repo-root*))))
+    (cond
+      (tracked tracked)
+      ((and *repo-root* (find-executable "fd"))
+       (log-warning "git ls-files returned no files; falling back to fd for /add")
+       (or (list-files-with-fd *repo-root*) '()))
+      (t '()))))
+
+(defun path-matches-drop-filter-p (relative-path filter)
+  "Return T when RELATIVE-PATH matches FILTER.
+Supported filters:
+  :regex PATTERN
+  :dir PREFIX
+  :ext EXT"
+  (let ((kind (first filter))
+        (value (second filter)))
+    (case kind
+      (:regex (and value (cl-ppcre:scan value relative-path)))
+      (:dir (and value
+                 (or (string= relative-path value)
+                     (str:starts-with-p
+                      (if (str:ends-with-p "/" value) value (format nil "~A/" value))
+                      relative-path))))
+      (:ext (and value
+                 (let ((ext (pathname-type (pathname relative-path))))
+                   (and ext (string-equal ext value)))))
+      (t nil))))
+
+(defun parse-drop-filters (args)
+  "Parse /drop filter arguments.
+Returns (values explicit-targets filters)."
+  (let ((targets '())
+        (filters '()))
+    (loop with remaining = args
+          while remaining
+          do (let ((arg (pop remaining)))
+               (cond
+                 ((str:starts-with? "--regex=" arg)
+                  (push (list :regex (subseq arg (length "--regex="))) filters))
+                 ((string= arg "--regex")
+                  (when remaining
+                    (push (list :regex (pop remaining)) filters)))
+                 ((str:starts-with? "--dir=" arg)
+                  (push (list :dir (subseq arg (length "--dir="))) filters))
+                 ((string= arg "--dir")
+                  (when remaining
+                    (push (list :dir (pop remaining)) filters)))
+                 ((str:starts-with? "--ext=" arg)
+                  (push (list :ext (subseq arg (length "--ext="))) filters))
+                 ((string= arg "--ext")
+                  (when remaining
+                    (push (list :ext (pop remaining)) filters)))
+                 (t
+                  (push arg targets)))))
+    (values (nreverse targets) (nreverse filters))))
+
+(defun collect-drop-targets-from-filters (filters)
+  "Resolve /drop FILTERS into repo-relative paths currently in context."
+  (let ((context-paths
+          (append
+           (mapcar (lambda (f)
+                     (uiop:native-namestring
+                      (uiop:enough-pathname f *repo-root*)))
+                   *files*)
+           (mapcar (lambda (img)
+                     (uiop:native-namestring
+                      (uiop:enough-pathname (getf img :path) *repo-root*)))
+                   *images*))))
+    (remove-duplicates
+     (loop for rel in context-paths
+           when (some (lambda (filter)
+                        (path-matches-drop-filter-p rel filter))
+                      filters)
+           collect rel)
+     :test #'string=)))
 
 (defun expand-file-pattern (pattern &optional (root *repo-root*))
   "Expand a file pattern (glob) into a list of absolute native pathnames.
@@ -519,16 +546,16 @@ Also updates the exposed context docs section if active."
             (format t "~&File or pattern not found: ~A~%" pattern))))))
 
 (define-command add (args)
-                "Add files or images to the chat. If no arguments are given, uses fzf to select a file.
+                "Add files or images to the chat. If no arguments are given, uses interactive fuzzy-select to select a file.
 Can provide image descriptions via -descriptions=\"desc1,desc2\""
                 (if args
                     (process-add-request args)
-                  ;; FZF selection (only for files, not images for now)
-                  (let* ((tracked-files (list-git-tracked-files *repo-root*))
-                         ;; Filter out likely image files from fzf selection for now
+                  ;; Interactive selection (only for files, not images for now)
+                  (let* ((tracked-files (list-add-candidate-files))
+                         ;; Filter out likely image files from interactive selection for now
                          (non-image-files (remove-if #'is-image-file? tracked-files :key (lambda (f) (merge-pathnames f *repo-root*))))
                          (selected-relative-path (when non-image-files
-                                                   (select-with-fzf non-image-files))))
+                                                   (fuzzy-select non-image-files))))
                     (if selected-relative-path
 			(let ((selected-full-path (uiop:native-namestring
                                                    (merge-pathnames selected-relative-path *repo-root*))))
@@ -539,7 +566,7 @@ Can provide image descriptions via -descriptions=\"desc1,desc2\""
                       (format t "No file selected or no non-image tracked files found.~%"))))
                 :completions (lambda (text args)
                                (declare (ignore args))
-                               (let* ((tracked (ignore-errors (list-git-tracked-files *repo-root*)))
+                               (let* ((tracked (ignore-errors (list-add-candidate-files)))
                                       (already (mapcar (lambda (f)
                                                          (uiop:native-namestring
                                                           (uiop:enough-pathname f *repo-root*)))
@@ -569,22 +596,55 @@ Can provide image descriptions via -descriptions=\"desc1,desc2\""
 
 (define-command drop (args)
                 "Remove files or images from the chat session."
-                (dolist (file-arg args)
-                  (let* ((path (pathname file-arg))
-                         (full-path (if (uiop:absolute-pathname-p path)
-					path
-                                      (merge-pathnames path *repo-root*)))
-                         (native-path (uiop:native-namestring full-path)))
-                    ;; Try dropping as both file and image
-                    (drop-file-from-context native-path)
-                    (drop-image-from-context native-path)))
-                (format t "Dropped files/images from context: ~{~A~^, ~}~%" args)
+                (multiple-value-bind (explicit-targets filters) (parse-drop-filters args)
+                  (let ((resolved-targets
+                          (append explicit-targets
+                                  (when filters
+                                    (collect-drop-targets-from-filters filters)))))
+                    (cond
+                      (resolved-targets
+                       (dolist (file-arg resolved-targets)
+                         (let* ((path (pathname file-arg))
+                                (full-path (if (uiop:absolute-pathname-p path)
+                                               path
+                                               (merge-pathnames path *repo-root*)))
+                                (native-path (uiop:native-namestring full-path)))
+                           ;; Try dropping as both file and image
+                           (drop-file-from-context native-path)
+                           (drop-image-from-context native-path)))
+                       (format t "Dropped files/images from context: ~{~A~^, ~}~%" resolved-targets))
+                      ((and *tui-running* (or *files* *images*))
+                       (let* ((file-paths (mapcar (lambda (f)
+                                                    (uiop:native-namestring (uiop:enough-pathname f *repo-root*)))
+                                                  *files*))
+                              (image-paths (mapcar (lambda (img)
+                                                     (uiop:native-namestring (uiop:enough-pathname (getf img :path) *repo-root*)))
+                                                   *images*))
+                              (candidates (append file-paths image-paths))
+                              (selected (fuzzy-select candidates :multi t)))
+                         (when selected
+                           (dolist (sel selected)
+                             (let* ((path (pathname sel))
+                                    (full-path (if (uiop:absolute-pathname-p path)
+                                                   path
+                                                   (merge-pathnames path *repo-root*)))
+                                    (native-path (uiop:native-namestring full-path)))
+                               (drop-file-from-context native-path)
+                               (drop-image-from-context native-path)))
+                           (format t "Dropped files/images from context: ~{~A~^, ~}~%" selected))))
+                      (t
+                       (format t "No files or images in context to drop.~%")))))
                 :completions (lambda (text args)
                                (declare (ignore args))
-                               (let ((in-context (mapcar (lambda (f)
-                                                           (uiop:native-namestring
-                                                            (uiop:enough-pathname f *repo-root*)))
-                                                         *files*)))
+                               (let ((in-context (append
+                                                  (mapcar (lambda (f)
+                                                            (uiop:native-namestring
+                                                             (uiop:enough-pathname f *repo-root*)))
+                                                          *files*)
+                                                  (mapcar (lambda (img)
+                                                            (uiop:native-namestring
+                                                             (uiop:enough-pathname (getf img :path) *repo-root*)))
+                                                          *images*))))
                                  (if (string= text "")
                                      in-context
                                      (remove-if-not
@@ -592,20 +652,25 @@ Can provide image descriptions via -descriptions=\"desc1,desc2\""
                                         (str:starts-with-p text f :ignore-case t))
                                       in-context))))
                 :acp (lambda (cmd-args)
-                       (let ((dropped '()))
-                         (dolist (file-arg cmd-args)
-                           (let* ((path (pathname file-arg))
-                                  (full-path (if (uiop:absolute-pathname-p path)
-                                                 path
-                                                 (merge-pathnames path *repo-root*)))
-                                  (native-path (uiop:native-namestring full-path)))
-                             (drop-file-from-context native-path)
-                             (drop-image-from-context native-path)
-                             (push native-path dropped)))
-                         `(("text" . ,(format nil "Dropped ~A file(s) from context." (length dropped)))
-                           ("data" . ,(coerce
-                                       (mapcar (lambda (f) `(("path" . ,f))) (nreverse dropped))
-                                       'vector))))))
+                       (multiple-value-bind (explicit-targets filters) (parse-drop-filters cmd-args)
+                         (let ((dropped '())
+                               (resolved-targets
+                                 (append explicit-targets
+                                         (when filters
+                                           (collect-drop-targets-from-filters filters)))))
+                           (dolist (file-arg resolved-targets)
+                             (let* ((path (pathname file-arg))
+                                    (full-path (if (uiop:absolute-pathname-p path)
+                                                   path
+                                                   (merge-pathnames path *repo-root*)))
+                                    (native-path (uiop:native-namestring full-path)))
+                               (drop-file-from-context native-path)
+                               (drop-image-from-context native-path)
+                               (push native-path dropped)))
+                           `(("text" . ,(format nil "Dropped ~A file(s) from context." (length dropped)))
+                             ("data" . ,(coerce
+                                         (mapcar (lambda (f) `(("path" . ,f))) (nreverse dropped))
+                                         'vector)))))))
 
 (define-command editor (args)
                 "Open an editor to write a prompt."
@@ -617,27 +682,120 @@ Can provide image descriptions via -descriptions=\"desc1,desc2\""
 (define-command ls (args)
                 "List all known files and indicate which are included in the chat session.
 Usage: /ls [--format=json]"
-                (let ((format-opt (getf args :format)))
-                  (if (string-equal format-opt "json")
-                      (let* ((files (mapcar (lambda (f) `((:path . ,f) (:type . "file"))) *files*))
-                             (images (mapcar (lambda (img)
-                                               `((:path . ,(uiop:native-namestring (getf img :path)))
-                                                 (:description . ,(getf img :text))
-                                                 (:type . "image")))
-                                             *images*))
-                             (json-str (format nil "#+begin_src json :type ls-output~%~A~%#+end_src~%"
-                                               (to-json (coerce (append files images) 'vector)))))
-                        (editor-output json-str :type "json" :success "true"))
-                      (progn
-                        (format t "Files in context:~%")
-                        (list-context-files)
-                        (format t "~%Images in context:~%")
-                        (if *images*
-                            (dolist (img *images*)
-                              (format t "  ~A~@[ (Description: ~A)~]~%"
-                                      (uiop:native-namestring (getf img :path))
-                                      (getf img :text)))
-                            (format t "  (No images in context)~%")))))
+                (declare (ignore args))
+                (format t "Files in context:~%")
+                (list-context-files)
+                (format t "~%Images in context:~%")
+                (if *images*
+                    (dolist (img *images*)
+                      (format t "  ~A~@[ (Description: ~A)~]~%"
+                              (uiop:native-namestring (getf img :path))
+                              (getf img :text)))
+                    (format t "  (No images in context)~%"))
+                (format t "~%Documentation in context:~%")
+                (if *docs-context*
+                    (dolist (doc *docs-context*)
+                      (format t "  ~A (ID: ~A, Source: ~A)~%"
+                              (cdr (assoc :title doc))
+                              (cdr (assoc :id doc))
+                              (cdr (assoc :source doc))))
+                    (format t "  (No documentation in context)~%"))
+                :json (lambda (cmd-args)
+                        (declare (ignore cmd-args))
+                        (to-json
+                         (coerce
+                          (append
+                           (mapcar (lambda (f)
+                                     `(("path" . ,f) ("type" . "file")))
+                                   *files*)
+                           (mapcar (lambda (img)
+                                     `(("path" . ,(uiop:native-namestring (getf img :path)))
+                                       ("description" . ,(or (getf img :text) ""))
+                                       ("type" . "image")))
+                                   *images*)
+                           (mapcar (lambda (doc)
+                                     `(("id" . ,(cdr (assoc :id doc)))
+                                       ("title" . ,(cdr (assoc :title doc)))
+                                       ("source" . ,(cdr (assoc :source doc)))
+                                       ("type" . "doc")))
+                                   *docs-context*))
+                          'vector)))
+                :yaml (lambda (cmd-args)
+                        (declare (ignore cmd-args))
+                        (with-output-to-string (s)
+                          (dolist (f *files*)
+                            (format s "- path: ~A~%  type: file~%" f))
+                          (dolist (img *images*)
+                            (format s "- path: ~A~%  type: image~%  description: ~A~%"
+                                    (uiop:native-namestring (getf img :path))
+                                    (or (getf img :text) "")))
+                          (dolist (doc *docs-context*)
+                            (format s "- id: ~A~%  title: ~A~%  source: ~A~%  type: doc~%"
+                                    (cdr (assoc :id doc))
+                                    (cdr (assoc :title doc))
+                                    (cdr (assoc :source doc))))))
+                :xml (lambda (cmd-args)
+                       (declare (ignore cmd-args))
+                       (with-output-to-string (s)
+                         (format s "<items>~%")
+                         (dolist (f *files*)
+                           (format s "  <item type=\"file\"><path>~A</path></item>~%" f))
+                         (dolist (img *images*)
+                           (format s "  <item type=\"image\"><path>~A</path><description>~A</description></item>~%"
+                                   (uiop:native-namestring (getf img :path))
+                                   (or (getf img :text) "")))
+                         (dolist (doc *docs-context*)
+                           (format s "  <item type=\"doc\"><id>~A</id><title>~A</title><source>~A</source></item>~%"
+                                   (cdr (assoc :id doc))
+                                   (cdr (assoc :title doc))
+                                   (cdr (assoc :source doc))))
+                         (format s "</items>")))
+                :markdown (lambda (cmd-args)
+                            (declare (ignore cmd-args))
+                            (with-output-to-string (s)
+                              (format s "## Files in context~%")
+                              (if *files*
+                                  (dolist (f *files*)
+                                    (format s "- `~A`~%" f))
+                                  (format s "- None~%"))
+                              (format s "~%## Images in context~%")
+                              (if *images*
+                                  (dolist (img *images*)
+                                    (format s "- `~A`~@[ — ~A~]~%"
+                                            (uiop:native-namestring (getf img :path))
+                                            (getf img :text)))
+                                  (format s "- None~%"))
+                              (format s "~%## Documentation in context~%")
+                              (if *docs-context*
+                                  (dolist (doc *docs-context*)
+                                    (format s "- ~A (ID: `~A`, Source: `~A`)~%"
+                                            (cdr (assoc :title doc))
+                                            (cdr (assoc :id doc))
+                                            (cdr (assoc :source doc))))
+                                  (format s "- None~%"))))
+                :org-mode (lambda (cmd-args)
+                            (declare (ignore cmd-args))
+                            (with-output-to-string (s)
+                              (format s "* Files in context~%")
+                              (if *files*
+                                  (dolist (f *files*)
+                                    (format s "- ~A~%" f))
+                                  (format s "- None~%"))
+                              (format s "~%* Images in context~%")
+                              (if *images*
+                                  (dolist (img *images*)
+                                    (format s "- ~A~@[ :: ~A~]~%"
+                                            (uiop:native-namestring (getf img :path))
+                                            (getf img :text)))
+                                  (format s "- None~%"))
+                              (format s "~%* Documentation in context~%")
+                              (if *docs-context*
+                                  (dolist (doc *docs-context*)
+                                    (format s "- ~A :: ID: ~A, Source: ~A~%"
+                                            (cdr (assoc :title doc))
+                                            (cdr (assoc :id doc))
+                                            (cdr (assoc :source doc))))
+                                  (format s "- None~%"))))
                 :acp (lambda (cmd-args)
                        (declare (ignore cmd-args))
                        (let* ((files (mapcar (lambda (f)
@@ -647,17 +805,23 @@ Usage: /ls [--format=json]"
                                                `(("path" . ,(uiop:native-namestring (getf img :path)))
                                                  ("description" . ,(or (getf img :text) ""))
                                                  ("type" . "image")))
-                                             *images*))
-                              (all-items (append files images)))
-                         `(("text" . ,(format nil "~A file(s) and ~A image(s) in context."
-                                              (length *files*) (length *images*)))
+                                              *images*))
+                              (docs (mapcar (lambda (doc)
+                                              `(("id" . ,(cdr (assoc :id doc)))
+                                                ("title" . ,(cdr (assoc :title doc)))
+                                                ("source" . ,(cdr (assoc :source doc)))
+                                                ("type" . "doc")))
+                                            *docs-context*))
+                              (all-items (append files images docs)))
+                         `(("text" . ,(format nil "~A file(s), ~A image(s), and ~A doc(s) in context."
+                                              (length *files*) (length *images*) (length *docs-context*)))
                            ("data" . ,(coerce all-items 'vector)))))
-                :cli-options ((:long "format" :description "Output format (json)")))
+                :cli-options ((:long "format" :description "Output format (json, yaml, xml, markdown, org-mode)")))
 
 (define-command context (args)
                 "List files in the current context."
                 (declare (ignore args))
-                (format t "~A" (generate-context))
+                (format t "~A~%" (generate-context))
                 :acp (lambda (cmd-args)
                        (declare (ignore cmd-args))
                        `(("text" . ,(generate-context)))))
@@ -718,8 +882,7 @@ Usage: /ls [--format=json]"
                                ("data" . (("path" . ,native-path)))))
                            `(("text" . "Please specify the image path to drop.")))))
 
-;; --- Context Expose Feature ---
-
+;;* Expose
 (defun context-expose-file-path ()
   "Compute the pathname for the exposed context file hactar.{pid}.context.org under repo root."
   (merge-pathnames (format nil ".hactar.~A.context.org" (current-pid)) *repo-root*))
@@ -751,8 +914,8 @@ Usage: /ls [--format=json]"
            (file *exposed-context-file*)
            (existing (when (probe-file file)
                        (uiop:read-file-string file)))
-           (updated (org-mode:upsert-files-section (or existing "") details 
-                                                    :heading-title "Project Details" 
+           (updated (org-mode:upsert-files-section (or existing "") details
+                                                    :heading-title "Project Details"
                                                     :level 1)))
       (ensure-directories-exist file)
       (write-file-content file updated))))
@@ -859,3 +1022,11 @@ Usage: /ls [--format=json]"
     (context-expose-upsert-errors-section)
     (context-expose-upsert-files-section)
     (format t "Context exposed to: ~A~%" (uiop:native-namestring path))))
+
+(defun context-expose-delete-file ()
+  "Delete the exposed context file if it exists."
+  (when *repo-root*
+    (let ((path (context-expose-file-path)))
+      (when (and path (probe-file path))
+        (ignore-errors (delete-file path))))))
+

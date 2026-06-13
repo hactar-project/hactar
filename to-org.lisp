@@ -1,12 +1,7 @@
-;;;; to-org.lisp — Transform a codebase into a literate .hactar.org file
-;;;;
-;;;; Collects project files (via git), organizes them into a structured
-;;;; org-mode file compatible with Hactar's litmode.
-
+;; turn a folder of code into a literate org-mode file
 (in-package :hactar)
 
-;;* Configuration
-
+;;* state
 (defvar *to-org-default-ignore-patterns*
   '("*.min.js" "*.min.css" "*.map"
     "*.lock" "package-lock.json" "yarn.lock" "pnpm-lock.yaml" "Cargo.lock"
@@ -29,8 +24,7 @@
 (defvar *to-org-max-tokens* 10000
   "Maximum estimated token count for a single file. Files exceeding this are skipped.")
 
-;;* File Collection
-
+;;* files
 (defun to-org-ignore-patterns ()
   "Return the combined list of ignore patterns."
   (append *to-org-default-ignore-patterns* *to-org-extra-ignore-patterns*))
@@ -75,15 +69,16 @@
    Returns a list of plists: (:path :relative-path :content :tokens :language :extension).
    Files are sorted by relative path."
   (unless *repo-root*
-    (error "No repository root set. Run from within a git repository."))
-  (let* ((tracked-files (list-git-tracked-files *repo-root*))
+    (error "No repository root set. Run from within a project directory."))
+  (let* ((tracked-files (or (ignore-errors (list-git-tracked-files *repo-root*))
+                            (ignore-errors (list-files-with-fd *repo-root*))))
          (ignore-pats (append (to-org-ignore-patterns) extra-ignore-patterns))
          (results '())
          (skipped-count 0)
          (binary-count 0)
          (too-large-count 0))
     (unless tracked-files
-      (error "No git-tracked files found in ~A" *repo-root*))
+      (error "No files found in ~A" *repo-root*))
     (dolist (rel-path tracked-files)
       (let ((trimmed (string-trim '(#\Space #\Tab #\Newline #\Return) rel-path)))
         (when (and (> (length trimmed) 0)
@@ -185,7 +180,7 @@
                        (t (string< a b))))
             :key #'car))))
 
-;;* ID Sanitization
+;;* IDS
 
 (defun sanitize-id (path)
   "Convert a file path to a valid org-mode ID.
@@ -214,21 +209,15 @@
   "Generate the Meta zone."
   (with-output-to-string (s)
     (format s "* Meta                                                              :meta:noctx:~%")
-
-    ;; Headline Index
     (format s "** Headline Index~%")
     (format s ":PROPERTIES:~%")
     (format s ":ID: headline-index~%")
     (format s ":HACTAR_AUTO_GENERATED: t~%")
     (format s ":END:~%~%")
-
-    ;; Agent Locks
     (format s "** Agent Locks~%")
     (format s ":PROPERTIES:~%")
     (format s ":ID: agent-locks~%")
     (format s ":END:~%~%")
-
-    ;; Scope Profiles
     (format s "** Scope Profiles~%")
     (format s ":PROPERTIES:~%")
     (format s ":ID: scope-profiles~%")
@@ -242,8 +231,6 @@
       (format s ":HACTAR_SCOPE_MAX_TOKENS: 50000~%")
       (format s ":END:~%"))
     (format s "~%")
-
-    ;; Tooling
     (format s "** Tooling~%")
     (format s ":PROPERTIES:~%")
     (format s ":ID: tooling~%")
@@ -253,8 +240,6 @@
   "Generate the Context zone with project details and files listing."
   (with-output-to-string (s)
     (format s "* Context                                                           :ctx:~%")
-
-    ;; Project Details
     (format s "** Project Details~%")
     (format s ":PROPERTIES:~%")
     (format s ":ID: project-details~%")
@@ -271,27 +256,19 @@
     (dolist (group file-groups)
       (format s "- ~A (~A file~:P)~%" (car group) (length (cdr group))))
     (format s "~%")
-
-    ;; Architecture (placeholder)
     (format s "** Architecture~%")
     (format s ":PROPERTIES:~%")
     (format s ":ID: arch-overview~%")
     (format s ":END:~%")
     (format s "Architecture overview not yet generated. Use =/to-org --smart= to auto-generate.~%~%")
-
-    ;; Files section
     (format s "** Files                                                            :files:~%")
     (format s ":PROPERTIES:~%")
     (format s ":ID: ctx-files~%")
     (format s ":END:~%~%")
-
-    ;; Documentation
     (format s "** Documentation                                                    :docs:~%")
     (format s ":PROPERTIES:~%")
     (format s ":ID: ctx-docs~%")
     (format s ":END:~%~%")
-
-    ;; Errors
     (format s "** Errors                                                           :errors:~%")
     (format s ":PROPERTIES:~%")
     (format s ":ID: ctx-errors~%")
@@ -346,8 +323,7 @@
     (format s ":ID: scratch-zone~%")
     (format s ":END:~%")))
 
-;;* Smart Mode (LLM-enhanced)
-
+;;* LLM processing
 (defun to-org-smart-architecture (files)
   "Use the cheap model to generate an architecture overview from file paths and snippets."
   (let* ((file-overview
@@ -445,8 +421,6 @@ File content:
   "Generate Context zone with LLM-enhanced architecture section."
   (with-output-to-string (s)
     (format s "* Context                                                           :ctx:~%")
-
-    ;; Project Details
     (format s "** Project Details~%")
     (format s ":PROPERTIES:~%")
     (format s ":ID: project-details~%")
@@ -463,27 +437,19 @@ File content:
     (dolist (group file-groups)
       (format s "- ~A (~A file~:P)~%" (car group) (length (cdr group))))
     (format s "~%")
-
-    ;; Architecture (LLM-generated)
     (format s "** Architecture~%")
     (format s ":PROPERTIES:~%")
     (format s ":ID: arch-overview~%")
     (format s ":END:~%")
     (format s "~A~%~%" (or architecture-text ""))
-
-    ;; Files section
     (format s "** Files                                                            :files:~%")
     (format s ":PROPERTIES:~%")
     (format s ":ID: ctx-files~%")
     (format s ":END:~%~%")
-
-    ;; Documentation
     (format s "** Documentation                                                    :docs:~%")
     (format s ":PROPERTIES:~%")
     (format s ":ID: ctx-docs~%")
     (format s ":END:~%~%")
-
-    ;; Errors
     (format s "** Errors                                                           :errors:~%")
     (format s ":PROPERTIES:~%")
     (format s ":ID: ctx-errors~%")
@@ -499,7 +465,8 @@ File content:
                     (dry-run nil)
                     (no-code nil)
                     (scope nil)
-                    (force nil))
+                    (force nil)
+                    (path nil))
   "Transform the current codebase into a literate .hactar.org file.
    OUTPUT: output file path (default: .hactar.org in repo root)
    SMART: use LLM for summaries and architecture
@@ -509,13 +476,24 @@ File content:
    DRY-RUN: print file list without generating
    NO-CODE: omit the Code zone
    SCOPE: name for a default scope profile
-   FORCE: overwrite existing file without prompting"
-  (unless *repo-root*
-    (format t "~&Error: No repository root found. Run from within a git repository.~%")
-    (return-from to-org nil))
-
-  (let* ((output-path (or (when output (merge-pathnames output *repo-root*))
-                          (merge-pathnames ".hactar.org" *repo-root*)))
+   FORCE: overwrite existing file without prompting
+   PATH: optional project directory to convert"
+  (let* ((target-root (or (when path
+                            (uiop:ensure-directory-pathname
+                             (if (pathnamep path)
+                                 path
+                                 (uiop:parse-native-namestring path))))
+                          *repo-root*
+                          (ignore-errors (find-git-repo-root (uiop:getcwd)))
+                          (uiop:ensure-directory-pathname (uiop:getcwd)))))
+    (unless target-root
+      (format t "~&Error: No project directory available for to-org.~%")
+      (return-from to-org nil))
+    (let ((*repo-root* target-root))
+      (unless *name*
+        (setf *name* (car (last (pathname-directory *repo-root*)))))
+      (let* ((output-path (or (when output (merge-pathnames output (uiop:getcwd)))
+                              (merge-pathnames ".hactar.org" *repo-root*)))
          (extra-pats (when extra-ignore
                        (if (listp extra-ignore)
                            extra-ignore
@@ -527,101 +505,83 @@ File content:
                              (mapcar (lambda (s) (string-trim '(#\Space) s))
                                      (str:split #\, include))))))
 
-    ;; Check for existing file
-    (when (and (probe-file output-path) (not force) (not dry-run))
-      (unless (confirm-action (format nil "~A already exists. Overwrite?" (uiop:native-namestring output-path)))
-        (format t "~&Aborted.~%")
-        (return-from to-org nil)))
+        (when (and (probe-file output-path) (not force) (not dry-run))
+          (unless (confirm-action (format nil "~A already exists. Overwrite?" (uiop:native-namestring output-path)))
+            (format t "~&Aborted.~%")
+            (return-from to-org nil)))
 
-    ;; Collect files
-    (unless *silent*
-      (format t "~&Collecting files from ~A...~%" (uiop:native-namestring *repo-root*)))
-    (let ((files (collect-project-files :max-tokens max-tokens
-                                        :extra-ignore-patterns extra-pats
-                                        :include-patterns include-pats)))
-      (unless *silent*
-        (format t "  Found ~A file~:P (~A estimated tokens total)~%"
-                (length files)
-                (reduce #'+ files :key (lambda (f) (getf f :tokens)) :initial-value 0)))
-
-      (when (null files)
-        (format t "~&No files to process.~%")
-        (return-from to-org nil))
-
-      ;; Dry run: just print file list
-      (when dry-run
-        (format t "~&Files that would be included:~%")
-        (dolist (f files)
-          (format t "  ~A (~A tokens, ~A)~%"
-                  (getf f :relative-path)
-                  (getf f :tokens)
-                  (getf f :language)))
-        (return-from to-org files))
-
-      ;; Group files
-      (let ((file-groups (group-files-by-directory files)))
-
-        ;; Generate org content
         (unless *silent*
-          (format t "~&Generating org file...~%"))
-
-        (let ((org-content
-                (with-output-to-string (s)
-                  ;; Header
-                  (write-string (generate-org-header) s)
-                  (terpri s)
-
-                  ;; Meta zone
-                  (write-string (generate-meta-zone :scope-name scope) s)
-                  (terpri s)
-
-                  ;; Context zone
-                  (if smart
-                      (progn
-                        (unless *silent*
-                          (format t "  Generating architecture overview with LLM...~%"))
-                        (let ((arch-text (to-org-smart-architecture files)))
-                          (write-string (generate-context-zone-smart files file-groups arch-text) s)))
-                      (write-string (generate-context-zone files file-groups) s))
-                  (terpri s)
-
-                  ;; Tasks zone
-                  (write-string (generate-tasks-zone) s)
-                  (terpri s)
-
-                  ;; Code zone
-                  (unless no-code
-                    (if smart
-                        (progn
-                          (unless *silent*
-                            (format t "  Generating file summaries with LLM...~%"))
-                          (write-string (generate-code-zone-smart file-groups) s))
-                        (write-string (generate-code-zone file-groups) s))
-                    (terpri s))
-
-                  ;; Scratch zone
-                  (write-string (generate-scratch-zone) s))))
-
-          ;; Write output
-          (with-open-file (out output-path
-                               :direction :output
-                               :if-exists :supersede
-                               :if-does-not-exist :create
-                               :external-format :utf-8)
-            (write-string org-content out))
-
+          (format t "~&Collecting files from ~A...~%" (uiop:native-namestring *repo-root*)))
+        (let ((files (collect-project-files :max-tokens max-tokens
+                                            :extra-ignore-patterns extra-pats
+                                            :include-patterns include-pats)))
           (unless *silent*
-            (format t "~&✓ Generated ~A~%" (uiop:native-namestring output-path))
-            (format t "  Files: ~A | Tokens: ~A | Groups: ~A~%"
+            (format t "  Found ~A file~:P (~A estimated tokens total)~%"
                     (length files)
-                    (reduce #'+ files :key (lambda (f) (getf f :tokens)) :initial-value 0)
-                    (length file-groups))
-            (format t "  Run /litmode-init to activate literate mode.~%"))
+                    (reduce #'+ files :key (lambda (f) (getf f :tokens)) :initial-value 0)))
 
-          output-path)))))
+          (when (null files)
+            (format t "~&No files to process.~%")
+            (return-from to-org nil))
+
+          ;; Dry run: just print file list
+          (when dry-run
+            (format t "~&Files that would be included:~%")
+            (dolist (f files)
+              (format t "  ~A (~A tokens, ~A)~%"
+                      (getf f :relative-path)
+                      (getf f :tokens)
+                      (getf f :language)))
+            (return-from to-org files))
+
+          (let ((file-groups (group-files-by-directory files)))
+            (unless *silent*
+              (format t "~&Generating org file...~%"))
+            (let ((org-content
+                    (with-output-to-string (s)
+					   (write-string (generate-org-header) s)
+					   (terpri s)
+					   (write-string (generate-meta-zone :scope-name scope) s)
+					   (terpri s)
+					   ;; Context
+					   (if smart
+					       (progn
+						 (unless *silent*
+						   (format t "  Generating architecture overview with LLM...~%"))
+						 (let ((arch-text (to-org-smart-architecture files)))
+						   (write-string (generate-context-zone-smart files file-groups arch-text) s)))
+					     (write-string (generate-context-zone files file-groups) s))
+					   (terpri s)
+					   (write-string (generate-tasks-zone) s)
+					   (terpri s)
+					   (unless no-code
+					     (if smart
+						 (progn
+						   (unless *silent*
+						     (format t "  Generating file summaries with LLM...~%"))
+						   (write-string (generate-code-zone-smart file-groups) s))
+					       (write-string (generate-code-zone file-groups) s))
+					     (terpri s))
+					   (write-string (generate-scratch-zone) s))))
+
+              (with-open-file (out output-path
+                                   :direction :output
+                                   :if-exists :supersede
+                                   :if-does-not-exist :create
+                                   :external-format :utf-8)
+                (write-string org-content out))
+
+              (unless *silent*
+                (format t "~&✓ Generated ~A~%" (uiop:native-namestring output-path))
+                (format t "  Files: ~A | Tokens: ~A | Groups: ~A~%"
+                        (length files)
+                        (reduce #'+ files :key (lambda (f) (getf f :tokens)) :initial-value 0)
+                        (length file-groups))
+                (format t "  Run /litmode-init to activate literate mode.~%"))
+
+              output-path)))))))
 
 ;;* Commands
-
 (define-command to-org (args)
   "Transform the codebase into a literate .hactar.org file.
 Usage: /to-org [options]
@@ -633,7 +593,8 @@ Usage: /to-org [options]
   --dry-run         Print file list without generating
   --no-code         Omit the Code zone
   --scope NAME      Generate a default scope profile
-  --force           Overwrite existing file without prompting"
+  --force           Overwrite existing file without prompting
+  --path DIR        Convert a project directory outside the current repo"
   (let ((output nil)
         (smart nil)
         (max-tokens *to-org-max-tokens*)
@@ -642,7 +603,8 @@ Usage: /to-org [options]
         (dry-run nil)
         (no-code nil)
         (scope nil)
-        (force nil))
+        (force nil)
+        (path nil))
     ;; Parse args
     (loop with remaining = args
           while remaining
@@ -667,7 +629,11 @@ Usage: /to-org [options]
                  ((string= arg "--scope")
                   (setf scope (pop remaining)))
                  ((string= arg "--force")
-                  (setf force t)))))
+                  (setf force t))
+                 ((string= arg "--path")
+                  (setf path (pop remaining)))
+                 ((not (str:starts-with-p "-" arg))
+                  (setf path arg)))))
     (to-org :output output
             :smart smart
             :max-tokens max-tokens
@@ -676,7 +642,8 @@ Usage: /to-org [options]
             :dry-run dry-run
             :no-code no-code
             :scope scope
-            :force force)))
+            :force force
+            :path path)))
 
 (define-sub-command to-org (args)
   "Transform the codebase into a literate .hactar.org file.
@@ -689,41 +656,23 @@ Usage: hactar to-org [options]
   --dry-run         Print file list without generating
   --no-code         Omit the Code zone
   --scope NAME      Generate a default scope profile
-  --force           Overwrite existing file without prompting"
-  (let ((output nil)
-        (smart nil)
-        (max-tokens *to-org-max-tokens*)
-        (ignore nil)
-        (include nil)
-        (dry-run nil)
-        (no-code nil)
-        (scope nil)
-        (force nil))
-    ;; Parse args
-    (loop with remaining = (copy-list args)
-          while remaining
-          do (let ((arg (pop remaining)))
-               (cond
-                 ((string= arg "--output")
-                  (setf output (pop remaining)))
-                 ((string= arg "--smart")
-                  (setf smart t))
-                 ((string= arg "--max-tokens")
-                  (let ((val (pop remaining)))
-                    (when val
-                      (setf max-tokens (parse-integer val :junk-allowed t)))))
-                 ((string= arg "--ignore")
-                  (setf ignore (pop remaining)))
-                 ((string= arg "--include")
-                  (setf include (pop remaining)))
-                 ((string= arg "--dry-run")
-                  (setf dry-run t))
-                 ((string= arg "--no-code")
-                  (setf no-code t))
-                 ((string= arg "--scope")
-                  (setf scope (pop remaining)))
-                 ((string= arg "--force")
-                  (setf force t)))))
+  --force           Overwrite existing file without prompting
+  --path DIR        Convert a project directory outside the current repo"
+  (let ((output (getf args :output))
+        (smart (getf args :smart))
+        (max-tokens (let ((val (getf args :max-tokens)))
+                      (if val
+                          (parse-integer val :junk-allowed t)
+                          *to-org-max-tokens*)))
+        (ignore (getf args :ignore))
+        (include (getf args :include))
+        (dry-run (getf args :dry-run))
+        (no-code (getf args :no-code))
+        (scope (getf args :scope))
+        (force (getf args :force))
+        (path (or (getf args :path)
+                  (let ((free (getf args :args)))
+                    (if (listp free) (first free) free)))))
     (to-org :output output
             :smart smart
             :max-tokens max-tokens
@@ -732,4 +681,15 @@ Usage: hactar to-org [options]
             :dry-run dry-run
             :no-code no-code
             :scope scope
-            :force force)))
+            :force force
+            :path path))
+  :cli-options ((:long "output" :description "Output file path (default: .hactar.org)")
+                (:long "smart" :description "Use LLM for summaries and architecture")
+                (:long "max-tokens" :description "Skip files exceeding N tokens (default: 10000)")
+                (:long "ignore" :description "Additional ignore patterns (comma-separated)")
+                (:long "include" :description "Only include files matching patterns (comma-separated)")
+                (:long "dry-run" :description "Print file list without generating")
+                (:long "no-code" :description "Omit the Code zone")
+                (:long "scope" :description "Generate a default scope profile")
+                (:long "force" :description "Overwrite existing file without prompting")
+                (:long "path" :description "Convert a project directory outside the current repo")))

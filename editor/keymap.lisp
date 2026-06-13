@@ -119,7 +119,7 @@
 
 ;;; Keymap
 (defclass keymap ()
-  ((name :accessor keymap-name 
+  ((name :accessor keymap-name
          :initarg :name
          :type string
          :documentation "Name of this keymap for debugging")
@@ -221,7 +221,7 @@
   (define-key *global-keymap* "M-v" 'scroll-up)
   (define-key *global-keymap* "M-<" 'beginning-of-buffer)
   (define-key *global-keymap* "M->" 'end-of-buffer)
-  
+
   ;; Editing
   (define-key *global-keymap* "C-d" 'delete-char)
   (define-key *global-keymap* "DEL" 'delete-backward-char)
@@ -232,40 +232,40 @@
   (define-key *global-keymap* "M-y" 'yank-pop)
   (define-key *global-keymap* "C-/" 'undo)
   (define-key *global-keymap* "C-_" 'undo)
-  
+
   ;; Mark
   (define-key *global-keymap* "C-SPC" 'set-mark)
   (define-key *global-keymap* "C-x C-x" 'exchange-point-and-mark)
-  
+
   ;; Files
   (define-key *global-keymap* "C-x C-f" 'find-file)
   (define-key *global-keymap* "C-x C-s" 'save-buffer)
   (define-key *global-keymap* "C-x C-w" 'write-file)
   (define-key *global-keymap* "C-x C-c" 'save-buffers-kill-editor)
-  
+
   ;; Buffers
   (define-key *global-keymap* "C-x b" 'switch-to-buffer)
   (define-key *global-keymap* "C-x k" 'kill-buffer)
   (define-key *global-keymap* "C-x C-b" 'list-buffers)
-  
+
   ;; Windows
   (define-key *global-keymap* "C-x 2" 'split-window-below)
   (define-key *global-keymap* "C-x 3" 'split-window-right)
   (define-key *global-keymap* "C-x 0" 'delete-window)
   (define-key *global-keymap* "C-x 1" 'delete-other-windows)
   (define-key *global-keymap* "C-x o" 'other-window)
-  
+
   ;; Search
   (define-key *global-keymap* "C-s" 'isearch-forward)
   (define-key *global-keymap* "C-r" 'isearch-backward)
   (define-key *global-keymap* "M-%" 'query-replace)
-  
+
   ;; Help
   (define-key *global-keymap* "C-h k" 'describe-key)
   (define-key *global-keymap* "C-h f" 'describe-function)
   (define-key *global-keymap* "C-h v" 'describe-variable)
   (define-key *global-keymap* "C-h b" 'describe-bindings)
-  
+
   ;; AI commands (C-c a prefix)
   (define-key *ai-keymap* "C-c a e" 'ai-edit)
   (define-key *ai-keymap* "C-c a c" 'ai-complete)
@@ -274,21 +274,21 @@
   (define-key *ai-keymap* "C-c a f" 'ai-fix)
   (define-key *ai-keymap* "C-c a d" 'ai-document)
   (define-key *ai-keymap* "C-c a t" 'ai-test)
-  
+
   ;; Hactar commands (C-c h prefix)
   (define-key *global-keymap* "C-c h a" 'hactar-add-file)
   (define-key *global-keymap* "C-c h d" 'hactar-drop-file)
   (define-key *global-keymap* "C-c h c" 'hactar-context)
   (define-key *global-keymap* "C-c h m" 'hactar-model)
   (define-key *global-keymap* "C-c h /" 'hactar-command)
-  
+
   ;; Code-value commands (C-c v prefix)
   (define-key *global-keymap* "C-c v s" 'code-select)
   (define-key *global-keymap* "C-c v t" 'code-transform)
   (define-key *global-keymap* "C-c v a" 'code-apply-staged)
   (define-key *global-keymap* "C-c v u" 'code-undo)
   (define-key *global-keymap* "C-c v h" 'code-history)
-  
+
   ;; Minibuffer
   (define-key *minibuffer-keymap* "RET" 'minibuffer-exit)
   (define-key *minibuffer-keymap* "C-g" 'minibuffer-abort)

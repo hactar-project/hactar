@@ -3,7 +3,7 @@
 (def-suite typescript-target-tests :description "TypeScript target tests.")
 (in-suite typescript-target-tests)
 
-;;* Helpers 
+;;* Helpers
 (defun ts-compile (source)
   (string-trim '(#\Space #\Newline #\Tab)
                (hactar::compile-file-to-string source :target :typescript)))
