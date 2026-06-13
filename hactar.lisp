@@ -2216,13 +2216,14 @@ Free arguments are dispatched as:
       (cond
         (sub-info
          (let* ((cmd-args (rest free-args)))
-           (cond
-             ((member "--spec-lisp" cmd-args :test #'string=)
-              (format t "~S~%" (build-subcommand-group-spec first-arg))
-              (uiop:quit 0))
-             ((member "--spec" cmd-args :test #'string=)
-              (format t "<json>~%~A~%</json>~%" (to-json (build-subcommand-group-spec first-arg)))
-              (uiop:quit 0)))
+           (unless (string= first-arg "help")
+             (cond
+               ((member "--spec-lisp" cmd-args :test #'string=)
+                (format t "~S~%" (build-subcommand-group-spec first-arg))
+                (uiop:quit 0))
+               ((member "--spec" cmd-args :test #'string=)
+                (format t "<json>~%~A~%</json>~%" (to-json (build-subcommand-group-spec first-arg)))
+                (uiop:quit 0))))
            (let* ((fmt-str (extract-format-string cmd-args))
                   (fmt (when fmt-str (parse-format-keyword fmt-str)))
                   (slash-cmd (format nil "/~A" first-arg)))
