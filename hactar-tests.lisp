@@ -100,6 +100,7 @@ Returns true iff all suites pass."
                    mode-tests
                    gen-helpers-tests
                    monolith-tests
-                   litmode-tests))
+                   litmode-tests
+                   hactar-mode-tests))
          (results (mapcar #'%run-suite suites)))
     (%colorize-test-results suites results)))

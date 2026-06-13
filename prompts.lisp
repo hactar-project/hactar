@@ -234,3 +234,7 @@
 (defprompt ruhe-summarize template
   "The prompt template for summarizing in Ruhe."
   :file "ruhe-summarize.mustache")
+
+(defprompt system.apidocs.update system
+  "System prompt for the hactar.apidocs.update command."
+  :template "You are a technical documentation writer. You will be provided with an existing Org-mode API reference document and a YAML spec of the latest functions in the repository (including their signatures and docstrings). Your task is to update the Org-mode API reference document to incorporate any new functions, update changed signatures or docstrings, and remove deprecated functions if necessary, ensuring that the updated document is returned in full as a valid Org-mode document. Do not include any chat formatting, conversational text, or markdown code fences; respond ONLY with the raw Org-mode document content.")

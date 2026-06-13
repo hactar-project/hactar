@@ -1,4 +1,4 @@
-# Created 2026-04-24 Fri 21:44
+# Created 2026-06-13 Sat 15:00
 #+title: Hactar Docs
 #+author: k
 * Hactar Docs
@@ -693,7 +693,7 @@ Create a new component.
 ***** component.list
 List all components.
 ***** copilotapi
-GitHub Copilot API commands: models, authorize, complete, help.
+GitHub Copilot API commands: models, authorize, complete.
 ***** create
 Create a new project from a starter.
 
@@ -981,8 +981,6 @@ List available models.
 Authorize GitHub Copilot.
 ***** copilotapi complete <query>
 Generate completion.
-***** copilotapi help
-Display help information.
 **** Hacker News Commands
 ***** hn newest [--limit N]
 Fetch newest posts from Hacker News.
@@ -1019,6 +1017,13 @@ Ask questions about the code base without editing any files.
 Manually trigger assistant screen analysis with an optional prompt.
 ***** /autocommit
 Toggle git autocommit on/off.
+***** /brief
+Alias for =/ruhe-summary=.
+
+Usage:
+#+begin_src
+  /brief [length]
+#+end_src
 ***** /cheap-model
 Set the cheap model to use when cost is a concern.
 ***** /check
@@ -2060,6 +2065,221 @@ Usage: .| <dot_command_1_with_args> | <dot_command_2_with_args_expecting_input>
 
 Pipes the text output of the first dot command as the final argument to the second dot command.
 Example: .| .cat myfile.txt | .modify anotherfile.txt The content is:
+*** Universal Transpiler/Compiler
+Hactar includes an experimental "universal" compiler. It takes LISP forms and transpiles them to target languages and stack, new ones being defined on the fly while you code. You can think of it like a ClojureScript for everything. Why? Two primary reasons
+
+1. It lets us hardcode knowledge that is normally encoded as markdown. Instead of defining skills we write macros that generate code.
+2. Because it allows a an agent to use consistent syntax and tooling across all stacks.
+
+Hardcoding knowledge reduces token usage massively. Instead of needing to generate the same sort of boilerplate everytime we generate it once. A useful mental model is to think of it like rails conventions. Hactar enables you generate and retain conventions while you work on a codebase. Similar to skills but with more determinsm. The tradeoff is you have to write a lot of your code in LISP which has a learning curve. If you already use something like ClojureScript or Fennel though you will quickly feel right at home.
+
+Hactar and the developer collaborate on extending Hactar. Every project is meant to help your grow and build your own version of Hactar. In Hactar instead of you encoding your knowledge in the form of packages and libraries, you extend the tooling itself. Your hard won knowledge ends up living in the tooling you help build.
+
+Let's end the philosophy here and get to the nitty gritty. You use the compiler with the compile command:
+
+Usage:
+#+begin_src sh
+  hactar compile file1.lisp [file2.lisp ...] [-o output-dir] [-f format] [--dry]
+#+end_src
+
+The code will look a little like this:
+
+#+begin_src lisp
+  (target :redwood)
+
+  (in-file "src/style.css")
+  (defcss app-styles
+    (:root
+      :--bg-color "#f4eedf"
+      :--text-color "#1a1a1a"
+      :--accent-color "#f47238"
+      :--font-heading "\"Playfair Display\", serif"
+      :--font-body "\"Noto Sans\", sans-serif")
+
+    (:body
+      :margin 0
+      :padding 0
+      :background-color "var(--bg-color)"
+      :color "var(--text-color)"
+      :font-family "var(--font-body)")
+
+    (".container"
+      :max-width 960
+      :margin "0 auto"
+      :padding "5rem 2rem"
+      :min-height "100vh")
+
+    (".title"
+      :margin 0
+      :font-family "var(--font-heading)"
+      :font-size "4rem"
+      :line-height 1.1)
+
+    (".subtitle"
+      :font-size "1.25rem"
+      :margin-top "1rem")
+
+    (".link"
+      :color "var(--accent-color)"
+      :font-weight 700
+      :text-decoration "none"))
+
+  (in-file "src/app/Document.tsx")
+  (import styles :from "../style.css?url")
+  (defcomponent *Document ((children :type 'React.ReactNode))
+    (html :lang "en"
+      (head
+        (meta :char-set "utf-8")
+        (meta :name "viewport" :content "width=device-width, initial-scale=1")
+        (title "Hello Redwood")
+        (link :rel "preconnect" :href "https://fonts.googleapis.com")
+        (link :rel "preconnect" :href "https://fonts.gstatic.com" :cross-origin "")
+        (link :rel "stylesheet"
+              :href "https://fonts.googleapis.com/css2?family=Noto+Sans:wght@400;700&family=Playfair+Display:wght@700&display=swap")
+        (link :rel "stylesheet" :href styles)
+        (link :rel "modulepreload" :href "/src/client.tsx"))
+      (body
+        children
+        (script (import "/src/client.tsx")))))
+
+  (in-file "src/app/pages/Home/Home.tsx")
+  (defcomponent *Home ()
+    (div :class-name "container"
+      (h1 :class-name "title" "Hello Redwood")
+      (p :class-name "subtitle"
+         "Your first RedwoodSDK app is running.")
+      (p
+        (a :class-name "link"
+           :href "https://docs.rwsdk.com/"
+           :target "_blank"
+           :rel "noreferrer"
+           "Read the docs"))))
+
+  (defapp :wrapper *Document :routes ("/" *Home))
+#+end_src
+
+If a target does not exist Hactar will prompt you to add one. You can literally just start by writing code and let hactar try its best to make your dream syntax translate into something real. And hactar will try to do this so that the result is permanent. You generate a login logic once and then it becomes part of your underlying language stack. In Hactar you burn through tokens once and then the knowledge lives in the code.
+
+You can manually extend the compiler while working by calling =/hactar.extend=. Writing a new target is trivial enough that SOTA models can often one shot it. Here is an example of generated on the fly Makefile target:
+
+#+begin_src org
+
+  We will build a target named =:makefile= with a few forms:
+
+  - =(target :makefile)= to select the target
+  - =(in-file "Makefile")= to choose the output file
+  - =(makefile VAR "value" ...)= to emit top-level Makefile forms
+  - =(assign "CC" "cc")= to emit variable assignments
+  - =(rule "build" ("main.o" "util.o") ("cc -o app main.o util.o"))= to emit a rule
+  - =(phony "clean" "build")= to emit a =.PHONY= declaration
+
+  The implementation intentionally stays simple. It emits plain text and does not try to model every Make feature.
+
+  ,* The target implementation
+
+  First define the target itself. A Makefile should usually compile to a file named =Makefile=, but the compiler still wants a file extension for default output paths, so we use =mk=.
+
+  ,#+begin_src lisp :tangle makefile-target.lisp
+  (in-package :hactar)
+
+  (deftarget :makefile
+    :file-extension "mk")
+  ,#+end_src
+
+  Next add a few helpers for emitting lines and lists cleanly.
+
+  ,#+begin_src lisp :tangle makefile-target.lisp
+  (defun makefile-emit-name (name)
+    "Emit a Makefile symbol or string as-is."
+    (compiler-emit
+     (typecase name
+       (string name)
+       (symbol (string-downcase (symbol-name name)))
+       (t (format nil "~A" name)))))
+
+  (defun makefile-emit-space-separated (items)
+    "Emit ITEMS separated by spaces."
+    (loop for (item . rest) on items
+          do (makefile-emit-name item)
+          when rest do (compiler-emit " ")))
+
+  (defun makefile-emit-command-line (command)
+    "Emit a recipe line with the required leading tab."
+    (compiler-emit #.(string #\Tab))
+    (typecase command
+      (string (compiler-emit command))
+      (t (compile-form command)))
+    (compiler-emitln ""))
+  ,#+end_src
+
+  Now define the main emitters.
+
+  ,#+begin_src lisp :tangle makefile-target.lisp
+  (defemit :makefile assign (name value)
+    (makefile-emit-name name)
+    (compiler-emit " = ")
+    (typecase value
+      (string (compiler-emit value))
+      (t (compile-form value))))
+
+  (defemit :makefile phony (&rest targets)
+    (compiler-emit ".PHONY: ")
+    (makefile-emit-space-separated targets))
+
+  (defemit :makefile rule (target dependencies commands)
+    (makefile-emit-name target)
+    (compiler-emit ":")
+    (when dependencies
+      (compiler-emit " ")
+      (makefile-emit-space-separated dependencies))
+    (compiler-emitln "")
+    (dolist (command commands)
+      (makefile-emit-command-line command)))
+
+  (defemit :makefile makefile (&rest forms)
+    (loop for (form . rest) on forms
+          do (compile-form form)
+             (when rest
+               (compiler-emitln "")
+               (compiler-emitln ""))))
+  ,#+end_src
+
+  ,* A small example
+
+  With the target in place, a source file can generate a Makefile like this:
+
+  ,#+begin_src lisp
+  (target :makefile)
+  (in-file "Makefile")
+
+  (makefile
+    (assign "CC" "cc")
+    (assign "CFLAGS" "-Wall -Wextra -O2")
+    (phony "clean")
+    (rule "app"
+          ("main.o" "util.o")
+          ("$(CC) $(CFLAGS) -o app main.o util.o"))
+    (rule "clean"
+          ()
+          ("rm -f app *.o")))
+  ,#+end_src
+
+  That compiles to:
+
+  ,#+begin_example
+  CC = cc
+
+  CFLAGS = -Wall -Wextra -O2
+
+  .PHONY: clean
+
+  app: main.o util.o
+          $(CC) $(CFLAGS) -o app main.o util.o
+
+  clean:
+          rm -f app *.o
+  ,#+end_example
+#+end_src
 ** Configuration
 Hactar has multiple paths to configure things. This gives you flexiblity for how you configure it. Want to just use environment variables? Want to write some config? Want to fully modify everything using LISP? All three scenarios are covered.
 
@@ -3277,215 +3497,6 @@ Here is a list of some conventions I follow with Hactar code
 - Prefer hooks over extension
 - Use macros instead of APIs
   - This is so we can swap out the underlying way things work. e.g if you always use the defanalyzer macro then the internal way analyzers work can change without requiring changes to the syntax. DSLs are the LISP way use them.
-*** Authoring New Compiler Targets
-Hactar's compiler layer is designed to make new targets cheap to build and easy to evolve. A target is a small DSL that teaches Hactar how to turn Lisp forms into files for some output language or format.
-
-In practice, a new target usually needs four things:
-
-1. A =deftarget= declaration
-2. A set of emitters via =defemit=
-3. Optional macros via =defjsmacro=
-4. Optional checks via =defcheck=
-
-The existing targets are the best examples to copy from:
-
-- =javascript-target.lisp= for general language emission
-- =typescript-target.lisp= for target inheritance
-- =worker-target.lisp= for a framework/platform specialization
-- =json-target.lisp= and =toml-target.lisp= for data formats
-- =css-target.lisp= for a small DSL with expansion helpers
-- =redwood-target.lisp= for a full target with setup/finalize behavior
-
-**** 1. Define the target
-Start with =deftarget=. This registers a target and optionally gives it:
-
-- a parent target
-- a default file extension
-- setup logic run before compilation
-- finalize logic run after compilation
-
-Example:
-
-#+begin_src lisp
-  (deftarget :mytarget
-    :parent :javascript
-    :file-extension "txt")
-#+end_src
-
-If your target is a specialization of another language, always prefer inheritance over copying emitters. For example, =:typescript= inherits from =:javascript=, and =:worker= inherits from =:typescript=.
-
-**** 2. Add emitters with =defemit=
-Emitters define how forms compile. The first argument is the target keyword, the second is the source form name.
-
-Example:
-
-#+begin_src lisp
-  (defemit :mytarget say (value)
-    (compiler-emit "say(")
-    (compile-form value)
-    (compiler-emit ")"))
-#+end_src
-
-A few conventions matter here:
-
-- Use =compile-form= for nested expressions
-- Use =compiler-emit= / =compiler-emitln= for text output
-- Use =emit-indent= and =with-indent= for block structure
-- Keep emitters small and composable
-- If a form is statement-like, make sure it fits the target's semicolon / newline conventions
-
-For block languages, a common pattern is:
-
-#+begin_src lisp
-  (defemit :mytarget blocky (condition &body body)
-    (compiler-emit "if (")
-    (compile-form condition)
-    (compiler-emit ") ")
-    (emit-block body))
-#+end_src
-
-**** 3. Add macros with =defjsmacro=
-Use macros when you want to expand a friendly DSL form into more primitive forms before emission.
-
-Example:
-
-#+begin_src lisp
-  (defjsmacro :mytarget when-let (binding &body body)
-    `(let (,binding)
-       (when ,(first (first binding))
-         ,@body)))
-#+end_src
-
-This is usually better than making one emitter handle too many special cases. In Hactar, macros are preferred whenever they keep the emitted surface simpler.
-
-Even though the macro helper is named =defjsmacro=, it is used across multiple targets, not just JavaScript.
-
-**** 4. Use the VFS correctly
-Targets do not write directly to disk. They write into the virtual file system.
-
-The main functions you will use are:
-
-- =in-file= forms to switch the active output file
-- =compiler-emit= and friends to append content
-- =compiler-prepend= if a target needs to inject content at the top
-- VFS metadata helpers if you need to track extra per-file state
-
-Example of switching files:
-
-#+begin_src lisp
-  (defemit :mytarget in-file (path)
-    (vfs-select-file *current-vfs* path))
-#+end_src
-
-If your target generates multiple files, make file switching explicit and deterministic.
-
-**** 5. Reuse helper functions
-Most good targets have small helper functions for shared formatting logic. Keep these outside emitters when they are reused.
-
-Examples from the codebase:
-
-- =emit-name= in =javascript-target.lisp=
-- =extract-type-annotation= in =typescript-target.lisp=
-- =json-emit-primitive= in =json-target.lisp=
-- =toml-emit-value= in =toml-target.lisp=
-- =css-selector-from-form= in =css-target.lisp=
-
-A good rule is: if you repeat string formatting or structural logic twice, move it to a helper.
-
-**** 6. Add checks with =defcheck=
-Targets should defend themselves. If a target only supports a subset of forms, add checks so bad input fails early and clearly.
-
-Example:
-
-#+begin_src lisp
-  (defcheck :mytarget no-unknown-top-level
-    (check-unsupported-form :mytarget form '(target in-file say blocky)))
-#+end_src
-
-You can also write semantic checks for target-specific problems, like the existing Redwood JSX checker.
-
-Checks should:
-
-- return =check-result= objects
-- be specific and actionable
-- prefer catching invalid source forms before emission
-
-**** 7. Use setup/finalize for target-wide behavior
-If a target needs temporary state, default file generation, or post-processing, use =:setup= and =:finalize= in =deftarget=.
-
-This is how =redwood-target.lisp= auto-emits missing config files and inferred bindings.
-
-Use this sparingly. Most targets should stay mostly emitter-driven. Reach for setup/finalize only when you need target-wide coordination.
-
-**** 8. Prefer new forms over overloading old ones
-If the target introduces a concept that does not map cleanly to an existing form, define a new form rather than adding fragile conditionals everywhere.
-
-Good examples in the codebase:
-
-- =defworker=
-- =json-object=
-- =toml-table=
-- =defconfig=
-- =defapp=
-
-This keeps targets readable and makes checkers easier to write.
-
-**** 9. Test targets thoroughly
-Compiler targets are easy to regress. Add tests for:
-
-- target detection
-- emitter output
-- inheritance behavior
-- macro expansion
-- finalize/setup side effects
-- checker failures
-
-At minimum, test string output for representative forms and edge cases. The compiler is a perfect place for golden-output style tests.
-
-**** 10. A minimal example target
-Here is a small self-contained example:
-
-#+begin_src lisp
-  (deftarget :demo
-    :file-extension "demo")
-
-  (defemit :demo in-file (path)
-    (vfs-select-file *current-vfs* path))
-
-  (defemit :demo say (value)
-    (compiler-emit "say ")
-    (compile-form value))
-
-  (defemit :demo defconst (name value)
-    (compiler-emit "const ")
-    (emit-name name)
-    (compiler-emit " = ")
-    (compile-form value))
-
-  (defcheck :demo only-demo-forms
-    (check-unsupported-form :demo form '(target in-file say defconst)))
-#+end_src
-
-And usage:
-
-#+begin_src lisp
-  (target :demo)
-
-  (in-file "hello.demo")
-  (defconst greeting "hello")
-  (say greeting)
-#+end_src
-
-**** Practical advice
-- Start from the closest existing target and copy its shape
-- Keep emitters tiny
-- Put reusable logic in helpers
-- Use macros to simplify the source DSL
-- Add checks early
-- Let VFS own file output
-- Avoid hidden magic unless it clearly belongs in finalize/setup
-
-If you are building a target for a language family, first ask whether it should inherit from =:javascript=, =:typescript=, =:json=, =:toml=, or =:css=. Most new targets should extend an existing one, not start from nothing.
 *** Making a New Release
 The release process is:
 
@@ -3499,107 +3510,2918 @@ You can run the release script for this. By default it will be a dry run. Pass t
 #+begin_src sh
   release --version 0.0.1 --description ./RELEASE_0_1.md
 #+end_src
+*** Writing a new Target for the Compiler
+Hactar includes a universal compiler. You can think of it like a LISP for everything. Why? Two primary reasons
+
+1. It lets us hardcode knowledge that is normally encoded as markdown. Instead defining skills we write macros that generate code.
+2. Because it allows a an agent to use consistent syntax and tooling across all stacks.
+
+Hardcoding knowledge reduces token usage massively. Instead of needing to generate the same sort of boilerplate everytime we generate it once. A useful mental model is to think of it like rails conventions. Hactar enables you generate and retain conventions while you work on a codebase. Similar to skills but with more determinsm. The tradeoff is you have to write a lot of your code in LISP which has a learning curve. If you already use something like ClojureScript or Fennel though you will quickly feel right at home.
 ** Hactar API Reference
 *Note*: These API docs are generated by Hactar and then human checked. They may be subject to errors. Last updated <2026-04-21 Tue>. It is not necessary to copy and paste them into Hactar projects. Hactar has it's own API docs that are auto updated.
 *** Packages
-**** org-mode-parser Package
-This package provides a robust parser for Org-mode text, converting it into a structured Lisp representation (a plist).
-***** parse
+**** Hactar
+***** acp.lisp
+****** defcapability
 #+begin_src lisp
-  (parse input)
+  (defcapability (name (&rest path) &body body))
 #+end_src
 
-Parses Org-mode text from a string or pathname =INPUT=.
+Define an ACP agent capability.
 
-- =INPUT=: A string containing Org-mode text or a pathname to an Org
-  file.
+NAME: Symbol naming the capability (used for the handler function).
+PATH: List of strings forming the capability path, e.g. ("fs" "readTextFile").
+BODY: Can start with keyword options:
+      :description "..." - Capability description
+      :enabled t/nil - Whether enabled by default (default t)
+      :permissions :confirm/:auto/:deny - Permission level (default :confirm)
+      Then the handler implementation. The handler receives (ID PARAMS) arguments.
 
-*Return Value:* A plist representing the parsed document, with two main
-keys:
-- =:settings=: An alist of document settings (e.g., =((:TITLE . "My Document"))=).
-- =:entries=: A list of parsed headline entries. Each entry is a complex alist containing details like =:level=, =:title=, =:tags=, =:props= (property drawer), and =:section= (content).
-***** select-by-tag
+Example:
+  (defcapability fs-read-text-file ("fs" "readTextFile")
+    :description "Read a text file from the agent's filesystem"
+    :permissions :auto
+    (let ((path (cdr (assoc "path" params :test #'string=))))
+      (uiop:read-file-string path)))
+****** acp-agent-capabilities-tree
 #+begin_src lisp
-  (select-by-tag parsed-org tags)
+  (acp-agent-capabilities-tree nil)
 #+end_src
 
-Selects entries from a parsed Org structure that contain ALL specified tags.
-
-- =parsed-org=: The plist structure returned by =org-mode-parser:parse=.
-- =tags=: A list of strings representing the tags to match (e.g.,
-  ='("api" "public")=).
-
-*Return Value:* A list of entry alists that match all the given tags.
-***** insert-child
+Build a nested alist tree from registered agent capabilities for the initialize response.
+   Returns an alist like (("fs" . (("readTextFile" . t) ("writeTextFile" . t))) ("terminal" . t)).
+****** acp-check-capability-permission
 #+begin_src lisp
-  (insert-child original-org-string parent-id new-org-string)
+  (acp-check-capability-permission (cap id params))
 #+end_src
 
-Parses =original-org-string=, finds the entry with =parent-id=, parses =new-org-string=, adjusts its headline levels to be children of the parent, and inserts it after the parent's last descendant.
-
-- =original-org-string=: The string content of the main Org document.
-- =parent-id=: The string ID of the parent headline (from its =:PROPERTIES:= drawer).
-- =new-org-string=: The string content of the new Org entry/entries to
-  insert.
-
-*Return Value:* The reconstructed Org string with the new child entry inserted. Throws an error if =parent-id= is not found.
-***** insert-sibling
+Check permissions for an ACP capability before executing it.
+   Returns :allow, :deny, or :confirm resolved to :allow/:deny.
+   Sends appropriate error responses for :deny.
+   Capabilities with :permissions :auto are auto-allowed unless explicitly denied by a rule.
+****** acp-find-capability-handler
 #+begin_src lisp
-  (insert-sibling original-org-string sibling-id new-org-string)
+  (acp-find-capability-handler (method))
 #+end_src
 
-Similar to =insert-child=, but adjusts the new entry's level to match the =sibling-id= entry's level, inserting it as a following sibling.
-
-- =original-org-string=: The string content of the main Org document.
-- =sibling-id=: The string ID of the sibling headline.
-- =new-org-string=: The string content of the new Org entry/entries to
-  insert.
-
-*Return Value:* The reconstructed Org string with the new sibling entry inserted.
-***** org-to-string
+Find a capability handler for the given JSON-RPC method string.
+   METHOD is like "fs/read_text_file" or "terminal/create".
+   Maps method names to capability keys.
+****** acp-find-capability-for-method
 #+begin_src lisp
-  (org-to-string parsed-org)
+  (acp-find-capability-for-method (method))
 #+end_src
 
-Converts a parsed Org structure (plist) back into a valid Org-mode formatted string. This is the inverse of =parse=.
+Find the full capability struct for the given JSON-RPC method string.
+   Returns the acp-capability struct or NIL.
+****** acp-write-message
+#+begin_src lisp
+  (acp-write-message (message))
+#+end_src
 
-- =parsed-org=: The plist structure returned by =org-mode-parser:parse=.
+Serialize MESSAGE as JSON and write to stdout as a single newline-delimited line.
+   MESSAGE is an alist representing a JSON-RPC 2.0 object.
+****** acp-read-message
+#+begin_src lisp
+  (acp-read-message nil)
+#+end_src
 
-*Return Value:* A string containing the Org-mode representation of the parsed structure.
-**** org-mode Package
-This package provides a line-based, lower-level API for manipulating Org-mode files as strings. It is generally recommended to use =org-mode-parser= for more robust operations, but this package is useful for simpler, faster manipulations.
-***** Pure Functions (String -> String)
-These functions take an Org string as input and return a modified Orgstring.
+Read a single newline-delimited JSON-RPC message from stdin.
+   Returns the parsed alist or NIL on EOF.
+****** acp-log
+#+begin_src lisp
+  (acp-log (fmt &rest args))
+#+end_src
 
-- =(insert-child org-string target-id new-content-string)=: Inserts
-  =new-content-string= as a child of the headline with =target-id=.
-- =(insert-sibling org-string target-id new-content-string)=: Inserts
-  =new-content-string= as a sibling after the headline with =target-id=.
-- =(delete-headline org-string target-id)=: Removes the headline with
-  =target-id= and all its sub-headlines and content.
-- =(select-headlines-by-tag org-string tags)=: Returns a new Org string
-  containing only the headlines (and their content) that match ALL
-  =tags=.
-- =(filter-headlines org-string tags-to-filter)=: Returns a new Org
-  string with headlines matching ANY of =tags-to-filter= removed.
-***** Impure Functions (File I/O)
-These functions modify a file in place. They are wrappers around the pure functions that handle reading from and writing to the file. They return =T= on success and =NIL= on failure.
+Log a message to stderr for debugging in ACP mode.
+****** acp-make-response
+#+begin_src lisp
+  (acp-make-response (id result))
+#+end_src
 
-- =(insert-child! filename target-id new-content-string)=
-- =(insert-sibling! filename target-id new-content-string)=
-- =(delete-headline! filename target-id)=
-- =(filter-headlines! filename tags-to-filter)=
-***** Helper Functions
-- =(get-headline-level line)=: Returns the numeric level of a headline
-  string, or =NIL=.
-- =(get-property prop-name lines)=: Finds the value of a property (e.g.,
-  =:ID:=) within a list of lines representing a property drawer.
-- =(find-headline-region lines target-id)=: Finds the start and end line
-  indices for the headline with =target-id=.
-- =(get-tags-from-headline headline-line)=: Extracts a list of tags
-  (e.g., =("api" "public")=) from a headline string.
-**** hactar
-This is the main package most extension authors and advanced users interact with. It contains the REPL commands, state, context management, generation systems, protocol integrations, compiler targets, and the majority of Hactar's extension surface.
+Create a JSON-RPC 2.0 success response.
+****** acp-make-error-response
+#+begin_src lisp
+  (acp-make-error-response (id code message &optional data))
+#+end_src
+
+Create a JSON-RPC 2.0 error response.
+****** acp-make-notification
+#+begin_src lisp
+  (acp-make-notification (method params))
+#+end_src
+
+Create a JSON-RPC 2.0 notification (no id).
+****** acp-make-request
+#+begin_src lisp
+  (acp-make-request (method params))
+#+end_src
+
+Create a JSON-RPC 2.0 request to send to the Client.
+   Returns the request message and allocates a pending request ID.
+****** acp-call-client
+#+begin_src lisp
+  (acp-call-client (method params &key (timeout 60)))
+#+end_src
+
+Send a JSON-RPC request to the Client and wait for the response.
+   Returns the result or signals an error.
+****** acp-send-session-update
+#+begin_src lisp
+  (acp-send-session-update (update))
+#+end_src
+
+Send a session/update notification to the Client.
+****** acp-send-agent-message-chunk
+#+begin_src lisp
+  (acp-send-agent-message-chunk (text))
+#+end_src
+
+Send an agent_message_chunk session update with text content.
+****** acp-send-user-message-chunk
+#+begin_src lisp
+  (acp-send-user-message-chunk (text))
+#+end_src
+
+Send a user_message_chunk session update (for session/load replay).
+****** acp-send-thought-chunk
+#+begin_src lisp
+  (acp-send-thought-chunk (text))
+#+end_src
+
+Send a thought_message_chunk session update.
+****** acp-send-tool-call
+#+begin_src lisp
+  (acp-send-tool-call (tool-call-id title kind status &key content locations raw-input))
+#+end_src
+
+Send a tool_call session update.
+****** acp-send-tool-call-update
+#+begin_src lisp
+  (acp-send-tool-call-update (tool-call-id status &key content))
+#+end_src
+
+Send a tool_call_update session update.
+****** acp-send-available-commands
+#+begin_src lisp
+  (acp-send-available-commands nil)
+#+end_src
+
+Send available_commands_update with only ACP-compatible slash commands.
+****** acp-send-config-options
+#+begin_src lisp
+  (acp-send-config-options nil)
+#+end_src
+
+Send config_options_update with model and mode selectors.
+****** acp-request-permission
+#+begin_src lisp
+  (acp-request-permission (tool-name args tool-call-id))
+#+end_src
+
+Request permission from the Client for a tool call.
+   Returns :allow or :deny.
+****** acp-client-has-capability?
+#+begin_src lisp
+  (acp-client-has-capability? (path))
+#+end_src
+
+Check if the Client advertised a capability at the given dotted path.
+   PATH is a list of strings, e.g. ("fs" "readTextFile").
+****** acp-fs-read-text-file
+#+begin_src lisp
+  (acp-fs-read-text-file (path &key line limit))
+#+end_src
+
+Read a text file via the Client's fs/read_text_file method.
+****** acp-fs-write-text-file
+#+begin_src lisp
+  (acp-fs-write-text-file (path content))
+#+end_src
+
+Write a text file via the Client's fs/write_text_file method.
+****** acp-terminal-create
+#+begin_src lisp
+  (acp-terminal-create (command &key args env cwd output-byte-limit))
+#+end_src
+
+Create a terminal via the Client's terminal/create method.
+   Returns the terminal ID.
+****** acp-terminal-output
+#+begin_src lisp
+  (acp-terminal-output (terminal-id))
+#+end_src
+
+Get terminal output via the Client's terminal/output method.
+****** acp-terminal-wait-for-exit
+#+begin_src lisp
+  (acp-terminal-wait-for-exit (terminal-id))
+#+end_src
+
+Wait for terminal exit via the Client's terminal/wait_for_exit method.
+****** acp-terminal-kill
+#+begin_src lisp
+  (acp-terminal-kill (terminal-id))
+#+end_src
+
+Kill a terminal via the Client's terminal/kill method.
+****** acp-terminal-release
+#+begin_src lisp
+  (acp-terminal-release (terminal-id))
+#+end_src
+
+Release a terminal via the Client's terminal/release method.
+****** acp-terminal-generate-id
+#+begin_src lisp
+  (acp-terminal-generate-id nil)
+#+end_src
+
+Generate a unique terminal ID.
+****** acp-terminal-run-async
+#+begin_src lisp
+  (acp-terminal-run-async (command args env cwd output-byte-limit))
+#+end_src
+
+Launch a command asynchronously and return a terminal-info struct.
+   ENV is a list of alists with "name" and "value" keys.
+****** acp-make-diff-content
+#+begin_src lisp
+  (acp-make-diff-content (path old-text new-text))
+#+end_src
+
+Create a diff content block for tool call content.
+****** acp-make-resource-link
+#+begin_src lisp
+  (acp-make-resource-link (file-path))
+#+end_src
+
+Create a resource_link content block for a file in context.
+****** acp-send-plan
+#+begin_src lisp
+  (acp-send-plan (entries))
+#+end_src
+
+Send a plan session update. ENTRIES is a list of plists with :content, :priority, :status.
+****** acp-send-resource-links-for-context
+#+begin_src lisp
+  (acp-send-resource-links-for-context nil)
+#+end_src
+
+Send resource_link content blocks for all files currently in context.
+****** acp-absolute-path
+#+begin_src lisp
+  (acp-absolute-path (path))
+#+end_src
+
+Ensure PATH is absolute. If relative, merge with *repo-root*.
+****** acp-parse-content-blocks
+#+begin_src lisp
+  (acp-parse-content-blocks (prompt-array))
+#+end_src
+
+Parse an array of ACP ContentBlock objects into a user message string.
+   Handles text, resource, resource_link, and image types.
+   Returns (values text-string images-list).
+****** acp-handle-initialize
+#+begin_src lisp
+  (acp-handle-initialize (id params))
+#+end_src
+
+Handle the initialize method.
+****** acp-handle-authenticate
+#+begin_src lisp
+  (acp-handle-authenticate (id params))
+#+end_src
+
+Handle the authenticate method. No auth required.
+****** acp-handle-session-new
+#+begin_src lisp
+  (acp-handle-session-new (id params))
+#+end_src
+
+Handle session/new to create a new session.
+****** acp-handle-session-prompt
+#+begin_src lisp
+  (acp-handle-session-prompt (id params))
+#+end_src
+
+Handle session/prompt to process a user message.
+****** acp-process-prompt
+#+begin_src lisp
+  (acp-process-prompt (request-id user-text images))
+#+end_src
+
+Process a prompt through the LLM, streaming chunks via session/update.
+****** acp-execute-tool-calls
+#+begin_src lisp
+  (acp-execute-tool-calls (tool-calls))
+#+end_src
+
+Execute parsed XML tool calls with ACP permission handling and status reporting.
+****** acp-handle-session-cancel
+#+begin_src lisp
+  (acp-handle-session-cancel (params))
+#+end_src
+
+Handle session/cancel notification.
+****** acp-handle-set-config-option
+#+begin_src lisp
+  (acp-handle-set-config-option (id params))
+#+end_src
+
+Handle session/set_config_option.
+****** acp-handle-set-mode
+#+begin_src lisp
+  (acp-handle-set-mode (id params))
+#+end_src
+
+Handle session/set_mode (backward compat).
+****** acp-dispatch-message
+#+begin_src lisp
+  (acp-dispatch-message (msg))
+#+end_src
+****** acp-main-loop
+#+begin_src lisp
+  (acp-main-loop nil)
+#+end_src
+
+Main stdio loop for ACP mode. Reads JSON-RPC messages and dispatches them.
+****** acp-on-context-file-changed
+#+begin_src lisp
+  (acp-on-context-file-changed (file-path))
+#+end_src
+
+Hook handler: resend available commands when context files change (commands may depend on context).
+****** acp-on-model-changed
+#+begin_src lisp
+  (acp-on-model-changed (new-model old-model))
+#+end_src
+
+Hook handler: resend config options when model changes.
+****** acp-install-hooks
+#+begin_src lisp
+  (acp-install-hooks nil)
+#+end_src
+
+Install ACP-specific hooks for dynamic updates.
+****** start-acp
+#+begin_src lisp
+  (start-acp nil)
+#+end_src
+
+Initialize and start the ACP stdio server.
+***** agents.lisp
+****** defagent
+#+begin_src lisp
+  (defagent (name args &body body))
+#+end_src
+
+Define an agent that can be run to perform tasks.
+   The body should contain a docstring (optional) followed by keyword arguments:
+   :stack (optional list of strings)
+   :init (required form)
+   :run (optional form)
+   :stop-condition (optional form)
+   :cleanup (optional form)
+****** derive-lint-command-from-stack
+#+begin_src lisp
+  (derive-lint-command-from-stack nil)
+#+end_src
+
+Derive a sensible lint/build command from the current *stack*.
+****** get-lint-command
+#+begin_src lisp
+  (get-lint-command nil)
+#+end_src
+
+Return the lint command from config or a derived default.
+****** get-lint-prompt
+#+begin_src lisp
+  (get-lint-prompt (command output user-instructions))
+#+end_src
+
+Return the lint command from config or a derived default.
+****** derive-typecheck-command-from-stack
+#+begin_src lisp
+  (derive-typecheck-command-from-stack nil)
+#+end_src
+
+Derive a sensible typecheck command from the current *stack*.
+****** get-typecheck-command
+#+begin_src lisp
+  (get-typecheck-command nil)
+#+end_src
+
+Return the typecheck command from config or a derived default.
+****** get-typecheck-prompt
+#+begin_src lisp
+  (get-typecheck-prompt (command output user-instructions))
+#+end_src
+
+Load a typecheck-fix prompt template and render it with details.
+****** derive-test-agent-command-from-stack
+#+begin_src lisp
+  (derive-test-agent-command-from-stack nil)
+#+end_src
+
+Derive a sensible test command from the current *stack*.
+****** get-test-agent-command
+#+begin_src lisp
+  (get-test-agent-command nil)
+#+end_src
+
+Return the test command from config or a derived default.
+****** get-test-agent-prompt
+#+begin_src lisp
+  (get-test-agent-prompt (command output user-instructions))
+#+end_src
+
+Load a test-fix prompt template and render it with details.
+****** run-command-loop
+#+begin_src lisp
+  (run-command-loop (agent-instance command-string prompt-name))
+#+end_src
+
+Runs a command in a loop, feeding output to an LLM until a stop condition is met.
+   This function is intended to be called from within an agent's run logic.
+****** default-stop-condition
+#+begin_src lisp
+  (default-stop-condition (agent-instance))
+#+end_src
+
+Default stop condition for an agent. Stops if the last command was successful (0) or failed terminally.
+****** agent-can-run-p
+#+begin_src lisp
+  (agent-can-run-p nil)
+#+end_src
+
+Checks if the safety flags allow agents to run.
+****** start-agent
+#+begin_src lisp
+  (start-agent (agent-def args))
+#+end_src
+
+Creates an agent instance and starts its execution loop in a new thread.
+****** stop-agent
+#+begin_src lisp
+  (stop-agent (agent-id))
+#+end_src
+
+Stops a running agent by its ID.
+***** agentshell-mode.lisp
+****** agentshell-write-message
+#+begin_src lisp
+  (agentshell-write-message (state message))
+#+end_src
+
+Serialize MESSAGE as JSON and write to agent's stdin as newline-delimited JSON.
+****** agentshell-read-message
+#+begin_src lisp
+  (agentshell-read-message (state))
+#+end_src
+
+Read a single newline-delimited JSON-RPC message from agent's stdout.
+   Returns parsed alist or NIL on EOF.
+****** agentshell-make-request
+#+begin_src lisp
+  (agentshell-make-request (state method params))
+#+end_src
+
+Create a JSON-RPC 2.0 request and return (values message id-string).
+****** agentshell-make-response
+#+begin_src lisp
+  (agentshell-make-response (id result))
+#+end_src
+
+Create a JSON-RPC 2.0 success response (client → agent).
+****** agentshell-make-error-response
+#+begin_src lisp
+  (agentshell-make-error-response (id code message))
+#+end_src
+
+Create a JSON-RPC 2.0 error response (client → agent).
+****** agentshell-call
+#+begin_src lisp
+  (agentshell-call (state method params &key (timeout 120)))
+#+end_src
+
+Send a request and wait for the response, processing other messages meanwhile.
+   Returns the result alist.
+****** agentshell-append-output
+#+begin_src lisp
+  (agentshell-append-output (state text))
+#+end_src
+
+Append text to the output buffer, splitting into lines.
+****** agentshell-append-output-inline
+#+begin_src lisp
+  (agentshell-append-output-inline (state text))
+#+end_src
+
+Append text to the last output line (for streaming chunks).
+   If the text contains newlines, split appropriately.
+****** agentshell-process-queued-messages
+#+begin_src lisp
+  (agentshell-process-queued-messages (state))
+#+end_src
+
+Process all messages in the queue.
+****** agentshell-dispatch
+#+begin_src lisp
+  (agentshell-dispatch (state msg))
+#+end_src
+
+Dispatch an incoming JSON-RPC message from the agent.
+****** agentshell-handle-notification
+#+begin_src lisp
+  (agentshell-handle-notification (state method params))
+#+end_src
+
+Handle a notification from the agent.
+****** agentshell-handle-session-update
+#+begin_src lisp
+  (agentshell-handle-session-update (state params))
+#+end_src
+
+Handle a session/update notification.
+****** agentshell-handle-agent-request
+#+begin_src lisp
+  (agentshell-handle-agent-request (state id method params))
+#+end_src
+
+Handle an incoming request from the agent (agent→client).
+****** agentshell-handle-permission-request
+#+begin_src lisp
+  (agentshell-handle-permission-request (state id params))
+#+end_src
+
+Handle a permission request from the agent. Queue it for user interaction.
+****** agentshell-resolve-permission
+#+begin_src lisp
+  (agentshell-resolve-permission (state choice-index))
+#+end_src
+
+Resolve a pending permission request with the user's choice.
+****** agentshell-handle-fs-read
+#+begin_src lisp
+  (agentshell-handle-fs-read (state id params))
+#+end_src
+
+Handle fs/read_text_file from agent.
+****** agentshell-handle-fs-write
+#+begin_src lisp
+  (agentshell-handle-fs-write (state id params))
+#+end_src
+
+Handle fs/write_text_file from agent.
+****** agentshell-handle-terminal-create
+#+begin_src lisp
+  (agentshell-handle-terminal-create (state id params))
+#+end_src
+
+Handle terminal/create from agent.
+****** agentshell-handle-terminal-output
+#+begin_src lisp
+  (agentshell-handle-terminal-output (state id params))
+#+end_src
+
+Handle terminal/output from agent.
+****** agentshell-handle-terminal-wait
+#+begin_src lisp
+  (agentshell-handle-terminal-wait (state id params))
+#+end_src
+
+Handle terminal/wait_for_exit from agent.
+****** agentshell-handle-terminal-kill
+#+begin_src lisp
+  (agentshell-handle-terminal-kill (state id params))
+#+end_src
+
+Handle terminal/kill from agent.
+****** agentshell-handle-terminal-release
+#+begin_src lisp
+  (agentshell-handle-terminal-release (state id params))
+#+end_src
+
+Handle terminal/release from agent.
+****** agentshell-initialize
+#+begin_src lisp
+  (agentshell-initialize (state))
+#+end_src
+
+Perform the ACP initialize handshake.
+****** agentshell-new-session
+#+begin_src lisp
+  (agentshell-new-session (state))
+#+end_src
+
+Create a new ACP session.
+****** agentshell-send-prompt
+#+begin_src lisp
+  (agentshell-send-prompt (state text))
+#+end_src
+
+Send a prompt to the agent and process the response.
+****** agentshell-send-cancel
+#+begin_src lisp
+  (agentshell-send-cancel (state))
+#+end_src
+
+Send session/cancel notification.
+****** agentshell-start-reader
+#+begin_src lisp
+  (agentshell-start-reader (state))
+#+end_src
+
+Start a background thread that reads messages from the agent.
+****** agentshell-spawn-agent
+#+begin_src lisp
+  (agentshell-spawn-agent (command-args))
+#+end_src
+
+Spawn an agent subprocess and return a state struct.
+   COMMAND-ARGS is a list of strings for the command, e.g. ("hactar" "--acp").
+****** agentshell-stop
+#+begin_src lisp
+  (agentshell-stop (state))
+#+end_src
+
+Stop the agent subprocess and clean up.
+****** agentshell-render
+#+begin_src lisp
+  (agentshell-render (state))
+#+end_src
+
+Render the agentshell TUI.
+****** agentshell-handle-local-command
+#+begin_src lisp
+  (agentshell-handle-local-command (state input))
+#+end_src
+
+Handle local /commands in agentshell. Returns T if handled.
+****** agentshell-input-insert-char
+#+begin_src lisp
+  (agentshell-input-insert-char (state c))
+#+end_src
+
+Insert a character at the cursor position.
+****** agentshell-input-backspace
+#+begin_src lisp
+  (agentshell-input-backspace (state))
+#+end_src
+
+Delete character before cursor.
+****** agentshell-input-delete
+#+begin_src lisp
+  (agentshell-input-delete (state))
+#+end_src
+
+Delete character at cursor.
+****** agentshell-input-submit
+#+begin_src lisp
+  (agentshell-input-submit (state))
+#+end_src
+
+Submit the current input buffer.
+****** agentshell-history-prev
+#+begin_src lisp
+  (agentshell-history-prev (state))
+#+end_src
+
+Navigate to previous history entry.
+****** agentshell-history-next
+#+begin_src lisp
+  (agentshell-history-next (state))
+#+end_src
+
+Navigate to next history entry.
+****** agentshell-tui-loop
+#+begin_src lisp
+  (agentshell-tui-loop (state))
+#+end_src
+
+Main TUI event loop for agentshell.
+****** start-agentshell
+#+begin_src lisp
+  (start-agentshell (&key (agent-command nil)))
+#+end_src
+
+Start agentshell, connecting to an ACP agent.
+   AGENT-COMMAND is a list of strings for the agent subprocess command.
+   Defaults to launching hactar itself with --acp.
+***** analyzers.lisp
+****** is-analyzer-enabled?
+#+begin_src lisp
+  (is-analyzer-enabled? (analyzer-name))
+#+end_src
+
+Check if an analyzer is currently enabled.
+****** set-analyzer-enabled
+#+begin_src lisp
+  (set-analyzer-enabled (analyzer-name enabled-p))
+#+end_src
+
+Set the enabled status of an analyzer.
+****** def-analyzer
+#+begin_src lisp
+  (def-analyzer (name hooks enabled (&rest args) &body body))
+#+end_src
+
+Define an analyzer function, register it, and attach it to specified hooks.
+   ENABLED is a boolean indicating if the analyzer should be enabled by default.
+***** api-http.lisp
+****** localhost-only-middleware
+#+begin_src lisp
+  (localhost-only-middleware (app))
+#+end_src
+
+Middleware to reject requests not originating from localhost.
+****** write-port-file
+#+begin_src lisp
+  (write-port-file (port))
+#+end_src
+
+Writes the port number to the .hactar.port file using UTF-8.
+****** start-http-server
+#+begin_src lisp
+  (start-http-server (&key (port *http-port*)))
+#+end_src
+
+Starts the Clack server with Woo, checking port availability.
+****** stop-http-server
+#+begin_src lisp
+  (stop-http-server nil)
+#+end_src
+
+Stops the running Clack server.
+****** start-http
+#+begin_src lisp
+  (start-http nil)
+#+end_src
+
+Start the HTTP server if not already running.
+***** assistant.lisp
+****** handle-assistant-extraction-update
+#+begin_src lisp
+  (handle-assistant-extraction-update (extraction-text))
+#+end_src
+
+Handles updates to the assistant's screen extraction.
+   Writes to file if *assistant-output-file* is set.
+   Generates and plays TTS if *assistant-audio-enabled* is set and not muted.
+****** is-ai-edit-comment-event?
+#+begin_src lisp
+  (is-ai-edit-comment-event? (pathname event-type))
+#+end_src
+
+Detects AI! edit requests on file add/change.
+****** is-ai-question-comment-event?
+#+begin_src lisp
+  (is-ai-question-comment-event? (pathname event-type))
+#+end_src
+
+Detects AI? question requests on file add/change.
+****** process-ai-question-file
+#+begin_src lisp
+  (process-ai-question-file (pathname))
+#+end_src
+
+Processes AI? comments by asking the LLM to answer questions about the code.
+****** is-ai-comment-event?
+#+begin_src lisp
+  (is-ai-comment-event? (pathname event-type))
+#+end_src
+
+Checks if a file event is relevant for the AI comment analyzer.
+   Specifically, if the file was added/changed and contains 'AI!' on a line.
+****** add-to-ai-comment-queue
+#+begin_src lisp
+  (add-to-ai-comment-queue (pathname))
+#+end_src
+
+Adds a pathname to the AI comment processing queue if not already present.
+****** process-ai-comment-file
+#+begin_src lisp
+  (process-ai-comment-file (pathname))
+#+end_src
+
+Processes a single file for AI! comments.
+****** maybe-process-next-ai-comment
+#+begin_src lisp
+  (maybe-process-next-ai-comment nil)
+#+end_src
+
+Checks the AI comment queue and processes the next file if the lock is free.
+****** take-focused-window-screenshot
+#+begin_src lisp
+  (take-focused-window-screenshot nil)
+#+end_src
+
+Takes a screenshot of the focused window. Supports niri for now.
+   Returns the pathname to the saved screenshot (PNG) or nil on failure.
+****** generate-tts-audio
+#+begin_src lisp
+  (generate-tts-audio (text output-pathname))
+#+end_src
+
+Generates a WAV audio file from TEXT using Piper TTS.
+   Returns T on success, NIL on failure.
+****** assistant-update-query
+#+begin_src lisp
+  (assistant-update-query (user-prompt))
+#+end_src
+
+Handles assistant mode updates: takes a screenshot if applicable, then gets an LLM response.
+   USER-PROMPT: The prompt text from the user.
+***** build.lisp
+****** build-hactar
+#+begin_src lisp
+  (build-hactar nil)
+#+end_src
+
+Build the hactar executable using ASDF's program-op.
+***** check.lisp
+****** check-sbcl-installed?
+#+begin_src lisp
+  (check-sbcl-installed? nil)
+#+end_src
+
+Check if SBCL is installed.
+****** check-git-installed?
+#+begin_src lisp
+  (check-git-installed? nil)
+#+end_src
+
+Check if git is installed.
+****** check-hactar-pro-path-writable?
+#+begin_src lisp
+  (check-hactar-pro-path-writable? nil)
+#+end_src
+
+Check write permissions to *hactar-pro-path*.
+****** check-hactar-config-path-writable?
+#+begin_src lisp
+  (check-hactar-config-path-writable? nil)
+#+end_src
+
+Check write permissions to *hactar-config-path*.
+****** check-hactar-data-path-writable?
+#+begin_src lisp
+  (check-hactar-data-path-writable? nil)
+#+end_src
+
+Check write permissions to *hactar-data-path*.
+****** check-piper-model-path-writable?
+#+begin_src lisp
+  (check-piper-model-path-writable? nil)
+#+end_src
+
+Check write permissions to the directory containing *piper-model-path*.
+****** check-current-folder-git-project?
+#+begin_src lisp
+  (check-current-folder-git-project? nil)
+#+end_src
+
+Check that the current folder is a git project.
+****** check-hactar-repo-cloned?
+#+begin_src lisp
+  (check-hactar-repo-cloned? nil)
+#+end_src
+
+Check whether the Hactar repo has been cloned at *hactar-repo-dir*.
+****** check-prompts-folder-exists?
+#+begin_src lisp
+  (check-prompts-folder-exists? nil)
+#+end_src
+
+Check whether the prompts folder exists at *hactar-config-path*/prompts.
+****** check-models-config-exists?
+#+begin_src lisp
+  (check-models-config-exists? nil)
+#+end_src
+
+Check whether the models configuration file exists at *hactar-config-path*/models.yaml.
+****** check-can-clone-hactar-pro-repo?
+#+begin_src lisp
+  (check-can-clone-hactar-pro-repo? nil)
+#+end_src
+
+Check that we can access/clone the Hactar Pro repo (uses HACTAR_PRO_REPO_URL if set).
+****** run-all-checks-and-report
+#+begin_src lisp
+  (run-all-checks-and-report nil)
+#+end_src
+
+Run all environment/setup checks and report results. Returns T if all pass.
+***** checker.lisp
+****** disable-check
+#+begin_src lisp
+  (disable-check (name))
+#+end_src
+
+Disable a check rule by NAME (symbol). Can be called from user.lisp.
+****** enable-check
+#+begin_src lisp
+  (enable-check (name))
+#+end_src
+
+Re-enable a previously disabled check rule by NAME (symbol).
+****** check-enabled-p
+#+begin_src lisp
+  (check-enabled-p (name))
+#+end_src
+
+Return T if the check rule NAME is enabled.
+****** defcheck
+#+begin_src lisp
+  (defcheck (target name &body body))
+#+end_src
+
+Define a check rule for TARGET. Replaces any existing rule with the same NAME.
+****** walk-forms
+#+begin_src lisp
+  (walk-forms (fn forms))
+#+end_src
+
+Walk every form and sub-form in FORMS, calling FN on each.
+****** collect-target-rules
+#+begin_src lisp
+  (collect-target-rules (target))
+#+end_src
+
+Collect all check rules for TARGET and its parents, filtering out disabled rules.
+****** run-checks
+#+begin_src lisp
+  (run-checks (target forms))
+#+end_src
+
+Run all check rules for TARGET against FORMS. Returns list of check-results.
+****** detect-target-from-extension
+#+begin_src lisp
+  (detect-target-from-extension (path))
+#+end_src
+
+Detect the compilation target keyword from a file's extension.
+****** format-check-results-xml
+#+begin_src lisp
+  (format-check-results-xml (results &optional (stream *standard-output*)))
+#+end_src
+
+Format check results as XML diagnostics.
+****** format-check-results-json
+#+begin_src lisp
+  (format-check-results-json (results &optional (stream *standard-output*)))
+#+end_src
+
+Format check results as JSON diagnostics.
+****** offset-to-line-col
+#+begin_src lisp
+  (offset-to-line-col (source offset))
+#+end_src
+
+Convert a character OFFSET in SOURCE to (line . col), both 0-based.
+****** read-all-forms-with-positions
+#+begin_src lisp
+  (read-all-forms-with-positions (source))
+#+end_src
+
+Read all forms from SOURCE, returning list of (form start-offset end-offset).
+****** check-file-source
+#+begin_src lisp
+  (check-file-source (source &key target (file )))
+#+end_src
+
+Check SOURCE string, returning check-results with source-hints populated.
+   Target is auto-detected from (target :xxx) forms if not specified.
+****** check-unsupported-form
+#+begin_src lisp
+  (check-unsupported-form (target form supported-ops))
+#+end_src
+
+Generic check: if FORM's operator is not in SUPPORTED-OPS, return an error.
+***** code-value.lisp
+****** generate-code-value-id
+#+begin_src lisp
+  (generate-code-value-id nil)
+#+end_src
+
+Generate a unique ID for a code-value.
+****** register-code-value
+#+begin_src lisp
+  (register-code-value (cv))
+#+end_src
+
+Register a code-value in the global registry.
+****** get-code-value
+#+begin_src lisp
+  (get-code-value (id))
+#+end_src
+
+Retrieve a code-value by ID.
+****** list-code-values
+#+begin_src lisp
+  (list-code-values nil)
+#+end_src
+
+Return a list of all registered code-values.
+****** clear-code-values
+#+begin_src lisp
+  (clear-code-values nil)
+#+end_src
+
+Clear all registered code-values.
+****** code/select
+#+begin_src lisp
+  (code/select (source &key function class method region name))
+#+end_src
+
+Select code from a source and wrap it as a code-value.
+
+SOURCE can be:
+- A file path (string or pathname)
+- A file path with line range: "file.py:10-20"
+
+Keyword arguments for precise selection:
+- :function NAME - Select a specific function
+- :class NAME - Select a specific class
+- :method NAME - Select a specific method (requires :class)
+- :region (START . END) - Select specific line range
+- :name - Optional name to bind this code-value to
+
+Returns the created code-value.
+****** code/from-string
+#+begin_src lisp
+  (code/from-string (text &key language name))
+#+end_src
+
+Create a code-value from a string of code.
+   Useful for generated code or code from other sources.
+****** code/from-context
+#+begin_src lisp
+  (code/from-context (file-path))
+#+end_src
+
+Create a code-value from a file already in the Hactar context.
+****** parse-source-specifier
+#+begin_src lisp
+  (parse-source-specifier (source))
+#+end_src
+
+Parse a source specifier like 'file.py:10-20' into (path . (start . end)).
+****** resolve-code-path
+#+begin_src lisp
+  (resolve-code-path (file-path))
+#+end_src
+
+Resolve a file path relative to repo root.
+****** extract-lines
+#+begin_src lisp
+  (extract-lines (content start-line end-line))
+#+end_src
+
+Extract lines START-LINE through END-LINE from CONTENT.
+   Returns (values extracted-text (start . end)).
+****** extract-function
+#+begin_src lisp
+  (extract-function (content function-name &optional file-path))
+#+end_src
+
+Use LLM to extract a function from content.
+   Returns (values function-text (start-line . end-line)).
+****** extract-class
+#+begin_src lisp
+  (extract-class (content class-name method-name &optional file-path))
+#+end_src
+
+Use LLM to extract a class (and optionally a specific method) from content.
+   Returns (values class-text (start-line . end-line)).
+****** parse-line-range-from-response
+#+begin_src lisp
+  (parse-line-range-from-response (response))
+#+end_src
+
+Parse a line range comment like '// Lines: 10-20' from response.
+****** remove-line-comment
+#+begin_src lisp
+  (remove-line-comment (text))
+#+end_src
+
+Remove the first line if it's a Lines: comment.
+****** code/describe
+#+begin_src lisp
+  (code/describe (cv &key force))
+#+end_src
+
+Populate semantic fields of a code-value using LLM.
+   Does nothing if already populated unless FORCE is t.
+   Returns the code-value with semantic fields filled.
+****** parse-describe-response
+#+begin_src lisp
+  (parse-describe-response (cv response))
+#+end_src
+
+Parse the LLM response and populate code-value fields.
+****** parse-comma-list
+#+begin_src lisp
+  (parse-comma-list (str))
+#+end_src
+
+Parse a comma-separated list, filtering out 'none'.
+****** code/source
+#+begin_src lisp
+  (code/source (cv))
+#+end_src
+
+Return the source text of a code-value.
+****** code/intent
+#+begin_src lisp
+  (code/intent (cv))
+#+end_src
+
+Return the intent of a code-value, computing if necessary.
+****** code/ask
+#+begin_src lisp
+  (code/ask (cv question))
+#+end_src
+
+Ask a question about the code-value.
+   Returns the LLM's answer as a string.
+****** code/history
+#+begin_src lisp
+  (code/history (cv))
+#+end_src
+
+Return the chain of transformations that led to this code-value.
+   Returns a list from oldest (original) to newest (cv).
+****** code/parent
+#+begin_src lisp
+  (code/parent (cv))
+#+end_src
+
+Return the parent code-value (one step back in history).
+****** code/original
+#+begin_src lisp
+  (code/original (cv))
+#+end_src
+
+Return the root/original code-value in the transformation chain.
+****** code/transformation-description
+#+begin_src lisp
+  (code/transformation-description (cv))
+#+end_src
+
+Return the transformation that created this code-value from its parent.
+****** code/summary
+#+begin_src lisp
+  (code/summary (cv))
+#+end_src
+
+Return a short summary string for a code-value.
+****** code/show
+#+begin_src lisp
+  (code/show (cv &key (stream *standard-output*)))
+#+end_src
+
+Display a code-value with its metadata.
+****** deftransform
+#+begin_src lisp
+  (deftransform (name description &body body))
+#+end_src
+
+Define a reusable code transformation (zero LLM).
+
+Usage:
+(deftransform add-rate-limit
+  "Add rate limiting middleware"
+  :when (and (express/handler? cv) (not (has-rate-limit? cv)))
+  :pattern (:search "router.{{method}}" :replace "router.{{method}}, rateLimit,")
+  :defaults (:max-requests 100))
+****** get-transform
+#+begin_src lisp
+  (get-transform (name))
+#+end_src
+
+Get a transform definition by name.
+****** list-transforms
+#+begin_src lisp
+  (list-transforms nil)
+#+end_src
+
+Return a list of all defined transform names.
+****** code/transform
+#+begin_src lisp
+  (code/transform (cv transform &rest args))
+#+end_src
+
+Apply a transform to a code-value, returning a new code-value.
+   TRANSFORM can be a transform name (symbol/string) or a transform-def.
+   This operation is ZERO LLM - uses patterns and templates only.
+****** apply-pattern-transform
+#+begin_src lisp
+  (apply-pattern-transform (cv pattern params))
+#+end_src
+
+Apply a search/replace pattern to code-value text.
+****** apply-template-transform
+#+begin_src lisp
+  (apply-template-transform (cv template-name template-vars params))
+#+end_src
+
+Apply a template to a code-value.
+****** get-transform-template-path
+#+begin_src lisp
+  (get-transform-template-path (template-name))
+#+end_src
+
+Get the path to a transform template.
+****** expand-pattern-vars
+#+begin_src lisp
+  (expand-pattern-vars (pattern params))
+#+end_src
+
+Expand {{var}} placeholders in a pattern string.
+****** extract-template-vars
+#+begin_src lisp
+  (extract-template-vars (cv template-vars params))
+#+end_src
+
+Extract template variables from a code-value.
+****** code/stage!
+#+begin_src lisp
+  (code/stage! (cv))
+#+end_src
+
+Stage a code-value for application.
+****** code/stage-all!
+#+begin_src lisp
+  (code/stage-all! (cvs))
+#+end_src
+
+Stage multiple code-values.
+****** code/unstage!
+#+begin_src lisp
+  (code/unstage! (cv))
+#+end_src
+
+Remove a code-value from staging.
+****** code/staged
+#+begin_src lisp
+  (code/staged nil)
+#+end_src
+
+Return list of all staged code-values.
+****** code/staged-count
+#+begin_src lisp
+  (code/staged-count nil)
+#+end_src
+
+Return count of staged code-values.
+****** code/clear-staged!
+#+begin_src lisp
+  (code/clear-staged! nil)
+#+end_src
+
+Clear all staged code-values.
+****** code/preview
+#+begin_src lisp
+  (code/preview (cv))
+#+end_src
+
+Generate a diff preview for a single code-value.
+****** code/preview-staged
+#+begin_src lisp
+  (code/preview-staged nil)
+#+end_src
+
+Generate a unified diff preview of all staged changes.
+****** generate-diff
+#+begin_src lisp
+  (generate-diff (old-text new-text &key file))
+#+end_src
+
+Generate a unified diff between two strings.
+****** code/apply!
+#+begin_src lisp
+  (code/apply! (cv))
+#+end_src
+
+Apply a single code-value's changes to the filesystem.
+****** code/apply-staged!
+#+begin_src lisp
+  (code/apply-staged! nil)
+#+end_src
+
+Apply all staged code-values.
+****** code/commit!
+#+begin_src lisp
+  (code/commit! (message))
+#+end_src
+
+Apply all staged changes and create a git commit.
+****** code/undo!
+#+begin_src lisp
+  (code/undo! nil)
+#+end_src
+
+Undo the last applied code-value operation.
+****** code/typechecks?
+#+begin_src lisp
+  (code/typechecks? (cv))
+#+end_src
+
+Check if the code-value passes type checking.
+   This is ZERO LLM - runs external typechecker.
+****** run-typecheck
+#+begin_src lisp
+  (run-typecheck (language file))
+#+end_src
+
+Run the appropriate typechecker for the language.
+****** code/lints?
+#+begin_src lisp
+  (code/lints? (cv))
+#+end_src
+
+Check if the code-value passes linting. Zero LLM.
+****** code/verify
+#+begin_src lisp
+  (code/verify (cv))
+#+end_src
+
+Run all verification checks on a code-value. Zero LLM.
+****** code/failures
+#+begin_src lisp
+  (code/failures nil)
+#+end_src
+
+Return staged code-values that failed verification.
+****** code/query
+#+begin_src lisp
+  (code/query (&rest query-spec))
+#+end_src
+
+Query for code-values matching the specification.
+   This is ZERO LLM - uses file scanning and pattern matching.
+
+Supported keys:
+- :type - Symbol type (function, class, handler, etc.)
+- :in - File glob pattern
+- :contains - Text pattern to match
+- :matches - Regex pattern to match
+- :having - Feature the code must have
+- :not-having - Feature the code must not have
+****** find-files-matching
+#+begin_src lisp
+  (find-files-matching (pattern))
+#+end_src
+
+Find files matching a glob pattern.
+****** glob-matches-p
+#+begin_src lisp
+  (glob-matches-p (pathname pattern))
+#+end_src
+
+Check if pathname matches a glob-like pattern.
+****** glob-to-regex
+#+begin_src lisp
+  (glob-to-regex (glob))
+#+end_src
+
+Convert a glob pattern to a regex.
+****** defanalyzer
+#+begin_src lisp
+  (defanalyzer (name description &body body))
+#+end_src
+
+Define a framework-specific analyzer.
+****** get-analyzer
+#+begin_src lisp
+  (get-analyzer (name))
+#+end_src
+
+Get an analyzer by name.
+****** active-analyzers
+#+begin_src lisp
+  (active-analyzers nil)
+#+end_src
+
+Return list of analyzers that apply to the current project.
+****** react/components
+#+begin_src lisp
+  (react/components nil)
+#+end_src
+
+Query React components. Zero LLM.
+****** react/hooks
+#+begin_src lisp
+  (react/hooks nil)
+#+end_src
+
+Query React hooks. Zero LLM.
+****** express/routes
+#+begin_src lisp
+  (express/routes nil)
+#+end_src
+
+Query Express routes. Zero LLM.
+****** express/handlers
+#+begin_src lisp
+  (express/handlers nil)
+#+end_src
+
+Query Express handlers. Zero LLM.
+****** code/generate-transform
+#+begin_src lisp
+  (code/generate-transform (description &key for examples))
+#+end_src
+
+Generate a transformation using LLM.
+   This is an EXPLICIT LLM operation.
+
+DESCRIPTION: What transformation to perform
+FOR: The code-value to transform
+EXAMPLES: Optional list of before/after examples
+****** getf-string
+#+begin_src lisp
+  (getf-string (plist key))
+#+end_src
+
+Get value after KEY in a list of strings.
+***** commands.lisp
+****** get-subcommands-for-base
+#+begin_src lisp
+  (get-subcommands-for-base (base-name))
+#+end_src
+
+Return a list of subcommands that share the prefix BASE-NAME.
+****** print-subcommands-for-base
+#+begin_src lisp
+  (print-subcommands-for-base (base-name))
+#+end_src
+
+Print the subcommands of BASE-NAME, if any.
+****** define-slash-command
+#+begin_src lisp
+  (define-slash-command (name args &body body))
+#+end_src
+
+Define a slash command with the given name and arguments, capturing the docstring.
+   NAME can be a symbol or a string (e.g., 'my-cmd', "my.cmd", "/my.other.cmd").
+   Supports :cli-options keyword for defining command-line arguments.
+   The command body receives a plist of parsed arguments if cli-options are present.
+****** define-sub-command
+#+begin_src lisp
+  (define-sub-command (name args &body body))
+#+end_src
+
+Define a sub-command for CLI use. Sets *in-repl* to nil.
+   NAME can be a symbol or a string (e.g., 'my-cmd', "my.cmd").
+   Supports :cli-options keyword for defining command-line arguments.
+   The command body receives a plist of parsed arguments.
+****** define-command
+#+begin_src lisp
+  (define-command (name args &body body))
+#+end_src
+
+Define a command, available as a slash command and/or a sub-command.
+   Use :slash and :sub keyword arguments at the end of the body to control availability.
+   :slash defaults to t, :sub defaults to nil.
+   Use :acp to enable ACP (JSON-RPC) compatibility:
+     :acp t       — capture stdout from the command body, wrap it in a JSON response
+     :acp <form>  — a lambda/function form called with (args) that returns an alist for JSON response
+   Use :tui and :repl to provide mode-specific command implementations:
+     :tui t       — (default) command is visible in TUI mode, uses main body
+     :tui nil     — command is hidden from TUI command palette
+     :tui <form>  — command uses this function as its body when running in TUI mode
+     :repl nil    — (default) no special REPL body, uses main body
+     :repl <form> — command uses this function as its body when running in REPL mode
+   Use :cli-options to define CLI arguments for the sub-command.
+   When used as a sub-command, the body receives a plist of parsed arguments.
+   When used as a slash command, the body receives a list of string arguments.
+****** def-acp-command
+#+begin_src lisp
+  (def-acp-command (name args &body body))
+#+end_src
+
+Define an ACP-only command handler. The handler receives ARGS (list of strings)
+   and must return an alist that will be sent as the JSON-RPC result.
+   Also registers a basic slash command that prints the JSON output in non-ACP mode.
+****** get-command-completions
+#+begin_src lisp
+  (get-command-completions (cmd-name text args))
+#+end_src
+
+Get completions for CMD-NAME's arguments. TEXT is the partial word being completed.
+   ARGS is the list of arguments typed so far. Returns a list of matching completion strings.
+****** acp-command-p
+#+begin_src lisp
+  (acp-command-p (cmd-name))
+#+end_src
+
+Return T if CMD-NAME (e.g. "/add") has an ACP-compatible handler.
+****** execute-acp-command
+#+begin_src lisp
+  (execute-acp-command (cmd args))
+#+end_src
+
+Execute an ACP command handler and return the result alist.
+   Returns NIL if no ACP handler is registered.
+****** parse-command
+#+begin_src lisp
+  (parse-command (input))
+#+end_src
+
+Parse a command from the input string. Handles /cmd and .cmd formats.
+****** execute-command
+#+begin_src lisp
+  (execute-command (cmd args))
+#+end_src
+
+Execute a command (slash or dot) with the given arguments.
+   For slash commands, an optional --format=X flag is intercepted and
+   dispatched to a format handler registered via define-command.
+****** command-completer
+#+begin_src lisp
+  (command-completer (text start end))
+#+end_src
+
+Complete command names and arguments.
+****** normalize-cli-option
+#+begin_src lisp
+  (normalize-cli-option (opt))
+#+end_src
+
+Convert a :cli-options plist entry into a spec alist.
+****** normalize-positional-arg
+#+begin_src lisp
+  (normalize-positional-arg (arg))
+#+end_src
+
+Convert a positional-arg plist entry into a spec alist.
+****** build-command-spec-entry
+#+begin_src lisp
+  (build-command-spec-entry (name info &key strip-slash))
+#+end_src
+
+Build a spec alist for a single command. INFO is the registry value list
+   (fn-name description cli-options positional-args examples).
+****** build-commands-spec
+#+begin_src lisp
+  (build-commands-spec nil)
+#+end_src
+
+Build spec entries for all slash commands.
+****** build-subcommands-spec
+#+begin_src lisp
+  (build-subcommands-spec nil)
+#+end_src
+
+Build spec entries for all CLI sub-commands.
+****** build-flags-spec
+#+begin_src lisp
+  (build-flags-spec nil)
+#+end_src
+
+Build spec entries for all registered global CLI flags.
+****** build-cli-spec
+#+begin_src lisp
+  (build-cli-spec nil)
+#+end_src
+
+Build the complete CLI spec alist.
+****** emit-cli-spec
+#+begin_src lisp
+  (emit-cli-spec (&key lisp-p (stream *standard-output*)))
+#+end_src
+
+Emit the CLI spec to STREAM.
+   If LISP-P, output as an s-expression. Otherwise, output JSON wrapped in
+   <json>...</json> tags.
+****** find-flag-by-string
+#+begin_src lisp
+  (find-flag-by-string (str))
+#+end_src
+
+Look up a registered flag by string. STR can be e.g. '--model', '-m', 'model', or 'm'.
+****** build-flag-spec
+#+begin_src lisp
+  (build-flag-spec (flag))
+#+end_src
+
+Build the spec alist for a single flag.
+****** build-subcommand-group-spec
+#+begin_src lisp
+  (build-subcommand-group-spec (base-name))
+#+end_src
+
+Build spec entries for a command and all its subcommands (base-name.*).
+***** compiler.lisp
+****** js-file-p
+#+begin_src lisp
+  (js-file-p nil)
+#+end_src
+
+Return T if the current VFS file is a JavaScript/TypeScript file needing semicolons.
+****** deftarget
+#+begin_src lisp
+  (deftarget (name &key parent file-extension setup finalize))
+#+end_src
+
+Define a new compilation target.
+****** defemit
+#+begin_src lisp
+  (defemit (target form-name lambda-list &body body))
+#+end_src
+
+Define how TARGET compiles FORM-NAME.
+****** find-emitter
+#+begin_src lisp
+  (find-emitter (target-def symbol))
+#+end_src
+
+Find the emitter for SYMBOL, walking the parent chain.
+****** find-macro
+#+begin_src lisp
+  (find-macro (target-def symbol))
+#+end_src
+
+Find the macro expander for SYMBOL, walking the parent chain.
+****** defjsmacro
+#+begin_src lisp
+  (defjsmacro (target form-name lambda-list &body body))
+#+end_src
+
+Define a JS macro for TARGET. Body returns a Lisp form to be compiled.
+****** detect-target-from-forms
+#+begin_src lisp
+  (detect-target-from-forms (forms))
+#+end_src
+
+Detect the compilation target from a (target :keyword) form in FORMS.
+   Returns the target keyword, or :javascript as default.
+****** read-all-forms
+#+begin_src lisp
+  (read-all-forms (source-string))
+#+end_src
+
+Read all Lisp forms from SOURCE-STRING. Returns a list of forms.
+   Uses :invert readtable-case so that mixed-case symbols (e.g. Request) preserve their case.
+****** invert-case-symbol-name
+#+begin_src lisp
+  (invert-case-symbol-name (sym))
+#+end_src
+
+Return the symbol name with case restored from :invert readtable convention.
+   All-uppercase (originally all-lowercase) -> downcase.
+   Mixed-case (originally mixed) -> preserve as-is.
+****** compiler-emit
+#+begin_src lisp
+  (compiler-emit (string))
+#+end_src
+
+Write STRING to the current VFS file.
+****** compiler-emitln
+#+begin_src lisp
+  (compiler-emitln (string))
+#+end_src
+
+Write STRING + newline to the current VFS file.
+****** compiler-prepend
+#+begin_src lisp
+  (compiler-prepend (string))
+#+end_src
+
+Prepend STRING to the beginning of the current VFS file.
+****** emit-indent
+#+begin_src lisp
+  (emit-indent nil)
+#+end_src
+
+Emit spaces for current indentation level.
+****** with-indent
+#+begin_src lisp
+  (with-indent (&body body))
+#+end_src
+
+Execute BODY with increased indentation.
+****** kebab-to-camel
+#+begin_src lisp
+  (kebab-to-camel (name-string))
+#+end_src
+
+Convert a kebab-case string to camelCase.
+****** strip-earmuffs
+#+begin_src lisp
+  (strip-earmuffs (name-string))
+#+end_src
+
+Strip leading/trailing * from a name string.
+****** compile-form
+#+begin_src lisp
+  (compile-form (form))
+#+end_src
+
+Compile a single form. Dispatches to macros first, then emitters.
+****** compile-toplevel
+#+begin_src lisp
+  (compile-toplevel (forms &key target (vfs (make-vfs)) (check t)))
+#+end_src
+
+Compile a list of Lisp forms using TARGET, writing output into VFS.
+   If TARGET is nil, it is auto-detected from (target :xxx) forms in FORMS.
+****** check-toplevel
+#+begin_src lisp
+  (check-toplevel (forms &key target))
+#+end_src
+
+Check a list of Lisp forms without compiling. Returns a list of check-results.
+****** compile-string
+#+begin_src lisp
+  (compile-string (source &key target (check t)))
+#+end_src
+
+Convenience: compile a SOURCE string. Returns VFS.
+   Target is auto-detected from source if not specified.
+****** check-string
+#+begin_src lisp
+  (check-string (source &key target))
+#+end_src
+
+Convenience: check a SOURCE string without compiling.
+   Target is auto-detected from source if not specified.
+****** compile-file-to-string
+#+begin_src lisp
+  (compile-file-to-string (source &key target))
+#+end_src
+
+Compile SOURCE string, return the content of the first output file as a string.
+   Target is auto-detected from source if not specified.
+****** compile-output-tags
+#+begin_src lisp
+  (compile-output-tags (vfs &optional (stream *standard-output*)))
+#+end_src
+
+Output compiled VFS contents in <file> tag format to STREAM.
+****** compile-output-org
+#+begin_src lisp
+  (compile-output-org (vfs &key output-dir dry))
+#+end_src
+
+Output compiled VFS contents in org-mode format.
+   If DRY, writes to *standard-output*. Otherwise writes to output.org in OUTPUT-DIR.
+****** compile-output-lisp
+#+begin_src lisp
+  (compile-output-lisp (vfs &key output-dir dry))
+#+end_src
+
+Output compiled VFS contents in lisp format.
+   If DRY, writes to *standard-output*. Otherwise writes to output.lisp in OUTPUT-DIR.
+****** compile-output-disk
+#+begin_src lisp
+  (compile-output-disk (vfs output-dir))
+#+end_src
+
+Flush compiled VFS contents to disk at OUTPUT-DIR.
+****** compile-read-source-forms
+#+begin_src lisp
+  (compile-read-source-forms (files))
+#+end_src
+
+Read and concatenate all Lisp forms from FILES (list of paths).
+   Returns the combined forms list, or NIL and prints errors.
+***** config.lisp
+****** load-project-config
+#+begin_src lisp
+  (load-project-config (project-dir))
+#+end_src
+
+Loads project-specific configuration from .hactar.toml in the given directory.
+****** validate-model-config
+#+begin_src lisp
+  (validate-model-config (model-data))
+#+end_src
+
+Validate model configuration and apply defaults.
+****** load-models-config
+#+begin_src lisp
+  (load-models-config (config-path))
+#+end_src
+
+Load model configurations from the specified path.
+****** %toml-escape
+#+begin_src lisp
+  (%toml-escape (s))
+#+end_src
+
+Escape a string for TOML (quotes and backslashes).
+****** %toml-quote
+#+begin_src lisp
+  (%toml-quote (s))
+#+end_src
+
+Quote a value as TOML string.
+****** %toml-array-of-strings
+#+begin_src lisp
+  (%toml-array-of-strings (list-of-strings))
+#+end_src
+
+Render a TOML array of strings from a Lisp list of strings.
+****** %native-path
+#+begin_src lisp
+  (%native-path (p))
+#+end_src
+
+Convert a path (string or pathname) to a native namestring.
+****** %derive-language
+#+begin_src lisp
+  (%derive-language nil)
+#+end_src
+
+Derive a fallback language based on the current stack if *language* is not set.
+****** reload-config
+#+begin_src lisp
+  (reload-config nil)
+#+end_src
+****** resolve-active-guide-file
+#+begin_src lisp
+  (resolve-active-guide-file (project-dir))
+#+end_src
+
+Resolves and sets the *active-guide-file* based on configuration and fallbacks.
+***** context.lisp
+****** get-active-guide-content
+#+begin_src lisp
+  (get-active-guide-content nil)
+#+end_src
+
+Reads the content of the active guide file, performing size checks.
+****** default-system-prompt
+#+begin_src lisp
+  (default-system-prompt nil)
+#+end_src
+
+Generate the system prompt by combining templates, rules, context, and the active guide.
+****** assistant-mode-system-prompt
+#+begin_src lisp
+  (assistant-mode-system-prompt nil)
+#+end_src
+
+Generate the system prompt for assistant mode.
+****** system-prompt
+#+begin_src lisp
+  (system-prompt nil)
+#+end_src
+
+Returns the appropriate system prompt based on the current mode.
+****** language
+#+begin_src lisp
+  (language nil)
+#+end_src
+
+Return the current language
+****** images-context-string
+#+begin_src lisp
+  (images-context-string nil)
+#+end_src
+
+Generate context string describing added images.
+****** files-context
+#+begin_src lisp
+  (files-context (&optional (max-tokens nil)))
+#+end_src
+
+Generate context string from *text* files, respecting token limits.
+   Iterates files from newest to oldest, adding content until max-tokens is approached.
+   Returns the context string and a list of skipped files.
+****** generate-context-without-files
+#+begin_src lisp
+  (generate-context-without-files nil)
+#+end_src
+
+Generates the context string excluding the file content part.
+****** read-context-from-file
+#+begin_src lisp
+  (read-context-from-file nil)
+#+end_src
+
+Read the entire context from the exposed context file. Returns the file content as string.
+****** generate-context
+#+begin_src lisp
+  (generate-context (&optional (raw-context nil)))
+#+end_src
+
+Generate full context string by reading from the context file if it exists, otherwise build traditionally.
+****** add-file-to-context
+#+begin_src lisp
+  (add-file-to-context (file-path))
+#+end_src
+
+Add a file to the context.
+
+When litmode is active, also upsert the file as an org src block under
+****** add-image-to-context
+#+begin_src lisp
+  (add-image-to-context (image-path &optional text))
+#+end_src
+
+Add an image to the context window.
+****** drop-file-from-context
+#+begin_src lisp
+  (drop-file-from-context (file-path))
+#+end_src
+
+Remove a text file from the context by updating both the in-memory list and the context file.
+When litmode is active, also removes the file's src block from .hactar.org.
+****** drop-image-from-context
+#+begin_src lisp
+  (drop-image-from-context (image-path))
+#+end_src
+
+Remove an image from the context window.
+****** list-context-files
+#+begin_src lisp
+  (list-context-files nil)
+#+end_src
+
+List all files in the context.
+****** docs-context-string
+#+begin_src lisp
+  (docs-context-string nil)
+#+end_src
+
+Generate context string from added documentation.
+****** errors-context-string
+#+begin_src lisp
+  (errors-context-string nil)
+#+end_src
+
+Generate context string from added errors.
+****** add-doc-to-context
+#+begin_src lisp
+  (add-doc-to-context (doc-plist))
+#+end_src
+
+Adds a documentation plist to the *docs-context* if not already present (by ID).
+Also updates the exposed context docs section if active.
+****** remove-doc-from-context
+#+begin_src lisp
+  (remove-doc-from-context (doc-id))
+#+end_src
+
+Removes a documentation plist from *docs-context* by ID.
+Also updates the exposed context docs section if active.
+****** add-error-to-context
+#+begin_src lisp
+  (add-error-to-context (error-plist))
+#+end_src
+
+Add an error plist to the context if not already present.
+****** remove-error-from-context
+#+begin_src lisp
+  (remove-error-from-context (error-code))
+#+end_src
+
+Remove an error from context by code.
+****** parse-add-args
+#+begin_src lisp
+  (parse-add-args (args))
+#+end_src
+
+Parse arguments for /add command. Returns (values files descriptions).
+****** list-add-candidate-files
+#+begin_src lisp
+  (list-add-candidate-files nil)
+#+end_src
+
+Return candidate files for /add.
+Prefers git-tracked files; falls back to fd when git returns no files.
+****** path-matches-drop-filter-p
+#+begin_src lisp
+  (path-matches-drop-filter-p (relative-path filter))
+#+end_src
+
+Return T when RELATIVE-PATH matches FILTER.
+Supported filters:
+  :regex PATTERN
+  :dir PREFIX
+  :ext EXT
+****** parse-drop-filters
+#+begin_src lisp
+  (parse-drop-filters (args))
+#+end_src
+
+Parse /drop filter arguments.
+Returns (values explicit-targets filters).
+****** collect-drop-targets-from-filters
+#+begin_src lisp
+  (collect-drop-targets-from-filters (filters))
+#+end_src
+
+Resolve /drop FILTERS into repo-relative paths currently in context.
+****** expand-file-pattern
+#+begin_src lisp
+  (expand-file-pattern (pattern &optional (root *repo-root*)))
+#+end_src
+
+Expand a file pattern (glob) into a list of absolute native pathnames.
+   Handles patterns like 'src/*' or 'src/**/*.lisp' using the glob function.
+****** process-add-request
+#+begin_src lisp
+  (process-add-request (args))
+#+end_src
+
+Process the add request with raw arguments.
+****** context-expose-file-path
+#+begin_src lisp
+  (context-expose-file-path nil)
+#+end_src
+
+Compute the pathname for the exposed context file hactar.{pid}.context.org under repo root.
+****** context-expose-generate-files-section
+#+begin_src lisp
+  (context-expose-generate-files-section nil)
+#+end_src
+
+Generate src blocks for all current context files (without the Files headline).
+****** context-expose-generate-project-details
+#+begin_src lisp
+  (context-expose-generate-project-details nil)
+#+end_src
+
+Generate the content for the Project Details section.
+****** context-expose-upsert-project-details
+#+begin_src lisp
+  (context-expose-upsert-project-details nil)
+#+end_src
+
+Create or update the '* Project Details' section in the exposed context file.
+****** context-expose-upsert-files-section
+#+begin_src lisp
+  (context-expose-upsert-files-section nil)
+#+end_src
+
+Create or update the '* Files' section in the exposed context file.
+****** context-expose-upsert-docs-section
+#+begin_src lisp
+  (context-expose-upsert-docs-section nil)
+#+end_src
+
+Create or update the '* Documentation' section in the exposed context file.
+****** context-expose-upsert-errors-section
+#+begin_src lisp
+  (context-expose-upsert-errors-section nil)
+#+end_src
+
+Create or update the '* Errors' section in the exposed context file.
+****** context-expose-on-file-added
+#+begin_src lisp
+  (context-expose-on-file-added (file-path))
+#+end_src
+
+Hook handler: when a file is added to context, refresh Files section.
+****** context-expose-on-file-dropped
+#+begin_src lisp
+  (context-expose-on-file-dropped (file-path))
+#+end_src
+
+Hook handler: when a file is removed from context, refresh Files section.
+****** context-expose-on-variable-changed
+#+begin_src lisp
+  (context-expose-on-variable-changed (var-name new-value))
+#+end_src
+
+Hook handler: when a project variable changes, refresh Project Details section.
+****** context-expose-on-fs-event
+#+begin_src lisp
+  (context-expose-on-fs-event (pathname event-type))
+#+end_src
+
+Hook handler: when a tracked file changes on disk, refresh Files section.
+****** context-expose-install-hooks-if-needed
+#+begin_src lisp
+  (context-expose-install-hooks-if-needed nil)
+#+end_src
+
+Install expose-related hooks once.
+****** set-context-variable
+#+begin_src lisp
+  (set-context-variable (var-name new-value))
+#+end_src
+
+Set a project variable and trigger sync to context file if exposed.
+****** context-expose-delete-file
+#+begin_src lisp
+  (context-expose-delete-file nil)
+#+end_src
+
+Delete the exposed context file if it exists.
+***** convert.lisp
+****** redwood-collect-source-files
+#+begin_src lisp
+  (redwood-collect-source-files (project-path))
+#+end_src
+
+Collect all relevant RedwoodSDK source files from PROJECT-PATH.
+   Returns a list of (relative-path . content) pairs.
+****** redwood-build-user-message
+#+begin_src lisp
+  (redwood-build-user-message (file-pairs))
+#+end_src
+
+Build the user message from FILE-PAIRS, each (relative-path . content).
+****** %convert-redwood-run
+#+begin_src lisp
+  (%convert-redwood-run (project-path-str output-file &key stream))
+#+end_src
+
+Core conversion: collect files, call LLM, return response string or nil.
+   Prints errors to stdout and returns nil on invalid inputs.
+****** %convert-redwood-acp
+#+begin_src lisp
+  (%convert-redwood-acp (cmd-args))
+#+end_src
+
+ACP handler for convert.redwood. Returns an alist result.
+***** copilot.lisp
+****** get-copilot-token
+#+begin_src lisp
+  (get-copilot-token nil)
+#+end_src
+
+Get the short-lived GitHub Copilot bearer token from the llm package.
+****** save-copilot-token
+#+begin_src lisp
+  (save-copilot-token (token))
+#+end_src
+
+Save GitHub Copilot token to hosts.json config file.
+****** request-copilot-device-code
+#+begin_src lisp
+  (request-copilot-device-code nil)
+#+end_src
+
+Request a device code for GitHub Copilot authorization.
+****** poll-for-access-token
+#+begin_src lisp
+  (poll-for-access-token (device-code interval))
+#+end_src
+
+Poll for access token after user authorization.
+****** get-copilot-token-from-access-token
+#+begin_src lisp
+  (get-copilot-token-from-access-token (access-token))
+#+end_src
+
+Exchange access token for Copilot token.
+****** authorize-copilot
+#+begin_src lisp
+  (authorize-copilot nil)
+#+end_src
+
+Authorization is now managed via a GitHub access token.
+Set the environment variable GITHUB_COPILOT_ACCESS_TOKEN to a valid GitHub Personal Access Token.
+A short-lived Copilot token will be fetched automatically when needed and refreshed every ~25 minutes.
+****** payload-to-json
+#+begin_src lisp
+  (payload-to-json (payload))
+#+end_src
+
+Convert payload to JSON string (local copy for copilot.lisp).
+***** create.lisp
+****** create-project
+#+begin_src lisp
+  (create-project (starter user-prompt))
+#+end_src
+
+Create a new project using a starter and a user prompt/query.
+STARTER can be a known starter name (e.g., "react", "sinatra"), or a file path.
+USER-PROMPT is the natural language query/instructions for the project.
+***** css-target.lisp
+****** css-selector-from-form
+#+begin_src lisp
+  (css-selector-from-form (selector))
+#+end_src
+
+Normalize a selector form into a CSS selector string.
+****** css-property-name
+#+begin_src lisp
+  (css-property-name (property))
+#+end_src
+
+Normalize a property keyword into a CSS property string.
+****** css-at-rule-p
+#+begin_src lisp
+  (css-at-rule-p (selector))
+#+end_src
+
+Return T when SELECTOR is an at-rule string like @media.
+****** css-combine-selectors
+#+begin_src lisp
+  (css-combine-selectors (parent child))
+#+end_src
+
+Combine PARENT and CHILD selector strings for simple nested selector support.
+****** css-property-unitless-p
+#+begin_src lisp
+  (css-property-unitless-p (property))
+#+end_src
+
+Return T if PROPERTY (a keyword or string) should not have px units added.
+****** css-emit-value
+#+begin_src lisp
+  (css-emit-value (value &optional property))
+#+end_src
+
+Emit a CSS value. Non-zero bare numbers get 'px' units unless the property is unitless.
+****** css-split-body
+#+begin_src lisp
+  (css-split-body (body))
+#+end_src
+
+Split BODY into declaration pairs and nested rule forms.
+****** register-css-emitters
+#+begin_src lisp
+  (register-css-emitters (target))
+#+end_src
+
+Register CSS emission forms on TARGET.
+****** css-expand-rule
+#+begin_src lisp
+  (css-expand-rule (rule &optional parent-selector))
+#+end_src
+
+Expand a user rule into normalized CSS forms.
+***** ctags.lisp
+****** parse-tag-line
+#+begin_src lisp
+  (parse-tag-line (line))
+#+end_src
+
+Parse a single line from a ctags file.
+****** load-tags
+#+begin_src lisp
+  (load-tags nil)
+#+end_src
+
+Load tags from the ctags file into *tags-cache*.
+****** tags-index
+#+begin_src lisp
+  (tags-index (&rest args))
+#+end_src
+
+Run ctags to index the codebase. ARGS are passed to ctags.
+****** tags-all
+#+begin_src lisp
+  (tags-all nil)
+#+end_src
+
+Return all tags, loading them if necessary.
+****** tags-find
+#+begin_src lisp
+  (tags-find (query &key (limit 10)))
+#+end_src
+
+Find tags matching QUERY using fuzzy matching.
+****** tags-find-one
+#+begin_src lisp
+  (tags-find-one (query))
+#+end_src
+
+Find a single tag matching QUERY.
+****** tags-get
+#+begin_src lisp
+  (tags-get (symbol))
+#+end_src
+
+Get tags exactly matching SYMBOL.
+****** tags-for
+#+begin_src lisp
+  (tags-for (targets))
+#+end_src
+
+Return tags for a file, directory, or list of them.
+   TARGETS can be a string (path) or a list of strings.
+****** extract-symbols-from-text
+#+begin_src lisp
+  (extract-symbols-from-text (text))
+#+end_src
+
+Simple heuristic to extract potential symbols from text.
+****** tags-for-context
+#+begin_src lisp
+  (tags-for-context nil)
+#+end_src
+
+Turn context (*files*) into a map of symbols and return matching tags.
+   Scans content of files in *files* for symbols that exist in tags db.
+***** debug.lisp
+****** dump-settings
+#+begin_src lisp
+  (dump-settings nil)
+#+end_src
+****** dump-dot-system-prompt
+#+begin_src lisp
+  (dump-dot-system-prompt nil)
+#+end_src
+****** dump-current-system-prompt
+#+begin_src lisp
+  (dump-current-system-prompt nil)
+#+end_src
+***** docs.lisp
+****** add-doc
+#+begin_src lisp
+  (add-doc (title source &key (uri 'source) tags covers meta related id))
+#+end_src
+
+Add a documentation entry to the global hypertext registry.
+****** defdocforsymbol
+#+begin_src lisp
+   (defdocforsymbol (symbol-spec source &key (uri ''source) (type function) (version latest)
+  (format markdown) related covers tags meta))
+#+end_src
+
+Define documentation for a specific symbol, creating graph connections.
+****** defdoc
+#+begin_src lisp
+  (defdoc (title &rest args))
+#+end_src
+
+Define a documentation entry.
+****** get-all-registered-docs
+#+begin_src lisp
+  (get-all-registered-docs nil)
+#+end_src
+
+Returns all registered documents in the docs and apidoc dispatchers as alists.
+****** register-guide
+#+begin_src lisp
+  (register-guide (name &key title content source tags covers sections))
+#+end_src
+
+Register a guide plist into guide dispatcher, keyed by downcased NAME.
+****** defguide
+#+begin_src lisp
+  (defguide (name &rest args))
+#+end_src
+
+Define a guide registered under 'guide:' protocol.
+****** get-guide
+#+begin_src lisp
+  (get-guide (name))
+#+end_src
+
+Look up a registered guide by name.
+****** guide-activate
+#+begin_src lisp
+  (guide-activate (name))
+#+end_src
+
+Add a registered guide to the documentation context.
+****** guide-add-section
+#+begin_src lisp
+  (guide-add-section (name section-title section-content))
+#+end_src
+
+Append a section to a registered guide.
+****** %lookup-parse-symbols
+#+begin_src lisp
+  (%lookup-parse-symbols (args))
+#+end_src
+
+Helper for /lookup: parse the raw arg list into a list of symbol strings.
+***** dots.lisp
+****** defdot
+#+begin_src lisp
+  (defdot (name args &body body))
+#+end_src
+
+Define a dot command with the given name and arguments, capturing the docstring.
+   The command name should be the symbol without the leading dot (e.g., 'cat').
+****** execute-dot-command-for-pipe
+#+begin_src lisp
+  (execute-dot-command-for-pipe (command-string))
+#+end_src
+
+Executes a dot command string and returns its string output for piping.
+   Assumes non-streaming, non-modify commands that return simple text.
+****** dot-system-prompt
+#+begin_src lisp
+  (dot-system-prompt nil)
+#+end_src
+
+Generate the system prompt for dot commands.
+***** editor/core/buffer.lisp
+****** current-buffer
+#+begin_src lisp
+  (current-buffer nil)
+#+end_src
+
+Return the current buffer.
+****** (setf current-buffer)
+#+begin_src lisp
+  ((setf current-buffer) (buffer))
+#+end_src
+
+Set the current buffer.
+****** make-buffer
+#+begin_src lisp
+  (make-buffer (name &key file-path mode content))
+#+end_src
+
+Create a new buffer with the given NAME.
+****** find-buffer
+#+begin_src lisp
+  (find-buffer (name))
+#+end_src
+
+Find a buffer by NAME.
+****** switch-to-buffer
+#+begin_src lisp
+  (switch-to-buffer (buffer-or-name))
+#+end_src
+
+Switch to the specified buffer.
+****** kill-buffer
+#+begin_src lisp
+  (kill-buffer (buffer-or-name))
+#+end_src
+
+Kill the specified buffer.
+****** buffer-point
+#+begin_src lisp
+  (buffer-point (buffer))
+#+end_src
+
+Return the point (cursor position) in BUFFER.
+****** buffer-set-mark
+#+begin_src lisp
+  (buffer-set-mark (buffer &optional pos))
+#+end_src
+
+Set the mark in BUFFER to POS (or current point if not specified).
+****** buffer-region-active-p
+#+begin_src lisp
+  (buffer-region-active-p (buffer))
+#+end_src
+
+Return T if BUFFER has an active region.
+****** buffer-region-beginning
+#+begin_src lisp
+  (buffer-region-beginning (buffer))
+#+end_src
+
+Return the beginning of the region in BUFFER.
+****** buffer-region-end
+#+begin_src lisp
+  (buffer-region-end (buffer))
+#+end_src
+
+Return the end of the region in BUFFER.
+****** buffer-length
+#+begin_src lisp
+  (buffer-length (buffer))
+#+end_src
+
+Return the length of BUFFER's content.
+****** buffer-line-number
+#+begin_src lisp
+  (buffer-line-number (buffer))
+#+end_src
+
+Return the current line number in BUFFER.
+****** buffer-column
+#+begin_src lisp
+  (buffer-column (buffer))
+#+end_src
+
+Return the current column in BUFFER.
+****** buffer-goto-char
+#+begin_src lisp
+  (buffer-goto-char (buffer pos))
+#+end_src
+
+Move point to position POS in BUFFER.
+****** buffer-forward-char
+#+begin_src lisp
+  (buffer-forward-char (buffer &optional (n 1)))
+#+end_src
+
+Move point forward N characters in BUFFER.
+****** buffer-backward-char
+#+begin_src lisp
+  (buffer-backward-char (buffer &optional (n 1)))
+#+end_src
+
+Move point backward N characters in BUFFER.
+****** buffer-beginning-of-line
+#+begin_src lisp
+  (buffer-beginning-of-line (buffer))
+#+end_src
+
+Move point to beginning of current line in BUFFER.
+****** buffer-end-of-line
+#+begin_src lisp
+  (buffer-end-of-line (buffer))
+#+end_src
+
+Move point to end of current line in BUFFER.
+****** buffer-forward-line
+#+begin_src lisp
+  (buffer-forward-line (buffer &optional (n 1)))
+#+end_src
+
+Move point forward N lines in BUFFER.
+****** buffer-backward-line
+#+begin_src lisp
+  (buffer-backward-line (buffer &optional (n 1)))
+#+end_src
+
+Move point backward N lines in BUFFER.
+****** record-undo
+#+begin_src lisp
+  (record-undo (buffer type position content))
+#+end_src
+
+Record an undo entry in BUFFER.
+****** buffer-insert
+#+begin_src lisp
+  (buffer-insert (buffer char))
+#+end_src
+
+Insert CHAR at point in BUFFER.
+****** buffer-insert-string
+#+begin_src lisp
+  (buffer-insert-string (buffer string))
+#+end_src
+
+Insert STRING at point in BUFFER.
+****** buffer-delete-forward
+#+begin_src lisp
+  (buffer-delete-forward (buffer &optional (count 1)))
+#+end_src
+
+Delete COUNT characters forward in BUFFER.
+****** buffer-delete-backward
+#+begin_src lisp
+  (buffer-delete-backward (buffer &optional (count 1)))
+#+end_src
+
+Delete COUNT characters backward in BUFFER.
+****** buffer-region-string
+#+begin_src lisp
+  (buffer-region-string (buffer))
+#+end_src
+
+Return the text in the active region of BUFFER.
+****** buffer-kill-region
+#+begin_src lisp
+  (buffer-kill-region (buffer))
+#+end_src
+
+Kill (cut) the region in BUFFER. Returns the killed text.
+****** buffer-substring
+#+begin_src lisp
+  (buffer-substring (buffer start &optional end))
+#+end_src
+
+Return a substring of BUFFER from START to END.
+****** buffer-to-string
+#+begin_src lisp
+  (buffer-to-string (buffer))
+#+end_src
+
+Return the entire contents of BUFFER as a string.
+****** buffer-undo
+#+begin_src lisp
+  (buffer-undo (buffer))
+#+end_src
+
+Undo the last change in BUFFER.
+****** buffer-redo
+#+begin_src lisp
+  (buffer-redo (buffer))
+#+end_src
+
+Redo the last undone change in BUFFER.
+****** find-file-buffer
+#+begin_src lisp
+  (find-file-buffer (file-path))
+#+end_src
+
+Find or create a buffer visiting FILE-PATH.
+****** save-buffer
+#+begin_src lisp
+  (save-buffer (buffer))
+#+end_src
+
+Save BUFFER to its file.
+***** editor/core/gap-buffer.lisp
+****** make-gap-buffer
+#+begin_src lisp
+  (make-gap-buffer (&optional (initial-content )))
+#+end_src
+
+Create a new gap buffer, optionally initialized with INITIAL-CONTENT.
+****** gap-size
+#+begin_src lisp
+  (gap-size (gb))
+#+end_src
+
+Return the current size of the gap.
+****** gb-length
+#+begin_src lisp
+  (gb-length (gb))
+#+end_src
+
+Return the logical length of the buffer content.
+****** gb-point
+#+begin_src lisp
+  (gb-point (gb))
+#+end_src
+
+Return the current point (cursor position) in the buffer.
+****** logical-to-physical
+#+begin_src lisp
+  (logical-to-physical (gb logical-pos))
+#+end_src
+
+Convert a logical position to a physical position in the data array.
+****** gb-char-at
+#+begin_src lisp
+  (gb-char-at (gb pos))
+#+end_src
+
+Return the character at logical position POS.
+****** ensure-gap-size
+#+begin_src lisp
+  (ensure-gap-size (gb needed))
+#+end_src
+
+Ensure the gap is at least NEEDED characters large.
+****** move-gap-to
+#+begin_src lisp
+  (move-gap-to (gb pos))
+#+end_src
+
+Move the gap so that gap-start is at logical position POS.
+****** gb-move-point
+#+begin_src lisp
+  (gb-move-point (gb delta))
+#+end_src
+
+Move the point by DELTA characters (positive = forward, negative = backward).
+   Returns the new point position.
+****** gb-move-point-to
+#+begin_src lisp
+  (gb-move-point-to (gb pos))
+#+end_src
+
+Move the point to absolute position POS.
+   Returns the new point position.
+****** gb-insert
+#+begin_src lisp
+  (gb-insert (gb char))
+#+end_src
+
+Insert CHAR at point.
+****** gb-insert-string
+#+begin_src lisp
+  (gb-insert-string (gb string))
+#+end_src
+
+Insert STRING at point.
+****** gb-delete-forward
+#+begin_src lisp
+  (gb-delete-forward (gb &optional (count 1)))
+#+end_src
+
+Delete COUNT characters after point. Returns the deleted text.
+****** gb-delete-backward
+#+begin_src lisp
+  (gb-delete-backward (gb &optional (count 1)))
+#+end_src
+
+Delete COUNT characters before point. Returns the deleted text.
+****** gb-substring
+#+begin_src lisp
+  (gb-substring (gb start &optional end))
+#+end_src
+
+Return a substring of the buffer from START to END (or end of buffer).
+****** gb-to-string
+#+begin_src lisp
+  (gb-to-string (gb))
+#+end_src
+
+Convert the entire buffer contents to a string.
+****** gb-line-start
+#+begin_src lisp
+  (gb-line-start (gb &optional (pos (gb-point gb))))
+#+end_src
+
+Return the position of the start of the line containing POS.
+****** gb-line-end
+#+begin_src lisp
+  (gb-line-end (gb &optional (pos (gb-point gb))))
+#+end_src
+
+Return the position of the end of the line containing POS.
+****** gb-line-number
+#+begin_src lisp
+  (gb-line-number (gb &optional (pos (gb-point gb))))
+#+end_src
+
+Return the line number (1-based) of the line containing POS.
+****** gb-column
+#+begin_src lisp
+  (gb-column (gb &optional (pos (gb-point gb))))
+#+end_src
+
+Return the column number (0-based) of POS within its line.
+***** editor/keymap.lisp
+****** modifier-p
+#+begin_src lisp
+  (modifier-p (mod))
+#+end_src
+
+Check if MOD is a valid modifier.
+****** key-event-equal
+#+begin_src lisp
+  (key-event-equal (a b))
+#+end_src
+
+Test if two key events are equal.
+****** parse-key
+#+begin_src lisp
+  (parse-key (key-string))
+#+end_src
+
+Parse a key string like 'C-x', 'M-f', 'C-M-s' into a key-event.
+****** parse-key-sequence
+#+begin_src lisp
+  (parse-key-sequence (key-string))
+#+end_src
+
+Parse a key sequence string like 'C-x C-f' into a list of key-events.
+****** key-to-string
+#+begin_src lisp
+  (key-to-string (key-event))
+#+end_src
+
+Convert a key-event back to a string representation.
+****** key-sequence-to-string
+#+begin_src lisp
+  (key-sequence-to-string (key-events))
+#+end_src
+
+Convert a list of key-events to a key sequence string.
+****** make-keymap
+#+begin_src lisp
+  (make-keymap (&key name parent))
+#+end_src
+
+Create a new keymap.
+****** key-hash
+#+begin_src lisp
+  (key-hash (key-event))
+#+end_src
+
+Create a hashable representation of a key-event.
+****** sequence-hash
+#+begin_src lisp
+  (sequence-hash (key-events))
+#+end_src
+
+Create a hashable representation of a key sequence.
+****** define-key
+#+begin_src lisp
+  (define-key (keymap key-sequence command))
+#+end_src
+
+Bind KEY-SEQUENCE to COMMAND in KEYMAP.
+   KEY-SEQUENCE can be a string like 'C-x C-f' or a list of key-events.
+****** lookup-key
+#+begin_src lisp
+  (lookup-key (keymap key-sequence &key (inherit t)))
+#+end_src
+
+Look up KEY-SEQUENCE in KEYMAP.
+   Returns the command or NIL if not found.
+   If INHERIT is true, also check parent keymaps.
+****** key-binding
+#+begin_src lisp
+  (key-binding (key-sequence &rest keymaps))
+#+end_src
+
+Look up KEY-SEQUENCE in KEYMAPS (checked in order).
+   Returns the first binding found or NIL.
+****** prefix-key-p
+#+begin_src lisp
+  (prefix-key-p (keymap key-sequence))
+#+end_src
+
+Check if KEY-SEQUENCE is a prefix of any binding in KEYMAP.
+****** setup-default-bindings
+#+begin_src lisp
+  (setup-default-bindings nil)
+#+end_src
+
+Set up default key bindings.
+***** editor/main.lisp
+****** defcommand
+#+begin_src lisp
+  (defcommand (name args docstring &body body))
+#+end_src
+
+Define an editor command.
+   Commands are functions that can be bound to keys and called interactively.
+****** command-function
+#+begin_src lisp
+  (command-function (command))
+#+end_src
+
+Get the function for COMMAND.
+****** call-command
+#+begin_src lisp
+  (call-command (command &rest args))
+#+end_src
+
+Call COMMAND with ARGS.
+****** message
+#+begin_src lisp
+  (message (format-string &rest args))
+#+end_src
+
+Display a message to the user.
+****** process-key-event
+#+begin_src lisp
+  (process-key-event (key-event))
+#+end_src
+
+Process a single key event.
+****** start-editor
+#+begin_src lisp
+  (start-editor (&optional filename))
+#+end_src
+
+Start the Hactar editor.
+****** stop-editor
+#+begin_src lisp
+  (stop-editor nil)
+#+end_src
+
+Stop the editor.
+****** editor-repl
+#+begin_src lisp
+  (editor-repl nil)
+#+end_src
+
+A simple REPL for testing the editor.
+***** errors.lisp
+****** format-error-for-preview
+#+begin_src lisp
+  (format-error-for-preview (err))
+#+end_src
+****** fuzzy-select-error
+#+begin_src lisp
+  (fuzzy-select-error (errors))
+#+end_src
+
+Select an error from a list using fuzzy-select.
+****** extract-org-content-from-node
+#+begin_src lisp
+  (extract-org-content-from-node (node))
+#+end_src
+
+Extract content from a node, removing property drawers.
+****** parse-errors-from-org-file
+#+begin_src lisp
+  (parse-errors-from-org-file (filename))
+#+end_src
+
+Parse errors from an Org file. Returns a list of error plists.
+****** deferror
+#+begin_src lisp
+  (deferror (title &rest args))
+#+end_src
+
+Define an error document registered under 'errors:' protocol.
+****** get-all-registered-errors
+#+begin_src lisp
+  (get-all-registered-errors nil)
+#+end_src
+
+Get all registered errors as alists.
+****** errors-import->lisp
+#+begin_src lisp
+  (errors-import->lisp (errors out-file source))
+#+end_src
+
+Emit (deferror ...) forms for ERRORS to OUT-FILE and return the path.
+****** errors-import
+#+begin_src lisp
+  (errors-import (args))
+#+end_src
 ***** Components
 ****** globals
 ******* General State
@@ -4355,8 +7177,126 @@ Same as glob-matches, except first argument is a compiled pattern.
 #+begin_src lisp
   (compile-pattern pattern)
 #+end_src
+******* Miscellaneous Utilities
+******** =main=
+#+begin_src lisp
+  (main args)
+#+end_src
 
-Compile the pattern.
+The entry point for Hactar's CLI interface.
+******** =get-xdg-config-dir=
+#+begin_src lisp
+  (get-xdg-config-dir)
+#+end_src
+
+Returns the XDG configuration directory path.
+******** =find-model-by-name=
+#+begin_src lisp
+  (find-model-by-name name)
+#+end_src
+
+Looks up a model configuration by its name.
+******** =model-config-provider=
+#+begin_src lisp
+  (model-config-provider config)
+#+end_src
+
+Extracts the provider string from a model configuration.
+******** =model-config-model-name=
+#+begin_src lisp
+  (model-config-model-name config)
+#+end_src
+
+Extracts the actual model name string from a model configuration.
+******** =hyperfractal-browse=
+#+begin_src lisp
+  (hyperfractal-browse url &key format model)
+#+end_src
+
+Queries the hyperfractal browser API to parse and read a webpage.
+******** =ruhe-init=
+#+begin_src lisp
+  (ruhe-init feed-url)
+#+end_src
+
+Initializes a feed configuration for feed processor.
+******** =get-all-md-src-blocks=
+#+begin_src lisp
+  (get-all-md-src-blocks markdown-text)
+#+end_src
+
+Parses markdown text and returns all fenced code blocks.
+******** =render-markdown-to-html=
+#+begin_src lisp
+  (render-markdown-to-html markdown-text)
+#+end_src
+
+Converts markdown text to HTML format.
+******** =insert-md-sibling=
+#+begin_src lisp
+  (insert-md-sibling markdown-text target-header-id sibling-markdown-text)
+#+end_src
+
+Inserts a sibling block in markdown structure.
+******** =insert-md-child=
+#+begin_src lisp
+  (insert-md-child markdown-text target-header-id child-markdown-text)
+#+end_src
+
+Inserts a child block in markdown structure.
+******** =render-md-ansi=
+#+begin_src lisp
+  (render-md-ansi markdown-text)
+#+end_src
+
+Renders markdown text with ANSI escape codes for terminal display.
+******** =make-tui-theme=
+#+begin_src lisp
+  (make-tui-theme &rest args)
+#+end_src
+
+Constructs a theme object for the interactive terminal user interface.
+****** prompts.lisp
+This file manages the LLM prompt template registry. Prompts are defined as templates (often using mustache format) and registered under keyword names.
+******* defprompt
+#+begin_src lisp
+  (defprompt name &rest args)
+#+end_src
+
+Register a prompt template.
+
+- =name=: Keyword or symbol for the prompt name.
+- =args=: Optional type as a symbol, followed by property plist or docstring.
+  - =:type=: Prompt type symbol (e.g. =system=, =template=, =user=).
+  - =:template=: Raw template string.
+  - =:file=: Filename of the template (relative to prompts search path).
+  - =:system=: System instructions string.
+  - =:vars=: List of bound variable names.
+  - =:stream=: Boolean indicating if output should be streamed (default =t=).
+******* find-prompt
+#+begin_src lisp
+  (find-prompt name)
+#+end_src
+
+Find the prompt struct registered for NAME.
+******* get-prompt
+#+begin_src lisp
+  (get-prompt name &optional file-fallback)
+#+end_src
+
+Return the template string registered for NAME. If absent and FILE-FALLBACK is given, load and memoize it from a prompt file.
+******* render-prompt
+#+begin_src lisp
+  (render-prompt name alist &key file-fallback)
+#+end_src
+
+Render the prompt NAME via mustache using ALIST bindings.
+******* list-prompts
+#+begin_src lisp
+  (list-prompts)
+#+end_src
+
+Return a list of all registered prompt structs sorted by name.
 ****** context
 ******* Context Management
 These functions control which local files and images are included in the LLM's context window.
@@ -4665,6 +7605,73 @@ Displays a TUI selector built within Common Lisp, without external dependencies.
   A list where each element is a plist containing at least =(:item . "display-string")= and =(:preview . "preview-text")=.
 
 *Return Value:* The full plist of the selected item, or =NIL= if the selection is cancelled.
+****** interface.lisp
+This component implements a two-way file interface system that maps the internal application state to temporary files under a unique instance directory (e.g. =./.hactar/<pid>/=). Edits to these files by the user (or external editors) are automatically synchronized back into Hactar's state, and state changes are written out to the files.
+******* definterface
+#+begin_src lisp
+  (definterface name path &key (format :text) render parse on-change hooks (watch t) sections title)
+#+end_src
+
+Define a two-way file interface NAME mapped to PATH under the instance dir.
+
+- =name=: Keyword identifier for the interface (e.g. =:files=, =:state=).
+- =path=: Relative path string under the instance directory.
+- =format=: Format keyword (=:text=, =:org=, =:lisp=).
+- =render=: Parameterless lambda returning a string to write to the file.
+- =parse=: Lambda taking the file content string and applying it to the application state.
+- =on-change=: Alternate fallback function to call when the file is modified (if parse is absent).
+- =hooks=: List of =(hook-variable direction)= pairs (where direction is =:in= or =:out=) to trigger syncs.
+- =watch=: If true (default), installs a file watcher to detect external changes.
+- =sections=: List of plists for =:org= format files to parse sections into separate handlers.
+- =title=: Optional title for the top of org files.
+******* instance-id
+#+begin_src lisp
+  (instance-id)
+#+end_src
+
+Return and memoize the unique instance ID string (typically the PID).
+******* instance-dir
+#+begin_src lisp
+  (instance-dir)
+#+end_src
+
+Return and ensure the absolute pathname of Hactar's temporary instance directory.
+******* interface-abs-path
+#+begin_src lisp
+  (interface-abs-path iface)
+#+end_src
+
+Return the absolute pathname of the given interface struct's file.
+******* materialize-interface
+#+begin_src lisp
+  (materialize-interface iface)
+#+end_src
+
+Write the initial file for IFACE and install its watcher and declared hooks.
+******* materialize-all-interfaces
+#+begin_src lisp
+  (materialize-all-interfaces)
+#+end_src
+
+Materialize all registered interfaces into the instance directory.
+******* sync-interface-out
+#+begin_src lisp
+  (sync-interface-out name)
+#+end_src
+
+Re-render and write the named interface file.
+******* sync-interface-in
+#+begin_src lisp
+  (sync-interface-in name)
+#+end_src
+
+Read the named interface file and apply its content to the application state.
+******* with-interface-suppressed
+#+begin_src lisp
+  (with-interface-suppressed (name) &body body)
+#+end_src
+
+Run body, then update the interface's hash to ignore filesystem changes caused by Hactar itself during the body's execution.
 ****** import.lisp
 This file provides a system for importing documentation from various external sources. It uses a registry of "import sources" that match against a URI using regular expressions. This is similar to the `router.lisp` file but is specifically designed for fetching, processing, and ingesting new content into the document database.
 
@@ -4842,6 +7849,66 @@ Aliases for the `/import` command with identical functionality.
   (define-command import.starter (args))
 #+end_src
 A specialized version of `/import` that automatically adds the `"starter"` tag to any document it imports, in addition to any tags provided manually or generated by the LLM.
+****** mode.lisp
+This file implements the Hactar "mode" system. Modes are bundles of features, commands, and rules that can be activated dynamically when stack criteria are met (e.g. React project structure detected) or manually by the user.
+******* defmode
+#+begin_src lisp
+  (defmode name description &body body)
+#+end_src
+
+Define a mode.
+
+- =name=: Symbol or string identifying the mode.
+- =description=: Docstring description.
+- =body=: Property plist with keys:
+  - =:when=: Form/predicate that returns true if the mode should be automatically activated.
+  - =:rules=: Rule text to add to the system prompt when active.
+  - =:skills=: List of skills to load when active.
+  - =:commands=: List of mode-specific command definitions.
+  - =:on-activate=: Function to run upon activation.
+  - =:on-deactivate=: Function to run upon deactivation.
+******* defmode-command
+#+begin_src lisp
+  (defmode-command mode name args &body body)
+#+end_src
+
+Define a command namespaced under MODE that only runs when the mode is active. The command name is registered globally as =mode.name=.
+******* get-mode
+#+begin_src lisp
+  (get-mode name)
+#+end_src
+
+Look up a registered mode struct by name.
+******* activate-mode
+#+begin_src lisp
+  (activate-mode name)
+#+end_src
+
+Activate a mode, injecting its rules, loading its skills, loading stack documentation, and calling its =on-activate= callback.
+******* deactivate-mode
+#+begin_src lisp
+  (deactivate-mode name)
+#+end_src
+
+Deactivate a mode, removing its rules and calling its =on-deactivate= callback.
+******* active-modes
+#+begin_src lisp
+  (active-modes)
+#+end_src
+
+Return a list of all currently active mode names.
+******* refresh-modes
+#+begin_src lisp
+  (refresh-modes)
+#+end_src
+
+Re-evaluate the =:when= predicates of all modes, activating or deactivating them as necessary.
+******* get-active-mode-rules
+#+begin_src lisp
+  (get-active-mode-rules)
+#+end_src
+
+Collect active mode rules into a single formatted string for insertion into the LLM system prompt.
 ****** hactar-monolith
 The =hactar-monolith= component transforms Hactar into an Org-Centric Literate Programming Mode, where org-mode files become the source of truth for all code and concepts. It manages a knowledge graph of concepts, projects, and journal entries.
 ******* Core Functions
@@ -4936,6 +8003,74 @@ CLI Sub-commands:
 - =hactar monolith.drift [--project <name>] [--all]=
 - =hactar monolith.concept <new|find|list> [args]=
 - =hactar monolith.synthesize <description> --draw-from <patterns...>=
+****** wiki.lisp
+This file implements the Hactar Wiki knowledge graph. It provides a structured registry of docsets, endpoints, components, and variables that form a semantic network. Unknown URIs can trigger automated LLM queries that fall back to search and synthesis against this graph.
+******* defdocset
+#+begin_src lisp
+  (defdocset name &key version stack-tags description)
+#+end_src
+
+Declare a docset namespace. Subsequent defendpoint/defcomponent/defvariable calls in this file inherit its STACK-TAGS unless overridden.
+******* defendpoint
+#+begin_src lisp
+  (defendpoint qualified-name &rest props)
+#+end_src
+
+Define a wiki endpoint node. QUALIFIED-NAME should be formatted as =docset/endpoint-path=.
+******* defcomponent
+#+begin_src lisp
+  (defcomponent qualified-name &rest props)
+#+end_src
+
+Define a wiki component node (e.g. UI component). QUALIFIED-NAME should be formatted as =docset/component-path=.
+******* defvariable
+#+begin_src lisp
+  (defvariable qualified-name &rest props)
+#+end_src
+
+Define a wiki variable or configuration node. QUALIFIED-NAME should be formatted as =docset/variable-path=.
+******* defimporter
+#+begin_src lisp
+  (defimporter name (&rest lambda-list) &body body)
+#+end_src
+
+Define a wiki importer named NAME that processes external documents and emits Lisp registry forms.
+******* parse-wiki-uri
+#+begin_src lisp
+  (parse-wiki-uri uri-string)
+#+end_src
+
+Parse a wiki URI string into three values: (values namespace path resource).
+******* find-wiki-node
+#+begin_src lisp
+  (find-wiki-node namespace path)
+#+end_src
+
+Find a registered wiki node. If NAMESPACE is nil, tries to infer it from the active =*stack*=.
+******* dispatch-wiki-query
+#+begin_src lisp
+  (dispatch-wiki-query uri-string)
+#+end_src
+
+Main entry point for resolving wiki requests. Parses the URI, looks up the corresponding node, and returns the requested resource property or synthesizes it with an LLM.
+******* wiki-import
+#+begin_src lisp
+  (wiki-import importer-name &rest args)
+#+end_src
+
+Invoke the named importer with the provided arguments.
+******* wiki-list
+#+begin_src lisp
+  (wiki-list &optional namespace-filter)
+#+end_src
+
+Print all registered wiki nodes, optionally filtered by namespace prefix.
+******* wiki-show
+#+begin_src lisp
+  (wiki-show uri)
+#+end_src
+
+Display the properties and relationships of a single wiki node.
 ****** litmode
 The =litmode= component implements Single-File Literate Mode for Hactar. A single =.hactar.org= file per project becomes the sole interface between a human and Hactar. All context engineering, code changes, scripting, and agent coordination flows through this one file.
 ******* Core Functions
@@ -6044,6 +9179,30 @@ Define an emitter for a target/form pair.
 #+end_src
 
 Define a target-local macro expander.
+********* =defcheck=
+#+begin_src lisp
+  (defcheck target name lambda-list &body body)
+#+end_src
+
+Define a static check rule for a target.
+******** Check and Validation Functions
+********* =run-checks=
+#+begin_src lisp
+  (run-checks target forms)
+#+end_src
+
+Run all defined checks for a target on a list of forms.
+********* =check-result=
+Structure representing the result of a check. It has slots:
+- =level=: Severity level (=:info=, =:warning=, =:error=).
+- =message=: The warning/error message string.
+- =form=: The Lisp form that failed the check.
+********* =check-unsupported-form=
+#+begin_src lisp
+  (check-unsupported-form target form)
+#+end_src
+
+Helper to generate a check result for forms that are not supported by the target.
 ******** Commands
 ********* compile
 #+begin_src
@@ -6404,6 +9563,7 @@ Extensions can attach to these hooks to react to events.
 
 - =*file-event-hook*=: Fired on file system changes. Handler receives
   =(pathname event-type)=.
+- =*raw-file-event-hook*=: Raw filesystem watcher hook, includes files in the git-ignored =.hactar= instance directory. Handler receives =(pathname event-type)=.
 - =*package-json-analyzed-hook*=: Fired after a =package.json= file is analyzed. Handler receives =(metadata-hashtable)=.
 - =*process-history-hook*=: Fired after any LLM response is added to the history. Handler receives =(full-chat-history)=.
 - =*assistant-extraction-hook*=:
@@ -6411,13 +9571,150 @@ Extensions can attach to these hooks to react to events.
 - =*watcher-<name>-output-hook*=:
   A dynamic hook is created for each watcher defined with =defwatcher=. For a watcher named =test=, the hook is =*watcher-test-output-hook*=.
   Handler receives =(active-watcher-struct line-of-output)=.
+- =*watcher-test-watcher-output-hook*=: Fired when test watcher output is received. Handler receives =(active-watcher line-of-output)=.
 - =*context-file-added-hook*=:
   Called when a new file is addeded to context. The handler is called with the file path (string).
 - =*context-file-dropped-hook*=:
   Called when a file is dropped from context. The handler is called with the file path (string).
+- =*context-variable-changed-hook*=: Fired when a context variable changes. Handler receives =(variable-keyword new-value)=.
+- =*context-doc-added-hook*=: Called when a documentation page is added to context. Handler receives =(doc-alist)=.
+- =*context-doc-dropped-hook*=: Called when a documentation page is dropped from context. Handler receives =(doc-id)=.
+- =*model-changed-hook*=: Hook run when =*current-model*= changes. Handler receives =(new-model old-model)=.
 - =*stack-changed-hook*=:
   Fired when the stack variable changes. Handler receives the new stack list.
+- =*history-changed-hook*=: Fired when chat history is modified. Handler receives no arguments.
+- =*org-heading-parsed-hook*=: Fired when an Org-mode heading is parsed. Handler receives =(heading-plist)=.
+- =*concept-created-hook*=: Fired when a new concept is created in the monolith. Handler receives =(org-concept-struct)=.
+- =*concept-matured-hook*=: Fired when a concept maturity level changes. Handler receives =(org-concept old-maturity new-maturity)=.
+- =*tangle-completed-hook*=: Fired when tangling finishes. Handler receives =(tangle-result-struct)=.
+- =*drift-detected-hook*=: Fired when drift is detected between source files and tangled files. Handler receives =(drift-list)=.
+- =*link-resolved-hook*=: Fired when an org link is resolved. Handler receives =(link-uri target)=.
+- =*litmode-scope-changed-hook*=: Fired when the active litmode scope changes. Handler receives =(new-scope old-scope)=.
+- =*litmode-tangle-completed-hook*=: Fired when litmode tangling completes. Handler receives =(tangle-results-list)=.
+- =*litmode-task-transitioned-hook*=: Fired when a litmode task transitions states. Handler receives =(task-id new-state old-state)=.
+- =*litmode-drift-detected-hook*=: Fired when litmode drift is detected. Handler receives =(drift-list)=.
+- =*proxy-request-hook*=: Fired when LLM proxy intercepts an upstream request. Handler receives =(request-alist)= and can return a modified request.
+- =*proxy-response-hook*=: Fired when LLM proxy intercepts an upstream response. Handler receives =(response-alist request-alist)= and can return a modified response.
 ******* Hook Usage Examples
+****** Code as Value API
+Hactar models code fragments as immutable semantic "values" using =code-value= structs. Transformations to a code-value (such as editing or describing) generate new code-values, preserving the parent and providing a full history/provenance chain.
+******* Data Structures
+******** code-value
+An immutable semantic wrapper around code.
+
+- Slots/Fields:
+  - =id=: A unique string ID.
+  - =name=: Optional name or symbol for this selection.
+  - =source-file=: Pathname of the source file.
+  - =source-region=: Cons cell representing line range =(start . end)=.
+  - =source-text=: String of the actual code.
+  - =language=: String language identifier (e.g. ="typescript"=).
+  - =intent=: String describing the purpose of the code.
+  - =inputs=: List of input descriptions.
+  - =outputs=: List of output descriptions.
+  - =effects=: List of side effects.
+  - =invariants=: List of invariants.
+  - =parent=: Parent =code-value= in the transformation chain.
+  - =staged-p=: T if staged for application.
+  - =applied-p=: T if applied to disk.
+******* Core Functions
+******** hactar-init
+#+begin_src lisp
+  (hactar-init)
+#+end_src
+
+Initializes Hactar context, ensuring repository root, models, and databases are loaded.
+******** code/select
+#+begin_src lisp
+  (code/select source &key function class method region name)
+#+end_src
+
+Select code from a source (file path or specifier) and wrap it as a code-value.
+******** code/from-string
+#+begin_src lisp
+  (code/from-string text &key language name)
+#+end_src
+
+Create a code-value from a string of code.
+******** code/from-context
+#+begin_src lisp
+  (code/from-context file-path)
+#+end_src
+
+Create a code-value from a file already in the Hactar context.
+******** code/describe
+#+begin_src lisp
+  (code/describe cv &key force)
+#+end_src
+
+Populate semantic fields of a code-value using the LLM.
+******** code/source
+#+begin_src lisp
+  (code/source cv)
+#+end_src
+
+Return the source text of a code-value.
+******** code/intent
+#+begin_src lisp
+  (code/intent cv)
+#+end_src
+
+Return the intent of a code-value, computing it via LLM if necessary.
+******** code/ask
+#+begin_src lisp
+  (code/ask cv question)
+#+end_src
+
+Ask a question about the code-value and return the response.
+******** code/history
+#+begin_src lisp
+  (code/history cv)
+#+end_src
+
+Return the chain of transformations that led to this code-value.
+******** code/parent
+#+begin_src lisp
+  (code/parent cv)
+#+end_src
+
+Return the parent code-value.
+******** code/original
+#+begin_src lisp
+  (code/original cv)
+#+end_src
+
+Return the root/original code-value in the transformation chain.
+******** code/show
+#+begin_src lisp
+  (code/show cv &key (stream *standard-output*))
+#+end_src
+
+Display a code-value with all its metadata to the given stream.
+******** code/summary
+#+begin_src lisp
+  (code/summary cv)
+#+end_src
+
+Return a short summary string for a code-value.
+****** Hydra API
+The Hydra API allows defining interactive, transient menus inside Hactar's terminal interface (both TUI and standard CLI).
+******* Special Variables
+- =*hydras*=: Global hash table storing all registered hydras.
+- =*hydra-input*=: Override stream for hydra input (useful for scripting/testing).
+- =*hydra-output*=: Override stream for hydra output.
+******* Macros and Functions
+******** defhydra
+#+begin_src lisp
+  (defhydra name options &body body)
+#+end_src
+
+Define a transient/hydra menu command and subcommands.
+******** run-hydra
+#+begin_src lisp
+  (run-hydra hydra)
+#+end_src
+
+Run the interactive loop for a given hydra.
 ****** lsp
 The =lsp.lisp= component exposes Hactar as a Language Server Protocol server over stdio.
 
@@ -6510,6 +9807,23 @@ Match and execute a route for the given input string.
 - =input=: The string to match.
 
 *Return Value:* The result of the route handler, or NIL if no match.
+******* defflag
+#+begin_src lisp
+  (defflag name aliases lambda-list &body body)
+#+end_src
+
+Define a CLI flag.
+
+- =name=: Keyword identifier (e.g. =:model=).
+- =aliases=: List of alias strings (e.g. ='("--model" "-m")=).
+- =lambda-list=: =()= for boolean flags, or =(value)= for value flags.
+- =body=: Code to execute when the flag is parsed, optionally starting with keywords:
+  - =:description=: Documentation string for the flag.
+  - =:takes-value=: Boolean indicating if it takes a value (derived from lambda-list if omitted).
+  - =:examples=: List of example usage strings.
+  - =:validator=: Lambda function called to validate the value.
+  - =:initializer=: Lambda function called once during system setup.
+  - =:error-level=: Symbol indicating severity of validation failure (=:warning= or =:error=).
 ****** gen
 Generative commands that use LLMs to generate code or configuration.
 
@@ -8045,6 +11359,59 @@ CLI Sub-commands:
 - =hactar session load <name>=
 - =hactar session show <name>=
 - =hactar session delete <name>=
+**** nhooks
+The =nhooks= package implements a publish/subscribe hook system allowing different parts of the application to react to events. It is a slightly modified copy of the =nhooks= library developed by the Nyxt browser team.
+
+A hook is an instance of the =nhooks:hook= class. Typing in hooks ensures that their handlers accept the correct argument types and return the correct value types.
+***** Variables
+- =*hook*=: The default hook instance or dynamic variable used for hook operations.
+***** Classes
+****** handler
+Wraps a handler function with extra metadata for identification and comparison.
+
+- Slots:
+  - =name=: Symbol naming the handler. Defaults to the function name if it is named.
+  - =description=: Text description.
+  - =fn=: The actual handler function.
+  - =place=: If a setter, describes the slot or place being set.
+  - =value=: If a setter, the value to set.
+****** hook
+The base class for hooks.
+
+- Slots:
+  - =handler-type=: Expected function type of handlers.
+  - =handlers-alist=: Alist of =(handler . enable-p)= representing registered handlers and their active states.
+  - =handlers=: List of active handler functions.
+  - =disabled-handlers=: List of disabled handler functions.
+  - =combination=: Function or symbol managing how results from handlers are combined.
+***** Hook Combinations
+- =default-combine-hook=: Returns a list of results from all enabled handlers.
+- =combine-hook-until-failure=: Runs handlers until one returns =nil=.
+- =combine-hook-until-success=: Runs handlers and returns the first non-nil result.
+- =combine-composed-hook=: Composes handlers so the output of one is passed to the next.
+***** Hook Operations
+- =(add-hook hook handler &key append)=: Registers a handler.
+- =(remove-hook hook handler-or-name)=: Removes a handler.
+- =(run-hook hook &rest args)=: Runs all enabled handlers on the hook.
+- =(run-hooks &rest hooks)=: Runs multiple hooks sequentially.
+- =(run-hook-with-args-until-failure hook &rest args)=: Runs handlers on =hook= with =args= until one returns =nil=.
+- =(run-hook-with-args-until-success hook &rest args)=: Runs handlers on =hook= with =args= and returns the first non-nil result.
+- =(disable-hook hook &rest handlers)=: Disables specified handlers.
+- =(enable-hook hook &rest handlers)=: Enables specified handlers.
+- =(define-hook hook-type name &key object handlers disabled-handlers combination)=: Defines a globally-accessible hook.
+- =(find-hook name &optional object)=: Looks up a global hook.
+- =(define-hook-type name type &optional documentation)=: Macro to define a new subclass of =hook= with a specific =handler-type=.
+- =(find-handler name hook)=: Finds a handler by name on the given hook.
+- =(with-disable-handler-restart handler hook &body body)=: Establishes a restart to disable a failing handler.
+***** Pre-generated Hook Types
+- =hook-void=: Hook type for functions accepting no arguments.
+- =hook-string->string=: Hook type for functions mapping string to string.
+- =hook-number->number=: Hook type for functions mapping number to number.
+- =hook-any=: Hook type for functions accepting any arguments.
+***** Convenience Macros
+- =(on hook args &body body)=: Attaches an anonymous handler to a hook.
+- =(once-on hook args &body body)=: Attaches an anonymous handler that runs exactly once and then removes itself.
+- =(wait-on hook args &body body)=: Blocks until the hook is triggered, returning the evaluation of `body`.
 **** llm
 Hactar uses a custom rolled lib called =llm= for abstracting over LLM APIs. Supports OpenAI, Anthropic, Google Gemini, Ollama, and OpenRouter. It supports streaming and non-streaming responses, vision + image capabilities, and tool use.
 ***** Configuration
@@ -8515,7 +11882,173 @@ Generates a vector embedding for the given text using an Ollama-compatible API.
 *Return Value:*
 - A list of numbers representing the embedding vector.
 - =NIL= on error.
-***** Other
+***** Provider Specific Functions (Additional)
+****** copilot-complete
+#+begin_src lisp
+  (copilot-complete messages &key (token *github-copilot-token*) (model "gpt-4o") (stream nil) (max-tokens 1024) &allow-other-keys)
+#+end_src
+
+Completes a prompt using the GitHub Copilot API.
+****** mistral-complete
+#+begin_src lisp
+  (mistral-complete messages &key (api-key *mistral-api-key*) (model "mistral-large-latest") (stream nil) (max-tokens 1024) &allow-other-keys)
+#+end_src
+
+Completes a prompt using the Mistral API.
+****** deepseek-complete
+#+begin_src lisp
+  (deepseek-complete messages &key (api-key *deepseek-api-key*) (model "deepseek-chat") (stream nil) (max-tokens 1024) &allow-other-keys)
+#+end_src
+
+Completes a prompt using the Deepseek API.
+****** kimi-complete
+#+begin_src lisp
+  (kimi-complete messages &key (api-key *kimi-api-key*) (model "moonshot-v1-8k") (stream nil) (max-tokens 1024) &allow-other-keys)
+#+end_src
+
+Completes a prompt using the Moonshot (Kimi) API.
+****** opencode-complete
+#+begin_src lisp
+  (opencode-complete messages &key (api-key *opencode-api-key*) (model "opencode-1.5") (stream nil) (max-tokens 1024) &allow-other-keys)
+#+end_src
+
+Completes a prompt using the OpenCode API.
+****** bedrock-complete
+#+begin_src lisp
+  (bedrock-complete messages &key (bearer-token *bedrock-bearer-token*) (region *bedrock-region*) (model "anthropic.claude-3-sonnet-20240229-v1:0") (stream nil) (max-tokens 1024) &allow-other-keys)
+#+end_src
+
+Completes a prompt using AWS Bedrock.
+***** Copilot Integration Helpers
+****** get-copilot-token
+#+begin_src lisp
+  (get-copilot-token)
+#+end_src
+
+Retrieves or refreshes the GitHub Copilot API token.
+****** list-copilot-models
+#+begin_src lisp
+  (list-copilot-models &optional token)
+#+end_src
+
+Lists all available GitHub Copilot models.
+****** copilot-complete-text
+#+begin_src lisp
+  (copilot-complete-text prompt &key (token *github-copilot-token*) (model "gpt-4o") (max-tokens 1024))
+#+end_src
+
+Simplified text-only completion using Copilot.
+***** API Keys and Tokens
+- =*openai-api-key*=: API key for OpenAI services.
+- =*anthropic-api-key*=: API key for Anthropic Claude.
+- =*gemini-api-key*=: API key for Google Gemini.
+- =*openrouter-api-key*=: API key for OpenRouter.
+- =*mistral-api-key*=: API key for Mistral.
+- =*deepseek-api-key*=: API key for Deepseek.
+- =*kimi-api-key*=: API key for Moonshot/Kimi.
+- =*opencode-api-key*=: API key for OpenCode.
+- =*bedrock-bearer-token*=: Bearer token for AWS Bedrock.
+- =*bedrock-region*=: AWS region for AWS Bedrock.
+- =*github-copilot-token*=: Cache of the GitHub Copilot token.
+- =*anthropic-oauth-token*=: OAuth token for Anthropic services.
+- =*antigravity-token*=: Custom token for Antigravity-specific backends.
+- =*antigravity-project-id*=: Project ID for Antigravity-specific backends.
+**** org-mode-parser Package
+This package provides a robust parser for Org-mode text, converting it into a structured Lisp representation (a plist).
+***** parse
+#+begin_src lisp
+  (parse input)
+#+end_src
+
+Parses Org-mode text from a string or pathname =INPUT=.
+
+- =INPUT=: A string containing Org-mode text or a pathname to an Org
+  file.
+
+*Return Value:* A plist representing the parsed document, with two main
+keys:
+- =:settings=: An alist of document settings (e.g., =((:TITLE . "My Document"))=).
+- =:entries=: A list of parsed headline entries. Each entry is a complex alist containing details like =:level=, =:title=, =:tags=, =:props= (property drawer), and =:section= (content).
+***** select-by-tag
+#+begin_src lisp
+  (select-by-tag parsed-org tags)
+#+end_src
+
+Selects entries from a parsed Org structure that contain ALL specified tags.
+
+- =parsed-org=: The plist structure returned by =org-mode-parser:parse=.
+- =tags=: A list of strings representing the tags to match (e.g.,
+  ='("api" "public")=).
+
+*Return Value:* A list of entry alists that match all the given tags.
+***** insert-child
+#+begin_src lisp
+  (insert-child original-org-string parent-id new-org-string)
+#+end_src
+
+Parses =original-org-string=, finds the entry with =parent-id=, parses =new-org-string=, adjusts its headline levels to be children of the parent, and inserts it after the parent's last descendant.
+
+- =original-org-string=: The string content of the main Org document.
+- =parent-id=: The string ID of the parent headline (from its =:PROPERTIES:= drawer).
+- =new-org-string=: The string content of the new Org entry/entries to
+  insert.
+
+*Return Value:* The reconstructed Org string with the new child entry inserted. Throws an error if =parent-id= is not found.
+***** insert-sibling
+#+begin_src lisp
+  (insert-sibling original-org-string sibling-id new-org-string)
+#+end_src
+
+Similar to =insert-child=, but adjusts the new entry's level to match the =sibling-id= entry's level, inserting it as a following sibling.
+
+- =original-org-string=: The string content of the main Org document.
+- =sibling-id=: The string ID of the sibling headline.
+- =new-org-string=: The string content of the new Org entry/entries to
+  insert.
+
+*Return Value:* The reconstructed Org string with the new sibling entry inserted.
+***** org-to-string
+#+begin_src lisp
+  (org-to-string parsed-org)
+#+end_src
+
+Converts a parsed Org structure (plist) back into a valid Org-mode formatted string. This is the inverse of =parse=.
+
+- =parsed-org=: The plist structure returned by =org-mode-parser:parse=.
+
+*Return Value:* A string containing the Org-mode representation of the parsed structure.
+**** org-mode Package
+This package provides a line-based, lower-level API for manipulating Org-mode files as strings. It is generally recommended to use =org-mode-parser= for more robust operations, but this package is useful for simpler, faster manipulations.
+***** Pure Functions (String -> String)
+These functions take an Org string as input and return a modified Orgstring.
+
+- =(insert-child org-string target-id new-content-string)=: Inserts
+  =new-content-string= as a child of the headline with =target-id=.
+- =(insert-sibling org-string target-id new-content-string)=: Inserts
+  =new-content-string= as a sibling after the headline with =target-id=.
+- =(delete-headline org-string target-id)=: Removes the headline with
+  =target-id= and all its sub-headlines and content.
+- =(select-headlines-by-tag org-string tags)=: Returns a new Org string
+  containing only the headlines (and their content) that match ALL
+  =tags=.
+- =(filter-headlines org-string tags-to-filter)=: Returns a new Org
+  string with headlines matching ANY of =tags-to-filter= removed.
+***** Impure Functions (File I/O)
+These functions modify a file in place. They are wrappers around the pure functions that handle reading from and writing to the file. They return =T= on success and =NIL= on failure.
+
+- =(insert-child! filename target-id new-content-string)=
+- =(insert-sibling! filename target-id new-content-string)=
+- =(delete-headline! filename target-id)=
+- =(filter-headlines! filename tags-to-filter)=
+***** Helper Functions
+- =(get-headline-level line)=: Returns the numeric level of a headline
+  string, or =NIL=.
+- =(get-property prop-name lines)=: Finds the value of a property (e.g.,
+  =:ID:=) within a list of lines representing a property drawer.
+- =(find-headline-region lines target-id)=: Finds the start and end line
+  indices for the headline with =target-id=.
+- =(get-tags-from-headline headline-line)=: Extracts a list of tags
+  (e.g., =("api" "public")=) from a headline string.
 ** Hactar formats and Conventions
 *** Starters
 Starters in org-mode are a superset of org-mode. They follow two conventions:

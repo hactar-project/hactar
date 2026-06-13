@@ -15,11 +15,6 @@ build:
 build-cli:
 	$(LISP) --load build.lisp --eval "(build-llm-cli)" --quit
 
-# Generate documentation
-.PHONY: docs
-docs:
-	$(LISP) --load build.lisp --eval "(generate-docs)" --quit
-
 # Run the application
 .PHONY: run
 run:
