@@ -196,6 +196,15 @@ Generated using tree-sitter")
                               (uiop:subpathname *hactar-data-path* "pro/"))
                           "Path to the Hactar Pro content repository.")
 
+(defstate *docs-import-path* (or (uiop:getenv "HACTAR_DOCS_IMPORT_PATH")
+                                 "./hactar/docs/")
+  "Default folder to import documentation files into.")
+
+(defstate *starters-import-path* (or (uiop:getenv "HACTAR_STARTERS_IMPORT_PATH")
+                                     *docs-import-path*)
+  "Default folder to import starter files into.")
+
+
 (defstate *hactar-starters-agent* (or (uiop:getenv "HACTAR_STARTERS_AGENT_PATH")
                                     (uiop:subpathname *hactar-data-path* "starters/AgentStarter.org"))
   "Path to the default Agent starter template (AgentStarter.org).")

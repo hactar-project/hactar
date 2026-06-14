@@ -30,7 +30,8 @@
   (get-or-create-dispatcher "apidoc")
   (get-or-create-dispatcher "errors")
   (get-or-create-dispatcher "guide")
-  (get-or-create-dispatcher "wiki"))
+  (get-or-create-dispatcher "wiki")
+  (get-or-create-dispatcher "starters"))
 
 (defun parse-uri-protocol (uri-string)
   "Parse a URI like 'docs:js/react/latest' into (values protocol path)."

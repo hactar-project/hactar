@@ -74,6 +74,7 @@ Returns true iff all suites pass."
                    to-org-tests
                    rules-tests
                    skills-tests
+                   starters-tests
                    mold-tests
                    proxy-tests
                    compiler-tests

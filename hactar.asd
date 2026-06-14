@@ -126,6 +126,7 @@
 	       (:file "assistant")
 	       (:file "pro")
 	       (:file "create")
+	       (:file "starters")
 	       (:file "preset")
 	       (:file "skills-mode")
 	       (:file "lisp-mode")

@@ -292,11 +292,16 @@ Tags should be relevant keywords/topics in lowercase. Summary should be one conc
 
 (defun %import-emit-and-load (uri title content &key tags covers meta id related)
   "Write a (defdoc ...) lisp file for an import under hactar/docs/ and load it."
-  (let* ((out-file (uiop:native-namestring
+  (let* ((import-dir (uiop:ensure-directory-pathname
+                      (or *docs-import-path* "./hactar/docs/")))
+         (resolved-dir (if (uiop:absolute-pathname-p import-dir)
+                           import-dir
+                           (merge-pathnames import-dir (or *repo-root* (uiop:getcwd)))))
+         (out-file (uiop:native-namestring
                     (merge-pathnames
-                     (format nil "./hactar/docs/~A.lisp"
+                     (format nil "~A.lisp"
                              (cl-ppcre:regex-replace-all "[^A-Za-z0-9_.-]" uri "_"))
-                     (or *repo-root* (uiop:getcwd)))))
+                     resolved-dir)))
          (covers-list (or (coerce (uiop:ensure-list covers) 'list) (list title)))
          (tags-list (coerce (uiop:ensure-list tags) 'list))
          (form `(defdoc ,title
@@ -543,12 +548,17 @@ Tags should be relevant keywords/topics in lowercase. Summary should be one conc
   (if (null args)
       (format t "Usage: /import.lisp <uri> [out-file]~%")
       (let* ((uri (first args))
+             (import-dir (uiop:ensure-directory-pathname
+                          (or *docs-import-path* "./hactar/docs/")))
+             (resolved-dir (if (uiop:absolute-pathname-p import-dir)
+                               import-dir
+                               (merge-pathnames import-dir (or *repo-root* (uiop:getcwd)))))
              (out-file (or (second args)
                            (uiop:native-namestring
                             (merge-pathnames
-                             (format nil "hactar/docs/~A.lisp"
+                             (format nil "~A.lisp"
                                      (cl-ppcre:regex-replace-all "[^A-Za-z0-9_.-]" uri "_"))
-                             *repo-root*)))))
+                             resolved-dir)))))
         (handler-case
             (let ((file (import->lisp uri out-file)))
               (load file)

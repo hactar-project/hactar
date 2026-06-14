@@ -47,6 +47,7 @@
 	       (:file "tests/rules.test")
 	       (:file "tests/skills.test")
 	       (:file "tests/state.test")
+	       (:file "tests/starters.test")
 	       (:file "tests/interface.test")
 	       (:file "tests/hydra.test")
 	       (:file "tests/history.test")

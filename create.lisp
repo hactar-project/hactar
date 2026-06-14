@@ -8,38 +8,63 @@ USER-PROMPT is the natural language query/instructions for the project."
   (unless *current-model*
     (format t "No LLM model selected. Use /model to select a model.~%")
     (return-from create-project nil))
-  (let* ((starter-content
+  (let* ((resolved-doc nil)
+         (starter-content
            (cond
-            ((and starter (stringp starter)
+             ((and starter (stringp starter)
+                   (multiple-value-bind (content mime doc) (resolve-hypertext-uri starter)
+                     (declare (ignore mime))
+                     (when content
+                       (setf resolved-doc doc)
+                       content))))
+             ((and starter (stringp starter) (not (position #\: starter))
+                   (multiple-value-bind (content mime doc) (resolve-hypertext-uri (format nil "starters:~A" starter))
+                     (declare (ignore mime))
+                     (when content
+                       (setf resolved-doc doc)
+                       content))))
+             ((and starter (stringp starter)
                    (member (string-downcase starter) '("react" "sinatra") :test #'string=))
               (read-file-content (resolve-starter-path (string-downcase starter))))
-            ((and starter (probe-file starter))
+             ((and starter (probe-file starter))
               (read-file-content starter))
-            ((and starter (stringp starter))
+             ((and starter (stringp starter))
               (read-file-content (resolve-starter-path starter)))
-            (t
+             (t
               (read-file-content (resolve-starter-path "react")))))
+         (starter-title (or (and resolved-doc
+                                 (getf resolved-doc :title))
+                            starter
+                            "react"))
          (system-prompt-template (get-prompt 'system.create "system.create.org"))
          (context (generate-context))
          (system-prompt (mustache:render* system-prompt-template
-                                          `((:language . ,(or *language* "unknown"))
-                                            (:rules . "")
-                                            (:guide . ,starter-content)
-                                            (:context . ,context))))
+                                           `((:language . ,(or *language* "unknown"))
+                                             (:rules . "")
+                                             (:guide . ,starter-content)
+                                             (:context . ,context))))
          (final-user-prompt (or user-prompt (get-prompt 'user.create "user.create.org"))))
     (if (and starter-content (> (length starter-content) 0))
         (progn
-          (format t "Creating project from starter '~A'...~%" (or starter "react"))
+          (format t "Creating project from starter '~A'...~%" starter-title)
           (get-llm-response final-user-prompt :custom-system-prompt system-prompt :add-to-history t))
         (format t "Error: Could not load starter content for '~A'.~%" starter))))
 
 (define-slash-command create (args)
-  "Create a new project from a starter. Usage: /create <starter> <prompt...>"
-  (if (< (length args) 2)
-      (format t "Usage: /create <starter> <prompt...>~%")
-      (let* ((starter (first args))
-             (user-prompt (format nil "~{~A~^ ~}" (rest args))))
-        (create-project starter user-prompt))))
+  "Create a new project from a starter. Usage: /create [-s <starter>] <prompt...>"
+  (let* ((parsed-args (parse-cli-args-s (join-strings " " args) '(("s" . "starter"))))
+         (starter (getf parsed-args :starter))
+         (prompt-list (getf parsed-args :args))
+         (user-prompt (when prompt-list (join-strings " " prompt-list))))
+    (cond
+      ((and (null starter) (>= (length args) 2) (not (string-prefix-p "-" (first args))))
+       (let* ((pos-starter (first args))
+              (pos-prompt (join-strings " " (rest args))))
+         (create-project pos-starter pos-prompt)))
+      ((and (null user-prompt) (null starter))
+       (format t "Usage: /create [-s <starter>] <prompt...>~%"))
+      (t
+       (create-project (or starter "react") (or user-prompt ""))))))
 
 (define-sub-command create (args)
   "Create a new project from a starter. Usage: hactar create --path <dir> --starter <starter> <prompt...>"
