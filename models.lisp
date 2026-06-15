@@ -175,7 +175,7 @@
              (actual-model-name (if slash-pos
                                     (subseq model-name (1+ slash-pos))
                                     model-name)))
-        (when (member provider '("ollama" "openai" "anthropic" "gemini" "openrouter" "deepseek" "kimi" "glm" "google") :test #'string-equal)
+        (when (member provider '("ollama" "openai" "anthropic" "gemini" "openrouter" "deepseek" "kimi" "glm" "google" "nvidia_nim" "nvidia-nim") :test #'string-equal)
           (setf model (make-model-config
                        :name model-name
                        :provider provider

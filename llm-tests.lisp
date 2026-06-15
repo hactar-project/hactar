@@ -121,6 +121,22 @@
                             mock-response)))
       (is (equal mock-response (llm:complete :gemini test-message))))
 
+    ;; Test NVIDIA NIM dispatch
+    (with-dynamic-stubs ((llm:nvidia-nim-complete
+                          (lambda (messages &rest args)
+                            (declare (ignore args))
+                            (is (equal test-message messages))
+                            mock-response)))
+      (is (equal mock-response (llm:complete :nvidia-nim test-message))))
+
+    ;; Test NVIDIA NIM dispatch with underscore
+    (with-dynamic-stubs ((llm:nvidia-nim-complete
+                          (lambda (messages &rest args)
+                            (declare (ignore args))
+                            (is (equal test-message messages))
+                            mock-response)))
+      (is (equal mock-response (llm:complete :nvidia_nim test-message))))
+
     ;; Test error on unknown type
     (signals error
       (llm:complete :unknown test-message))))
@@ -346,6 +362,43 @@
           (is (string= "https://opencode.ai/zen/go/v1/chat/completions" captured-endpoint))
           (is (equal `((:role . "assistant") (:content . ,response-content))
                      (car (last updated-messages)))))))))
+
+;; Test NVIDIA NIM complete function (OpenAI-compatible)
+(test nvidia-nim-complete-test
+  "Test the nvidia-nim-complete function"
+  (let ((messages "NVIDIA NIM test")
+        (model "meta/llama3-70b-instruct")
+        (api-key "nvidia-nim-key")
+        (response-content "NVIDIA NIM response"))
+    ;; Non-streaming
+    (let ((captured-endpoint nil)
+          (mock-response (babel:string-to-octets
+                          (format nil "{\"choices\": [{\"message\": {\"content\": ~S}}]}" response-content))))
+      (with-dynamic-stubs ((drakma:http-request
+                            (lambda (endpoint &key &allow-other-keys)
+                              (setf captured-endpoint endpoint)
+                              (values mock-response 200 nil nil nil nil nil))))
+        (multiple-value-bind (content tool-calls updated-messages)
+            (llm:nvidia-nim-complete messages :model model :api-key api-key)
+          (declare (ignore tool-calls))
+          (is (string= response-content content))
+          (is (string= "https://integrate.api.nvidia.com/v1/chat/completions" captured-endpoint))
+          (is (equal `((:role . "assistant") (:content . ,response-content))
+                     (car (last updated-messages)))))))
+    ;; Streaming
+    (let ((mock-stream-content (format nil "data: {\"choices\":[{\"delta\":{\"content\":\"NVIDIA NIM streaming\"}}]}~%data: [DONE]~%")))
+      (with-dynamic-stubs ((drakma:http-request
+                            (lambda (endpoint &key want-stream &allow-other-keys)
+                              (declare (ignore endpoint want-stream))
+                              (values (flexi-streams:make-in-memory-input-stream
+                                       (babel:string-to-octets mock-stream-content :encoding :utf-8))
+                                      200 nil nil nil nil))))
+        (multiple-value-bind (reader processed-messages)
+            (llm:nvidia-nim-complete messages :model model :api-key api-key :stream t)
+          (declare (ignore processed-messages))
+          (is (typep reader 'llm-stream-reader))
+          (is (eq :openai (llm-stream-reader-provider reader)))
+          (is (string= "NVIDIA NIM streaming" (read-all-chunks reader))))))))
 
 ;; Test Amazon Bedrock complete function (Converse API)
 (test bedrock-complete-test

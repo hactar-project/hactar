@@ -15,6 +15,7 @@
 		     #:kimi-complete
 		     #:opencode-complete
 		     #:bedrock-complete
+		     #:nvidia-nim-complete
 		     #:*read-timeout*
 		     #:*debug-stream*
 		     #:make-stream-reader
@@ -42,6 +43,7 @@
 		     #:*kimi-api-key*
 		     #:*opencode-api-key*
 		     #:*bedrock-bearer-token*
+		     #:*nvidia-nim-api-key*
 		     #:*bedrock-region*
 		     #:*github-copilot-token*
 		     #:*anthropic-oauth-token*
@@ -83,6 +85,8 @@
                        "API key for Kimi (Moonshot) services.")
 (defvar *opencode-api-key* (uiop:getenv "OPENCODE_API_KEY")
                            "API key for the OpenCode Go subscription service.")
+(defvar *nvidia-nim-api-key* (uiop:getenv "NVIDIA_NIM_API_KEY")
+                             "API key for NVIDIA NIM services.")
 (defvar *bedrock-bearer-token* (uiop:getenv "AWS_BEARER_TOKEN_BEDROCK")
   "Bearer token for Amazon Bedrock API-key authentication.")
 (defvar *bedrock-region* (or (uiop:getenv "AWS_REGION")
@@ -237,6 +241,7 @@ Returns NIL if no choices or content are present."
 			 (format str "Anthropic API key: ~A~%" *anthropic-api-key*)
 			 (format str "Gemini API key: ~A~%" *gemini-api-key*)
 			 (format str "OpenRouter API key: ~A~%" *openrouter-api-key*)
+			 (format str "NVIDIA NIM API key: ~A~%" *nvidia-nim-api-key*)
 			 (format str "GitHub Copilot token: ~A~%" *github-copilot-token*)))
 
 (defun debug-log (&rest args)
@@ -530,6 +535,8 @@ Returns NIL if no choices or content are present."
                         (:kimi #'kimi-complete)
                         (:opencode-go #'opencode-complete)
                         (:bedrock #'bedrock-complete)
+                        (:nvidia-nim #'nvidia-nim-complete)
+                        (:nvidia_nim #'nvidia-nim-complete)
                         (otherwise (error "Unknown completer type: ~A" type)))))
     ;; Ensure max-context, images, tools, and tool-choice are passed along with other args
     (apply completer-fn messages
@@ -893,6 +900,16 @@ Returns NIL if no choices or content are present."
                                (endpoint "https://opencode.ai/zen/go/v1/chat/completions")
                           &allow-other-keys)
   "Generate a completion using the OpenCode Go subscription API (OpenAI-compatible)."
+  (apply #'openai-complete messages
+         :api-key api-key :model model :endpoint endpoint
+         args))
+
+(defun nvidia-nim-complete (messages &rest args
+                            &key (api-key *nvidia-nim-api-key*)
+                                 (model "meta/llama3-70b-instruct")
+                                 (endpoint "https://integrate.api.nvidia.com/v1/chat/completions")
+                            &allow-other-keys)
+  "Generate a completion using the NVIDIA NIM API (OpenAI-compatible)."
   (apply #'openai-complete messages
          :api-key api-key :model model :endpoint endpoint
          args))
