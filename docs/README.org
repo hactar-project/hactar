@@ -7606,7 +7606,7 @@ Displays a TUI selector built within Common Lisp, without external dependencies.
 
 *Return Value:* The full plist of the selected item, or =NIL= if the selection is cancelled.
 ****** interface.lisp
-This component implements a two-way file interface system that maps the internal application state to temporary files under a unique instance directory (e.g. =./.hactar/<pid>/=). Edits to these files by the user (or external editors) are automatically synchronized back into Hactar's state, and state changes are written out to the files.
+Hactar exposes most context as editable files at =./hactar/$instance-name/=. These syunc both ways. There is no complicated algorithm to make the syncing possible it is just plain files withouth any locking. It thus possible trip over each other's edits.  The end user is responsible for maintaining a mental map of what is currently being edited and not to trip over Hactar. For the little bit of extra mental ovehead you get a dramatically simpler interface. We can do this because the consequences to a bad edit/sync is not really that severe. Accidentally mess up some context? Just delete it. They are plain text files you can quickly fix in Emacs, nvim or whatever. 
 ******* definterface
 #+begin_src lisp
   (definterface name path &key (format :text) render parse on-change hooks (watch t) sections title)
@@ -7672,6 +7672,74 @@ Read the named interface file and apply its content to the application state.
 #+end_src
 
 Run body, then update the interface's hash to ignore filesystem changes caused by Hactar itself during the body's execution.
+******* Builtin Interfaces
+******** =:files=
+- *Path:* =context/files.dir=
+- *Format:* =:dir=
+- *Hooks:*
+  - =(*context-file-added-hook* :out)=
+  - =(*context-file-dropped-hook* :out)=
+- *Description:* Mediates the list of files in the active Hactar context. Rendering writes the relative paths of files in the context, one per line. Parsing reads the list, adding newly listed files to the context via =add-file-to-context=, and dropping omitted files via =drop-file-from-context=.
+
+******** =:state=
+- *Path:* =state.lisp=
+- *Format:* =:lisp=
+- *Hooks:* None
+- *Description:* Mediates core project variables like =*name*=, =*author*=, =*language*=, and =*stack*=. Modifying and saving this file loads the new values back into Hactar's state.
+
+******** =:prompt=
+- *Path:* =prompt.org=
+- *Format:* =:org=
+- *Hooks:* None
+- *Description:* Mediates the pending prompt. Writing to this file updates =*pending-prompt*= in Hactar.
+
+******** =:context-org=
+- *Path:* =.hactar.context.org=
+- *Format:* =:org=
+- *Hooks:*
+  - =(*context-file-added-hook* :out)=
+  - =(*context-file-dropped-hook* :out)=
+  - =(*context-variable-changed-hook* :out)=
+  - =(*context-doc-added-hook* :out)=
+  - =(*context-doc-dropped-hook* :out)=
+- *Description:* An aggregate Org-mode interface containing multiple sections:
+  - =project-details= (Title: "Project Details"): Syncs project state variables like Name, Author, Language, Shell, and Stack.
+  - =ctx-files= (Title: "Files"): Syncs files currently in context.
+  - =ctx-docs= (Title: "Documentation"): Lists active documents and syncs removals.
+  - =ctx-errors= (Title: "Errors"): Lists active errors and syncs removals.
+
+******** =:docs=
+- *Path:* =context/docs.org=
+- *Format:* =:text=
+- *Hooks:*
+  - =(*context-doc-added-hook* :out)=
+  - =(*context-doc-dropped-hook* :out)=
+- *Description:* Mediates active documentation in the context. Lists documentation URIs and imports/adds them to context when new URIs are appended to the file.
+
+******** =:mold=
+- *Path:* =mold.org=
+- *Format:* =:text=
+- *Hooks:* None
+- *Description:* Mediates the active project mold and its rules. Renders the active mold as an Org document. Parsing reads back updated rules and updates the active mold rules.
+
+******** =:history=
+- *Path:* =history.lisp=
+- *Format:* =:lisp=
+- *Hooks:*
+  - =(*history-changed-hook* :out)=
+- *Description:* Mediates the chat history. Edits to this file sync back to =*chat-history*=.
+
+******** =:hypertext-docs=
+- *Path:* =docs=
+- *Format:* =:org=
+- *Hooks:* None
+- *Description:* Mediates hypertext documentation registry, syncing with the =docs= protocol.
+
+******** =:hypertext-apidoc=
+- *Path:* =:apidoc=
+- *Format:* =:org=
+- *Hooks:* None
+- *Description:* Mediates hypertext API documentation registry, syncing with the =apidoc= protocol.
 ****** import.lisp
 This file provides a system for importing documentation from various external sources. It uses a registry of "import sources" that match against a URI using regular expressions. This is similar to the `router.lisp` file but is specifically designed for fetching, processing, and ingesting new content into the document database.
 
