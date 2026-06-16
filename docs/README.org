@@ -301,13 +301,13 @@ Using actual code to add stuff to context allows us to load things into context 
 *** Adding API Documentation to Hactar
 You have three options for adding API docs:
 
-1. Importing the docs file into the database with the =/docs.import= command. *Note*: They will ned to follow the  [[#api-docs-format][API Format]]
-2. With a defdoc macro.
-3. Just adding the file with /add
+1. Importing the docs file using the =/docs.import= (or =/import.lisp=) command. This fetches the documentation, parses it, generates a LISP file containing a =(defdoc ...)= macro call under your imports directory (e.g., =./hactar/docs/=), and dynamically loads it into Hactar's memory.
+2. Manually writing a =(defdoc)= (or =(defdocforsymbol)=) macro definition in a LISP configuration file.
+3. Just adding a file to the active context with =/add=.
 
-The last is the most simple and for one off things just using =/add= is fine.
+The last is the simplest and is fine for one-off needs.
 
-The most powerful route is the =defdoc= macro. You can define where the docs are in code and then use LISP and Hactar features to intelligently add an remove docs.
+The most powerful route is using the =(defdoc)= or =(defdocforsymbol)= macro. You can define where the docs are in code and leverage LISP and Hactar features to dynamically and intelligently add or remove docs from the context (e.g., reacting to project stack changes).
 
 Here is an example of that:
 
@@ -410,39 +410,34 @@ This isn't particulary useful though. To make rules useful you need to have them
 
 Hactar is pretty good at extending itself. You can give rule generation a try with the =/gen-rule= command. Hactar will attempt to write a rule for based on your instructions. Then it will add it to your user.lisp file. Please read any rules it generates first and don't blindly accept them.
 *** Docs
-A core feature of Hactar is tight integration with a repository of reference docs. Most of the time documentation is automatically added to context as needed. You can manually add docs using =/docs-add= and you can drop docs from context using =/docs-drop= (or =/drop=).
-**** /docs
-List known documentation relevant to the current project stack. Basically uses =*docs*= global. If you want to lookup all documentation not just relevant ones use =/docs-db= and =/search-add-files=
-**** /docs-add
-Add documentation from file, URL, package name (@p/name@ver), or fzf selection. Optionally include metadata:
+A core feature of Hactar is tight integration with a repository of reference docs. Most of the time documentation is automatically added to context as needed. You can manually add docs using =/docs-add= (an alias for =/import=) and you can drop docs from context using =/docs-drop= (or =/drop=).
 
-#+begin_src sh
-  /docs-add <source> -tags=js -covers=react
-#+end_src
+**** /docs
+Find and select documentation. Fuzzy selects from loaded stack-specific docs and adds them to context.
+**** /docs-add
+Add/import documentation (Alias of =/import=).
+**** /docs-add-to-context
+Add a known document to the context by its URI or Source.
 **** /docs-ask
 Ask the LLM to find documentation for a query, fetch it, and add it.
-**** /docs-clear
-Delete all documents from the database (requires confirmation).
 **** /docs-context
 Show documentation currently added to the context.
-**** /docs-find
-Search documentation database by text query and add selected doc to context.
 **** /docs-guess
 Guess relevant documentation based on the last added file's content.
 **** /docs-gen
 Generate documentation for the current context using the LLM.
+
 *** Errors
-Hactar maintains a database of errors and solutions. You can import errors from org-mode files or add them manually.
+Hactar maintains a registry of errors and solutions. You can import errors from org-mode files or add them manually.
+
 **** /errors
 Find and select errors relevant to the current project/context.
 **** /errors-add
-Add a new error entry manually.
-**** /errors-find
-Search in DB using a query and add selected to context.
-**** /errors-db
-List all known error docs and select one to add to context.
+Add a new error entry manually by emitting a =(deferror ...)= LISP file and loading it.
+**** /errors-add-to-context
+Select and add a known error to context (from =*errors*=).
 **** /errors.import
-Import an error document (Org format).
+Import an error document (Org format), translating them to =(deferror ...)= LISP files.
 *** Modes
 Modes are how Hactar hard codes knowledge instead of relying on an LLM for every little thing. Modes let Hactar know how to look up API docs and tooling specific to the type of project you are working on. Hactar for example, can detect when a React project is being worked on then automatically add the React API docs and list of links to tutorials. A mode is a collection of prompts, analyzers, processors, hooks, and custom hardcoded dev tooling. Think LSP if it was developed in the LLM era.
 
@@ -705,12 +700,12 @@ Usage:
 Display comprehensive help information about Hactar.
 ***** check
 Run environment and setup checks and exit with appropriate status.
-***** docs-import
-Import a text file into the documentation database.
-***** docs.db
-List all known documentation in the dataabase and select one. In non-interactive mode, prints the path of the selected doc.
-***** errors.db
-Alias for =errors-db=.
+***** docs.import (and import.docs)
+Import a text file or URI into the Hactar documentation registry.
+***** import.starter
+Import a starter template/kit into the starters registry.
+***** import.lisp
+Import a URI by emitting a =(defdoc ...)= LISP file and loading it.
 ***** feature
 Activate or manage features.
 
@@ -1226,20 +1221,12 @@ Usage:
 #+end_src
 ***** /docs-ask
 Ask the LLM to find documentation for a query, fetch it, and add it.
-***** /docs-clear
-Delete all documents from the database (requires confirmation).
 ***** /docs-context
 Show documentation currently added to the context.
-***** /docs-db
-List all known documentation and select one. In non-interactive mode, prints the path of the selected doc.
-
-Options: =-t/--tags <tag>=, =-l/--limit <n>=
-***** /docs-find
-Search documentation database by text query and add selected doc to context.
 ***** /docs-guess
 Guess relevant documentation based on the last added file's content.
-***** /docs-import
-Import a text file into the documentation database.
+***** /docs-import (and /import.docs)
+Import a text file or URI, emitting a =(defdoc ...)= LISP file and loading it.
 
 Usage:
 #+begin_src
@@ -1274,7 +1261,7 @@ Open an editor to write a prompt.
 ***** /errors
 Find and select errors relevant to the current project/context.
 ***** /errors-add
-Add a new error entry manually.
+Add a new error entry manually by writing a =(deferror ...)= LISP file and loading it.
 
 Usage:
 #+begin_src
@@ -1282,24 +1269,6 @@ Usage:
 #+end_src
 ***** /errors-add-to-context
 Select and add a known error to context (from =*errors*=).
-***** /errors-db
-List all known error docs and select one to add to context.
-***** /errors-db-clear
-Clear database of errors.
-***** /errors-find
-Search in DB using a query and add selected to context.
-
-Usage:
-#+begin_src
-  /errors-find <query> [--format=json]
-#+end_src
-***** /errors-lookup
-Lookup errors by text query.
-
-Usage:
-#+begin_src
-  /errors-lookup query [--format=json]
-#+end_src
 ***** /errors.import
 Import an error document (Org format).
 
@@ -2321,9 +2290,8 @@ These variables can be set in your shell to configure Hactar's behavior.
 - =GEMINI_API_KEY=:
   The API for vertex/google ai studio
 - =OPENROUTER_API_KEY=:
-  The API keyA for open router
-- =HACTAR_DB_PATH=: The path to the sqlite hactar database. Defaults to =XDG_DATA_DIR/hactar/hactar.db=
-- =AGENT_SAFE_ENV=: Whether or not the environment is safe for running agents that might do things like delete files.Setting this to true or =1= will also enable =--auto-cmds=. Hactar will act on it's own and pontentially destroy systems. Please for the love of god don't enable this out of a VM.
+  The API key for open router
+- =AGENT_SAFE_ENV=: Whether or not the environment is safe for running agents that might do things like delete files. Setting this to true or =1= will also enable =--auto-cmds=. Hactar will act on it's own and potentially destroy systems. Please for the love of god don't enable this out of a VM.
 - =HACTAR_PRO_PATH=: The path to content repository for pro features which by default is =XDG_DATA_DIR/hactar/pro=
 - =HACTAR_UTILS_PATH=:
   - Specifies the directory where Hactar Pro utility scripts are symlinked. If this directory is in your shell's PATH, you can run scripts like =scripts-list= directly.
@@ -2359,10 +2327,6 @@ Project specific config can be placed in the current folder in a file name.  =.h
   - Path to clone hactar to
   - *Overrides*: =HACTAR_REPO_DIR=
   - *Default*: =~/.local/share/hactar-repo=
-- =database= (String)
-  - Path to the Hactar sqlite database file.
-  - *Overrides*: =HACTAR_DB_PATH=
-  - *Default*: =XDG_DATA_DIR/hactar/hactar.db=
 - =piper_model= (String)
   - Full path to the Piper TTS model file for audio features.
   - *Overrides*: =PIPER_MODEL_PATH=
@@ -2665,31 +2629,15 @@ The `.cmd` or `.cmd!` command was used, but the LLM's response did not contain a
 ****** Solution
 Try rephrasing your request to be more explicit about wanting a shell command.
 ***** Error during LLM interaction: No GitHub Copilot access token found. Please set GITHUB_COPILOT_ACCESS_TOKEN.
-**** Database and RAG Errors
-***** Error deleting documents
-#+begin_src error
-  Error deleting documents: <details>
-#+end_src
-****** Cause
-An error occurred while trying to delete records from the `documents` table in the PostgreSQL database. This could be due to permissions issues or a database connection problem.
-****** Solution
-Ensure the database user specified in the environment variables (`HACTAR_DB_USER`, etc.) has DELETE permissions on the `documents` table. Check that the database is running and accessible.
+**** Hypertext and Knowledge Ingestion Errors
 ***** Required fields missing for docs-create
 #+begin_src error
   source, title, and content are required fields for docs-create.
 #+end_src
 ****** Cause
-An attempt was made to create a document using `/docs-add` without providing the necessary information. This is an internal error and should not typically be seen by users.
+An attempt was made to create a document using =/docs-add= (or =docs-create=) without providing the necessary information.
 ****** Solution
-Ensure the source file or URL for `/docs-add` is valid and readable.
-***** Failed to generate embedding
-#+begin_src error
-  Failed to generate embedding for document chunk: <title>
-#+end_src
-****** Cause
-When adding a document, Hactar failed to get a vector embedding from the configured Ollama model (e.g., `nomic-embed-text`). This usually means the Ollama server is not running or the embedding model is not available.
-****** Solution
-Make sure your local Ollama server is running (`ollama serve`) and that you have pulled the required embedding model (`ollama pull nomic-embed-text`).
+Ensure that the source, title, and content properties are provided and not NIL or empty.
 **** File and Git Operation Errors
 ***** No Git Repo Found
 #+begin_src error
@@ -2798,7 +2746,7 @@ Occassionally you will get errors from an API provider. If trying again doesn't 
 #+begin_src sh
   hactar -m "provider/modelname" -e "Write hello world"
 #+end_src
-*** Hactar RAG and Pro issues
+*** Hactar Pro issues
 Run =hactar pro.check= to check for any issues with hactar pro.
 
 If you are having issues with any of the content or extensions from the pro version of hactar, please email me or ping me on the discord.
@@ -3022,7 +2970,7 @@ This will result in a context file like
 *** Creating a new Codebase and Project
 Hactar is unique in that it has tight integration with starter kits. The create command is sort of a universal create-react-app for a huge variety of stacks.
 
-By default you just provide some details and then Hactar will use RAG to retrieve matching starter kits and ask you some generated questions.
+By default you just provide some details and then Hactar will query the starters protocol registry to retrieve matching starter kits and ask you some generated questions.
 
 1. Create the app
 #+begin_src sh
@@ -3058,7 +3006,7 @@ Hactar is a context engineering focused tool. A lot of your daily workflow with 
 3. Add docs with =/docs-add=
 4. Add docs automatically with =/docs-guess= or by passing the flag =--auto-docs=
 *** Find Code
-Hactar can use a combination of hard coded repo maps, RAG, and queries to an LLM to extract chunks of code. You can use this to query on the codebase
+Hactar can use a combination of hard coded repo maps, in-memory hypertext search, and queries to an LLM to extract chunks of code. You can use this to query on the codebase
 
 1. Use =/find-code <query>= to find code using plain language
 2. Use =/find-code <symbol>= to find code using a matching symbol
@@ -3084,7 +3032,7 @@ When enabled with =--auto-docs= or =/auto-docs=, Hactar will automatically manag
 **** Automatic Command Suggestions
 When enabled with =--auto-suggest-commands= or =/auto-suggest-commands=, Hactar will proactively suggest shell commands it thinks might be useful based on the conversation.
 *** Generating Documentation
-Hactar has tight integration a content repositry, this gives it the unique capability to be able to write documentation for you. It is not like the documentation generated by other agents. Hactar doc generation uses RAG so that the docs it generates are up to date and have less hallucinations.
+Hactar has tight integration a content repositry, this gives it the unique capability to be able to write documentation for you. It is not like the documentation generated by other agents. Hactar doc generation uses Lisp-based hypertext search so that the docs it generates are up to date and have less hallucinations.
 
 1. Open hactar with =hactar=
 2. Generate docs with =/docs-gen <instructions>=
@@ -3200,9 +3148,9 @@ From any buffer you can use the =hactar-transient-menu= to add things to the cur
 ***** Tips
 - Enable global-auto-revert-mode to see files and documents update automatically
 **** Adding or Editing Starter Kits in Emacs
-Starter kits are stored in =HACTAR_STARTERS_PATH= which by default is =~/.config/hactar/starters=. You can edit any of them using org-mode. Use =M-x hactar-rag-update-index= to update the Hactar database after making changes.
+Starter kits are stored in =HACTAR_STARTERS_PATH= which by default is =~/.config/hactar/starters=. You can edit any of them using org-mode. These are loaded dynamically into Hactar's registry.
 **** Adding Docs or References to Hactar in Emacs
-You can add and edit docs in =HACTAR_DOCS_PATH= which by default is =~/.config/hactar/docs=. You can edit any of them using org-mode. Use =M-x hactar-rag-update-index= to update the Hactar database after making changes.
+You can add and edit docs in =HACTAR_DOCS_PATH= which by default is =~/.config/hactar/docs=. You can edit any of them using org-mode. These are loaded dynamically into Hactar's registry.
 **** Navigating Code Using Hactar in Emacs
 - Use =M-x hactar-find-code= to search for code
   - Entering something like "give me all the authentication handling code"
@@ -7420,127 +7368,99 @@ Reads the content of the currently active guide file (=*active-guide-file*=). It
 Asks the LLM to generate a single-line Git commit message based on the last two turns of the chat history.
 
 *Return Value:* A string containing the suggested commit message, or =NIL= on failure.
-****** db
-The =db= functionality in Hactar manages the connection to the SQLite database, which stores documentation, starters, errors, embeddings, and other persistent data. It uses the =sqlite= library and the =sqlite-vec= extension for vector search.
-******* Configuration
-Database connection parameters are configured via environment variables or globals.
+****** hypertext.lisp
+The =hypertext= component is Hactar's knowledge layer, serving as the central registry for documentation, error references, API docs, starter templates, and wiki concepts. 
 
-- =*db-path*=: Path to the SQLite database file. (Default: =*hactar-data-path*/hactar.db= or from =$HACTAR_DB_PATH=)
-******* Vars and State
-- =*connection*= :: The global SQLite connection object.
-******* Connection Management
-These functions manage the global database connection.
-******** connect-db
+******* LISP-Centric Knowledge Architecture
+Hactar does not use a traditional relational or vector database (such as SQLite or PostgreSQL) to persist its knowledge base. Instead, Hactar is built on a LISP-centric architecture where all knowledge entries are represented as Common Lisp files and data structures:
+
+1. **Serialization as LISP Code**: Importing documentation or starters (via `/docs.import`, `/import.starter`, or `/import.lisp`) fetches and parses the source content, then generates a standard LISP source file (e.g., =./hactar/docs/npm_react_19.2.lisp=) containing a call to a registration macro such as =defdoc= or =defstarter=.
+2. **In-Memory Registry**: On startup, Hactar loads these LISP files using Lisp's standard =load= function. Evaluating these forms dynamically registers the entries into protocol-specific dispatchers in memory.
+3. **Inspectable & Hackable**: Because the knowledge base consists of plain text LISP files, it is fully human-readable, easily tracked in version control, and can be edited or extended dynamically using standard Lisp macros and functions.
+
+******* structs
+******** protocol-dispatcher
 #+begin_src lisp
-  (connect-db)
+  (defstruct protocol-dispatcher
+    name
+    registry
+    dynamic-routes)
 #+end_src
+Manages registered documents under a downcased protocol name (e.g. =docs=, =apidoc=, =errors=, =guide=, =wiki=, =starters=).
+- =name=: Protocol name.
+- =registry=: Hash table mapping pathnames to document plists.
+- =dynamic-routes=: Association list of regex pattern to handler function for dynamically generated documentation content.
 
-Establishes a top-level connection to the database using the configured parameters. It also loads the =sqlite-vec= extension. This is typically handled by the application startup.
-******** disconnect-db
+******* functions
+******** register-hypertext
 #+begin_src lisp
-  (disconnect-db)
+  (register-hypertext uri-string args)
 #+end_src
-
-Disconnects the top-level database connection.
-******** with-db-connection
+Registers a hypertext document under the specified protocol-prefixed URI.
+- =uri-string=: Protocol-prefixed URI string (e.g., =docs:react=).
+- =args=: Plist of arguments including =:title=, =:content=, =:tags=, =:covers=, =:metadata=, and =:sections=.
+******** resolve-hypertext-uri
 #+begin_src lisp
-  (with-db-connection &body body)
+  (resolve-hypertext-uri uri-string)
 #+end_src
-
-Ensure a database connection for the dynamic extent of =body=.
-******* Database Operations
-******** docs-clear-database
+Dispatches, resolves, and formats hypertext content by URI. Supports extension-based formatting (e.g., =.md= for Markdown, =.org= for Org-mode, =.json= for JSON, and =.txt= for plain text).
+******** register-protocol-route
 #+begin_src lisp
-  (docs-clear-database)
+  (register-protocol-route protocol pattern handler-fn)
 #+end_src
-
-Deletes all documents from the =documents= and =vec_documents= tables in the database. This action requires user confirmation via the command line. It also clears the in-memory =*docs-context*= list.
-******** errors-clear-database
+Registers a dynamic route handler for a protocol using a regular expression pattern.
+******** render-protocol-as-org
 #+begin_src lisp
-  (errors-clear-database)
+  (render-protocol-as-org protocol)
 #+end_src
-
-Deletes all errors from the =errors= and =vec_errors= tables in the database. This action requires user confirmation and also clears the in-memory =*errors-context*= list.
-******* Utility Functions
-These are internal helper functions for formatting data for SQL queries.
-******** format-vector-for-sqlite-vec
+Serializes all registered documents in the given protocol's registry to an aggregate Org-mode document.
+******** parse-protocol-from-org
 #+begin_src lisp
-  (format-vector-for-sqlite-vec vector)
+  (parse-protocol-from-org protocol text)
 #+end_src
+Parses an aggregate Org-mode document and registers its top-level headlines as hypertext documents in the dispatcher registry.
 
-Formats a Lisp list of numbers into a JSON string suitable for =sqlite-vec= insertion.
-
-- =vector=: A list of numbers.
-******** format-array-for-sqlite
+******* macros
+******** defhypertext
 #+begin_src lisp
-  (format-array-for-sqlite lisp-list)
+  (defhypertext uri &rest args &key title content tags covers metadata sections)
 #+end_src
+Declaratively defines a hypertext entry and registers it.
+******** defapidoc
+#+begin_src lisp
+  ;; Exported symbol / macro placeholder
+#+end_src
+Exported symbol/macro placeholder for defining API documentation. API documentation is typically registered under the =apidoc:= namespace using the general =defdoc= or =defdocforsymbol= macros from =docs.lisp=.
 
-Formats a Lisp list of strings into a JSON array string for SQLite.
+****** rag.lisp
+The =rag= (Retrieval-Augmented Generation) component in Hactar implements Lisp-based in-memory token-overlap search, ranking, pagination, and document creation helper functions.
 
-- =lisp-list=: A list of strings.
-****** rag
-RAG handling stuff is rag.lisp.
-******* Document Creation
+******* functions
+******** docs-find (and doc-find)
+#+begin_src lisp
+  (docs-find &key tags covers slug sources text type id (limit 10) (offset 0) (match-any nil))
+#+end_src
+Finds documents in the pure Lisp hypertext dispatcher registries based on filtering by tags, covers, slug, sources, type, or matching content via naive token-overlap search if text is provided.
 ******** docs-create
 #+begin_src lisp
   (docs-create &key source title content (tags #()) (covers #()) (links_to #()) slug type meta)
 #+end_src
-
-Creates one or more document entries in the database. It automatically handles content splitting for large documents and generates vector embeddings for searching (using =sqlite-vec=). If a document with the same =source= already exists, it will be replaced.
-
-- =&key=:
-  - =source= (String, required): The origin of the document (e.g., a URL
-    or file path). This is used as a unique identifier for the content.
-  - =title= (String, required): The title of the document.
-  - =content= (String, required): The textual content of the document.
-  - =tags= (List of Strings, optional): A list of tags for
-    categorization (e.g., =("api", "react")=).
-  - =covers= (List of Strings, optional): A list of technologies or
-    topics this document covers (e.g., =("react@18", "typescript")=).
-  - =links_to= (List of Strings, optional): A list of other document IDs
-    this document references.
-  - =slug= (String, optional): A URL-friendly slug for the document.
-  - =type= (String, optional): The type of document (e.g.,
-    "documentation", "example").
-  - =meta= (Plist or Alist, optional): A plist or alist of arbitrary
-    metadata to be stored as a JSON object.
-
-*Return Value:* A list of integer IDs for the newly created document entries.
-******* Document Retrieval
-******** docs-find
-#+begin_src lisp
-  (docs-find &key tags covers slug sources text type id (limit 10) (offset 0) (match-any nil))
-#+end_src
-
-Finds documents in the database based on a combination of metadata filters and semantic text search (using =sqlite-vec=).
-
-- =&key=:
-  - =text= (String, optional): If provided, performs a vector similarity
-    search on the document content. Results are ordered by relevance.
-  - =tags= (List of Strings, optional): Filters for documents that
-    contain *all* of the specified tags (or ANY if match-any is T).
-  - =covers= (List of Strings, optional): Filters for documents that
-    cover *all* of the specified topics (or ANY if match-any is T).
-  - =sources= (List of Strings, optional): Filters for documents that
-    match *any* of the specified source strings.
-  - =id= (Integer, optional): Finds a document by its exact unique ID.
-  - =slug= (String, optional): Finds a document by its exact slug.
-  - =type= (String, optional): Finds documents by their exact type.
-  - =limit= (Integer, optional): The maximum number of documents to
-    return (Default: 10).
-  - =offset= (Integer, optional): The number of results to skip (for
-    pagination).
-  - =match-any= (Boolean, optional): If T, tags and covers use OR logic instead of AND
-    .
-
-*Return Value:* A list of plists, where each plist represents a document matching the search criteria. The document plist contains keys like =:id=, =:title=, =:content=, =:tags=, =:covers=, =:source=, etc.
+Creates a document entry dynamically in the pure Lisp hypertext dispatcher registries.
 ******** starters-find
 #+begin_src lisp
   (starters-find &rest args &key tags &allow-other-keys)
 #+end_src
-
-A convenience wrapper around =docs-find= that automatically adds the ="starter"= tag to the search query. It accepts all the same arguments as =docs-find=.
+Finds starter documents. This is a wrapper around =docs-find= that automatically adds the ="starter"= tag.
+******** errors-find (and error-find)
+#+begin_src lisp
+  (errors-find &key text code tags (match-any nil) (limit 10) (offset 0))
+#+end_src
+Finds error entries in the pure Lisp errors dispatcher registry.
+******** errors-create
+#+begin_src lisp
+  (errors-create &key code stack slug title message cause solution (tags #()))
+#+end_src
+Creates and registers a new error entry in the pure Lisp errors dispatcher registry.
 ****** tui
 Hactar uses a bunch of different TUI stuff. Where possible we wrap command CLI tools like FZF, and where not we hand roll our own
 ******* High-Level Components
@@ -7882,6 +7802,17 @@ This is used to *override* the default behavior of another import source. For ex
           :platform "npm"
           :uri "https://raw.githubusercontent.com/facebook/react/main/README.md")
 #+end_src
+******* Extensible Format Parser Registry
+Hactar supports an extensible file parsing registry for documentation files of various types (e.g. Markdown, Org-mode, JSON, Plain text).
+******** defformat-importer
+#+begin_src lisp
+  (defformat-importer extension args &body body)
+#+end_src
+Registers a custom parser/importer for a specific file extension (e.g., =md=, =org=, =json=, =txt=).
+- =extension=: String specifying the file extension (case-insensitive).
+- =args=: Lambda list representing arguments passed to the importer: =(content title path)=.
+- =body=: Code that parses the content and returns a list of plists containing documentation details (e.g. =:title=, =:content=, =:tags=, =:covers=, =:metadata=).
+
 ******* Built-in Import Sources
 The file defines several sources by default using `defsource`:
 
@@ -7891,12 +7822,56 @@ The file defines several sources by default using `defsource`:
 - **file-source**:
   - *Pattern*: `"^file:(.+)$"`
   - *Description*: Imports a local file. The path is resolved relative to `*repo-root*`.
+- **hactar-source**:
+  - *Pattern*: `"^hactar:(.+)$"`
+  - *Description*: Imports a template or configuration file relative to Hactar's shared data path.
 - **http-source**:
   - *Pattern*: `"^https?://(.+)$"`
   - *Description*: A low-priority (5) fallback that fetches content from any `http` or `https` URL.
 - **github-repo-source**:
   - *Pattern*: `"^https?://github\\.com/([^/]+)/([^/]+)/?$"`
   - *Description*: A high-priority (15) source that specifically matches GitHub repository URLs and fetches their main `README.md` file.
+- **git-repo-source**:
+  - *Pattern*: `"(?:git:(.+)|(https?://.+\\.git))"`
+  - *Description*: Matches direct Git repository URLs to clone and recursively import all documentation files within the repository.
+
+****** starters.lisp
+This file manages starter templates/kits in Hactar, mapping them to the =starters= protocol dispatcher. 
+
+******* macros
+******** defstarter (and defstart)
+#+begin_src lisp
+  (defstarter title &rest args)
+#+end_src
+Defines a starter template and registers it in the =starters= dispatcher.
+- =title=: The name/title of the starter kit.
+- =args=: Key-value arguments including:
+  - =:source=: Content of the starter template (usually prefixed with =raw:=).
+  - =:stack=: List of technologies/frameworks required.
+  - =:language=: Main programming language.
+  - =:version=: Version string of the starter template.
+  - =:uri=: Registry URI (defaults to `starters:<slugified-title>`).
+  - =:tags=: List of metadata tags.
+  - =:covers=: List of topics/packages the template covers.
+  - =:meta=: Alist of arbitrary metadata.
+  - =:id=: Unique identifier.
+
+******* functions
+******** add-starter
+#+begin_src lisp
+  (add-starter title source &key stack language version uri tags covers meta related id)
+#+end_src
+Adds a starter template to the global starters registry in the hypertext system.
+******** get-all-registered-starters
+#+begin_src lisp
+  (get-all-registered-starters)
+#+end_src
+Returns all registered starter documents in the starters dispatcher as alists.
+******** starter->lisp
+#+begin_src lisp
+  (starter->lisp uri out-file &key stack language version tags covers meta)
+#+end_src
+Fetches URI content from an import source and emits a =(defstarter ...)= LISP form to =out-file=.
 ******* Commands
 This file also defines several user-facing chat commands for triggering the import process.
 ******** /import
@@ -7917,6 +7892,12 @@ Aliases for the `/import` command with identical functionality.
   (define-command import.starter (args))
 #+end_src
 A specialized version of `/import` that automatically adds the `"starter"` tag to any document it imports, in addition to any tags provided manually or generated by the LLM.
+******** /import.lisp
+#+begin_src lisp
+  (define-command import.lisp (args))
+#+end_src
+Import a URI by fetching the content and emitting a LISP file with a =(defdoc ...)= macro call under Hactar's docs import directory (defaulting to =./hactar/docs/=), then loading it into memory.
+- *Usage*: `/import.lisp <uri> [out-file]`
 ****** mode.lisp
 This file implements the Hactar "mode" system. Modes are bundles of features, commands, and rules that can be activated dynamically when stack criteria are met (e.g. React project structure detected) or manually by the user.
 ******* defmode
@@ -8147,7 +8128,7 @@ The =litmode= component implements Single-File Literate Mode for Hactar. A singl
   (init-litmode &optional path)
 #+end_src
 
-Initialize literate single-file mode. Creates a default =.hactar.org= file if it doesn't exist, initializes the SQLite database, and builds the initial headline index.
+Initialize literate single-file mode. Creates a default =.hactar.org= file if it doesn't exist, initializes the locks registry file, and builds the initial headline index.
 
 - =path=: Directory or explicit =.hactar.org= path. Defaults to =*repo-root*=.
 ******** litmode-active-p
