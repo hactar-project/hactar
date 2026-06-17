@@ -232,6 +232,36 @@ Hactar will be built to ./bin/hactar. Please report any issues you run into and 
 *** Useful Terms to Know
 - MCP :: Model Context Protocol -- this the standard for tool calling that LLM providers have settled on.
 - ACP :: Agent Context Protocol -- An extension of MCP for agents
+** Hactar Architecture
+Hactar is designed around a clean, Lisp-centric architecture that prioritizes transparency, hackability, and editor integration. Rather than wrapping logic in a black-box daemon or a complex database, Hactar represents its internal state as simple, human-editable text files on the filesystem.
+
+*** Core Philosophy
+Hactar embraces the Unix philosophy: **everything is a file**. By mapping its internal Lisp state to plain text files, Hactar allows developers to interact with the AI assistant using the tools they already master—such as Emacs, Neovim, grep, sed, or custom bash scripts. There is no custom protocol or complex API required to view or change what Hactar is doing.
+
+*** Two-Way File Interfaces
+The core architectural mechanism in Hactar is the **Interface Layer** (defined in [[file:///home/k/code/hactar-project/hactar/interface.lisp][interface.lisp]]). Interfaces are the *preferred interaction mechanism* for both users and editor integrations.
+
+**** Materializing State
+When Hactar starts, it ensures a unique instance directory (e.g. =.hactar/<instance-id>/=) and materializes several registered interfaces as text files:
+- =context/files.dir= :: A list of files currently in the AI context.
+- =prompt.org= :: The pending prompt to be sent to the LLM.
+- =state.lisp= :: Core project variables like project name, author, stack, and language.
+- =.hactar.context.org= :: An aggregate Org-mode representation of project details, files, active documentation, and error context.
+- =history.lisp= :: The full chat history of the current session.
+
+**** Two-Way Syncing
+These interface files are watched by Hactar in the background:
+- **Outward Sync (State -> File)**: Whenever Hactar updates its internal state (e.g., an LLM finishes generating code, or a mode automatically loads stack docs), Hactar re-renders and writes the updated content to the respective interface files.
+- **Inward Sync (File -> State)**: When the user edits and saves any of these files (for example, deleting a line from =context/files.dir= to drop a file, or editing project stack keywords in =.hactar.context.org=), Hactar's file watchers immediately detect the change, parse the file, and apply it back into the Lisp runtime state.
+
+This approach provides a latency-free, highly visible interface where editor plugins merely need to read/write files under =.hactar/= to coordinate complex actions with the AI.
+
+*** Lisp-Centric Knowledge Layer
+Hactar's retrieval system (docs, starters, errors) operates entirely in-memory using protocol dispatchers (defined in [[file:///home/k/code/hactar-project/hactar/hypertext.lisp][hypertext.lisp]]):
+- **Code-as-Data**: Document registries are represented as lists of Lisp alists/plists.
+- **Lisp Documentation Ingestion**: Importing new reference docs (e.g., using =/docs.import=) generates a Lisp file containing a macro call (e.g. =(defdoc ...)=) in the local docs directory. Loading this Lisp file dynamically registers the documentation in the running image.
+- Naive token-overlap ranking (implemented in [[file:///home/k/code/hactar-project/hactar/rag.lisp][rag.lisp]]) provides quick, lightweight local search without the overhead of external SQLite databases or vector search servers.
+
 ** Hactar Cheatsheet
 *** How to get Help?
 Hactar is developed on GitHub and the primary route for help is via Discussions and Issues. You can also hop into the Discord and ask questions.
