@@ -2398,9 +2398,6 @@ Configure Hactar's agent-like automation features.
   - Set the retry limit for agent loops.
 ***** Example =.hactar.toml=
 #+begin_src toml
-  [paths]
-  database = "/home/user/dev/my-project/hactar.db"
-
   [project]
   author = "Your Name"
   language = "typescript"
@@ -7293,7 +7290,7 @@ Removes an image from the context.
 
 Prints a list of all text files currently included in the context to standard output.
 ******* Documentation Context
-Hactar can include structured documentation from its internal database in the context.
+Hactar can include structured documentation from its hypertext registries in the context.
 ******** add-doc-to-context
 #+begin_src lisp
   (add-doc-to-context doc-plist)
@@ -7301,7 +7298,7 @@ Hactar can include structured documentation from its internal database in the co
 
 Adds a documentation entry to the context.
 
-- =doc-plist=: A plist representing a single document from the database, typically retrieved via =docs-find=.
+- =doc-plist=: A plist representing a single document, typically retrieved via =docs-find=.
 ******** remove-doc-from-context
 #+begin_src lisp
   (remove-doc-from-context doc-id)
@@ -7309,7 +7306,7 @@ Adds a documentation entry to the context.
 
 Removes a documentation entry from the context by its unique ID.
 
-- =doc-id= (Integer): The ID of the document to remove.
+- =doc-id= (String): The ID of the document to remove.
 ******* Prompt Generation
 These functions assemble the final strings that are sent to the LLM.
 ******** generate-context
@@ -7661,7 +7658,7 @@ Run body, then update the interface's hash to ignore filesystem changes caused b
 - *Hooks:* None
 - *Description:* Mediates hypertext API documentation registry, syncing with the =apidoc= protocol.
 ****** import.lisp
-This file provides a system for importing documentation from various external sources. It uses a registry of "import sources" that match against a URI using regular expressions. This is similar to the `router.lisp` file but is specifically designed for fetching, processing, and ingesting new content into the document database.
+This file provides a system for importing documentation from various external sources. It uses a registry of "import sources" that match against a URI using regular expressions. This is similar to the `router.lisp` file but is specifically designed for fetching, processing, and generating LISP documentation files.
 
 When a URI is provided (e.g., "npm:react@latest", =file:~/notes.md=, "https://github.com/user/repo"), this system finds a matching source, executes its handler to retrieve the content, automatically generates metadata (tags and summary) using an LLM, and then creates a new document.
 ******* variables
@@ -7740,10 +7737,10 @@ Its workflow is as follows:
 1. It calls `match-import-source` with the `uri`.
 2. If a source is found, it executes the source's `handler` with the extracted parameters to get the `content` and `title`.
 3. If `tags` were *not* provided as a keyword argument, it calls `generate-doc-metadata` to create them automatically.
-4. It then calls `docs-create` to save the content, title, and all metadata to the document database.
+4. It then calls `%import-emit-and-load` to write a LISP file containing a `defdoc` macro call and loads it into the running Hactar registry.
 5. It prints a status message to standard output.
 
-If no source matches the `uri`, or if the handler fails, it prints an error message and returns `nil`. On success, it returns the ID(s) of the newly created document(s).
+If no source matches the `uri`, or if the handler fails, it prints an error message and returns `nil`. On success, it returns a list of the emitted LISP file path strings.
 ********* Example
 #+begin_src lisp
   ;; Import a document and let the LLM generate metadata
@@ -7966,13 +7963,13 @@ The =hactar-monolith= component transforms Hactar into an Org-Centric Literate P
   (init-monolith path)
 #+end_src
 
-Initialize a new knowledge monolith at =PATH=. Creates the directory structure and SQLite database.
+Initialize a new knowledge monolith at =PATH=. Creates the directory structure and LISP state file.
 ******** index-monolith
 #+begin_src lisp
   (index-monolith &key force)
 #+end_src
 
-Index the entire knowledge monolith, parsing org files and updating the database.
+Index the entire knowledge monolith, parsing org files and updating the registry state.
 ******* Concept Operations
 ******** create-concept
 #+begin_src lisp
@@ -7997,7 +7994,7 @@ Get a concept by its ID.
   (update-concept-maturity id new-maturity)
 #+end_src
 
-Update a concept's maturity level in both the database and the org file.
+Update a concept's maturity level in both the monolith state and the org file.
 ******* Tangling & Drift
 ******** tangle-project
 #+begin_src lisp
@@ -9672,7 +9669,7 @@ An immutable semantic wrapper around code.
   (hactar-init)
 #+end_src
 
-Initializes Hactar context, ensuring repository root, models, and databases are loaded.
+Initializes Hactar context, ensuring repository root, models, and hypertext registries are loaded.
 ******** code/select
 #+begin_src lisp
   (code/select source &key function class method region name)
