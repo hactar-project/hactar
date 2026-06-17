@@ -233,13 +233,13 @@ Hactar will be built to ./bin/hactar. Please report any issues you run into and 
 - MCP :: Model Context Protocol -- this the standard for tool calling that LLM providers have settled on.
 - ACP :: Agent Context Protocol -- An extension of MCP for agents
 ** Hactar Architecture
-Hactar is designed around a clean, Lisp-centric architecture that prioritizes transparency, hackability, and editor integration. Rather than wrapping logic in a black-box daemon or a complex database, Hactar represents its internal state as simple, human-editable text files on the filesystem.
+Hactar is designed around a clean, Lisp-centric architecture that prioritizes transparency, hackability, and editor integration. Rather than wrapping logic in a black-box daemon or relying on a database, Hactar represents its internal state as simple, human-editable text files on the filesystem.
 
 *** Core Philosophy
 Hactar embraces the Unix philosophy: **everything is a file**. By mapping its internal Lisp state to plain text files, Hactar allows developers to interact with the AI assistant using the tools they already master—such as Emacs, Neovim, grep, sed, or custom bash scripts. There is no custom protocol or complex API required to view or change what Hactar is doing.
 
-*** Two-Way File Interfaces
-The core architectural mechanism in Hactar is the **Interface Layer** (defined in [[file:///home/k/code/hactar-project/hactar/interface.lisp][interface.lisp]]). Interfaces are the *preferred interaction mechanism* for both users and editor integrations.
+*** The Interface Layer (Two-Way File Interfaces)
+The core architectural mechanism in Hactar is the **Interface Layer** (defined in [[file:///home/k/code/hactar-project/hactar/interface.lisp][interface.lisp]]). Two-way file interfaces are the **preferred interaction mechanism** for both users and editor integrations.
 
 **** Materializing State
 When Hactar starts, it ensures a unique instance directory (e.g. =.hactar/<instance-id>/=) and materializes several registered interfaces as text files:
@@ -248,19 +248,53 @@ When Hactar starts, it ensures a unique instance directory (e.g. =.hactar/<insta
 - =state.lisp= :: Core project variables like project name, author, stack, and language.
 - =.hactar.context.org= :: An aggregate Org-mode representation of project details, files, active documentation, and error context.
 - =history.lisp= :: The full chat history of the current session.
+- =mold.org= :: Renders the active project mold and rules as an Org document.
 
-**** Two-Way Syncing
-These interface files are watched by Hactar in the background:
-- **Outward Sync (State -> File)**: Whenever Hactar updates its internal state (e.g., an LLM finishes generating code, or a mode automatically loads stack docs), Hactar re-renders and writes the updated content to the respective interface files.
-- **Inward Sync (File -> State)**: When the user edits and saves any of these files (for example, deleting a line from =context/files.dir= to drop a file, or editing project stack keywords in =.hactar.context.org=), Hactar's file watchers immediately detect the change, parse the file, and apply it back into the Lisp runtime state.
+**** Two-Way Syncing Loop
+These interface files are watched by Hactar in the background using a raw file event watcher hook:
+- **Outward Sync (State -> File)**: Whenever Hactar updates its internal state (e.g., an LLM finishes generating code, or a mode automatically loads stack docs), Hactar re-renders the state and writes it to the respective interface files.
+- **Inward Sync (File -> State)**: When the user or an editor plugin edits and saves any of these files (for example, deleting a line from =context/files.dir= to drop a file, or editing project stack keywords in =.hactar.context.org=), Hactar's file watchers immediately detect the change, parse the updated content, and apply it back into the Lisp runtime state.
 
-This approach provides a latency-free, highly visible interface where editor plugins merely need to read/write files under =.hactar/= to coordinate complex actions with the AI.
+To prevent infinite loops where Hactar reacts to its own file writes, Hactar implements an **Echo Guard** using a bounded ring of self-write hashes. Files written by Hactar itself are ignored by the file watcher.
 
 *** Lisp-Centric Knowledge Layer
-Hactar's retrieval system (docs, starters, errors) operates entirely in-memory using protocol dispatchers (defined in [[file:///home/k/code/hactar-project/hactar/hypertext.lisp][hypertext.lisp]]):
+Hactar's retrieval system (docs, starters, errors, wiki) operates entirely in-memory using protocol dispatchers (defined in [[file:///home/k/code/hactar-project/hactar/hypertext.lisp][hypertext.lisp]]) and naive token-overlap search (defined in [[file:///home/k/code/hactar-project/hactar/rag.lisp][rag.lisp]]):
 - **Code-as-Data**: Document registries are represented as lists of Lisp alists/plists.
-- **Lisp Documentation Ingestion**: Importing new reference docs (e.g., using =/docs.import=) generates a Lisp file containing a macro call (e.g. =(defdoc ...)=) in the local docs directory. Loading this Lisp file dynamically registers the documentation in the running image.
-- Naive token-overlap ranking (implemented in [[file:///home/k/code/hactar-project/hactar/rag.lisp][rag.lisp]]) provides quick, lightweight local search without the overhead of external SQLite databases or vector search servers.
+- **Lisp Documentation Ingestion**: Importing new reference docs (e.g., using =/docs.import=) fetches the content, parses it using extensible format importers (registered via =defformat-importer=), and generates a Lisp file containing a macro call (e.g. =(defdoc ...)=) in the local docs directory. Loading this Lisp file dynamically registers the documentation in the running image.
+- **Protocol Dispatchers**: Protocol prefixes (e.g. =docs:=, =apidoc:=, =errors:=, =guide:=, =wiki:=, =starters:=) route queries to their respective dispatchers. Extension-based formatting resolves requests into Markdown, Org-mode, JSON, or plain text.
+
+*** Immutable Code-Value Transformations
+Hactar models code fragments as immutable semantic "values" using =code-value= structs (defined in [[file:///home/k/code/hactar-project/hactar/code-value.lisp][code-value.lisp]]):
+- **Transformation Chains**: Modifying, refactoring, or describing code does not overwrite the source in place. Instead, it generates a new =code-value= node, preserving the parent and providing a full history and provenance chain.
+- **Safe Staging**: Changes are staged before they are written to disk. The editor or user can review, compare, and accept/reject changes from the history chain before they are applied.
+
+*** The Behavior-Object-Tags (BOT) Entity System
+Hactar organizes codebase components using an Entity-Component-System (ECS) styled architecture called **Molds** (defined in [[file:///home/k/code/hactar-project/hactar/molds.lisp][molds.lisp]]):
+- **Entities (Molds)**: Represent codebase objects (such as routes, models, pages, or components).
+- **Behaviors & Tags**: Behaviors are attached to molds via tags, allowing Hactar to reason about what a component does and provide targeted instructions to the LLM.
+
+*** Hook-Based Runtime Orchestration
+Extensibility is achieved via a publish/subscribe event system built on the =nhooks= library:
+- **Analyzers**: Functions (defined with =defanalyzer=) that listen to file events or command outputs to extract structural information (e.g., detecting if the project is React or Go).
+- **Rules**: Declarative rules (defined with =defrule=) that hook into state changes to dynamically append stack-specific instructions to the LLM system prompt.
+- **Processors**: Functions (defined with =def-processor=) that run after LLM responses are received, parsing and acting on the LLM output (such as applying search-and-replace diffs).
+
+*** Mode System
+Modes (defined in [[file:///home/k/code/hactar-project/hactar/mode.lisp][mode.lisp]]) group together rules, analyzers, skills, and mode-specific commands:
+- **Conditional Activation**: A mode specifies a =:when= predicate. Hactar regularly evaluates these predicates (e.g., checking package dependencies) to automatically activate or deactivate modes.
+- **Targeted Prompts**: Activating a mode injects its specific instructions into the prompt context, keeping the context window small and focused.
+
+*** Agent loops
+Hactar includes an agent system (defined in [[file:///home/k/code/hactar-project/hactar/agents.lisp][agents.lisp]]) that runs tasks in autonomous retry-and-repair loops:
+- **Cmd Agent**: Runs shell commands and, if they fail, queries the LLM for a fix and retries.
+- **Specialized Agents**: Built on top of the cmd agent, Hactar includes `lint`, `test`, and `typecheck` agents that parse error diagnostics and automatically repair syntax/type errors in a loop.
+
+*** Ecosystem Protocol Integration
+Hactar interfaces with external editors and tools using several protocol bridges:
+- **ACP (Agent Context Protocol)**: Exposes tool calling and structured context over standard input/output using JSON-RPC, enabling IDE integration.
+- **LSP (Language Server Protocol)**: Runs Hactar as an LSP server, bringing inline AI checks, code actions, and documentation lookups straight into editors.
+- **MCP (Model Context Protocol)**: Connects Hactar as an MCP server, allowing standard MCP clients to call Hactar's internal tools.
+- **Lisp RPC**: Exposes a Common Lisp S-expression based RPC protocol for deep editor integration (especially suited for Emacs/Slynk).
 
 ** Hactar Cheatsheet
 *** How to get Help?
