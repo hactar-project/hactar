@@ -15,6 +15,9 @@
   ;; Base colors (hex strings like "#282828", NIL = terminal default)
   (bg              nil)
   (fg              nil)
+  (panel-bg        nil)
+  (sidebar-bg      nil)
+  (input-bg        nil)
   (border          "#a89984")
   (border-accent   "#83a598")
   ;; Semantic roles
@@ -236,7 +239,13 @@
   (setf *tui-theme* theme)
   ;; Register all semantic color pairs
   (tui-register-pair :border       (tui-theme-border theme)       (tui-theme-bg theme))
+  (tui-register-pair :border-accent (tui-theme-border-accent theme) (tui-theme-bg theme))
+  (tui-register-pair :background   (tui-theme-fg theme)           (tui-theme-bg theme))
+  (tui-register-pair :panel        (tui-theme-fg theme)           (tui-theme-panel-bg theme))
+  (tui-register-pair :sidebar      (tui-theme-fg theme)           (tui-theme-sidebar-bg theme))
+  (tui-register-pair :input        (tui-theme-fg theme)           (tui-theme-input-bg theme))
   (tui-register-pair :header       (tui-theme-header theme)       (tui-theme-bg theme))
+  (tui-register-pair :header-bold  (tui-theme-header-bold theme)  (tui-theme-bg theme))
   (tui-register-pair :selected     (tui-theme-selected-fg theme)  (tui-theme-selected-bg theme))
   (tui-register-pair :status-ok    (tui-theme-status-ok-fg theme) (tui-theme-status-ok-bg theme))
   (tui-register-pair :status-error (tui-theme-status-error-fg theme) (tui-theme-status-error-bg theme))
@@ -298,32 +307,35 @@
        ',fn-name)))
 
 (deftheme "default"
-  :bg nil :fg nil
-  :border nil
-  :border-accent nil
-  :header "#d787af"
-  :header-bold "#d787af"
-  :selected-fg "#000000" :selected-bg "#d787af"
-  :muted "#808080"
-  :prompt-marker "#00afaf"
-  :status-info-fg nil :status-info-bg nil
-  :status-ok-fg "#000000" :status-ok-bg "#00af00"
-  :status-error-fg "#ffffff" :status-error-bg "#af0000"
-  :sidebar-title "#d787af"
-  :sidebar-label "#00afaf"
-  :file-added "#00af00" :file-removed "#af0000"
-  :modal-bg-fg "#ffffff" :modal-bg-bg "#000000"
-  :modal-border "#00afaf"
-  :modal-input-fg "#ffffff" :modal-input-bg "#000000"
-  :tab-active-fg "#ffffff" :tab-active-bg "#d787af"
-  :tab-inactive-fg "#ffffff" :tab-inactive-bg nil
-  :keyhint "#00afaf"
-  :lsp-ok "#00af00"
-  :tool-pending "#afaf00" :tool-running "#00afaf"
-  :tool-done "#00af00" :tool-failed "#af0000"
-  :chat-user "#00afaf" :chat-assistant nil
-  :chat-thought "#808080" :chat-bash "#00af00" :chat-error "#af0000"
-  :completion-fg "#ffffff" :completion-bg "#000000")
+  :bg "#15171d" :fg "#efe6d1"
+  :panel-bg "#202128"
+  :sidebar-bg "#1b1d23"
+  :input-bg "#181a20"
+  :border "#3b3d49"
+  :border-accent "#ff8a3d"
+  :header "#ff7ab6"
+  :header-bold "#ff8a3d"
+  :selected-fg "#15171d" :selected-bg "#ff8a3d"
+  :muted "#8b8378"
+  :prompt-marker "#4fc3ff"
+  :status-info-fg "#efe6d1" :status-info-bg "#181a20"
+  :status-ok-fg "#15171d" :status-ok-bg "#73f59b"
+  :status-error-fg "#efe6d1" :status-error-bg "#ff4d57"
+  :sidebar-title "#ff7ab6"
+  :sidebar-label "#4fc3ff"
+  :file-added "#d7ff57" :file-removed "#ff4d57"
+  :modal-bg-fg "#efe6d1" :modal-bg-bg "#202128"
+  :modal-border "#ff8a3d"
+  :modal-input-fg "#efe6d1" :modal-input-bg "#181a20"
+  :tab-active-fg "#15171d" :tab-active-bg "#ff8a3d"
+  :tab-inactive-fg "#8b8378" :tab-inactive-bg "#202128"
+  :keyhint "#4fc3ff"
+  :lsp-ok "#73f59b"
+  :tool-pending "#ffd166" :tool-running "#4fc3ff"
+  :tool-done "#73f59b" :tool-failed "#ff4d57"
+  :chat-user "#4fc3ff" :chat-assistant "#efe6d1"
+  :chat-thought "#a48cf2" :chat-bash "#73f59b" :chat-error "#ff4d57"
+  :completion-fg "#efe6d1" :completion-bg "#202128")
 
 (deftheme "gruvbox-dark"
   :bg "#282828" :fg "#ebdbb2"
@@ -470,28 +482,31 @@
   :completion-fg "#d8dee9" :completion-bg "#3b4252")
 
 (deftheme "cyberpunk"
-  :bg "#0c0d19" :fg "#00ffcc"
-  :border "#ff007f" :border-accent "#39ff14"
-  :header "#ff007f" :header-bold "#ff007f"
-  :selected-fg "#0c0d19" :selected-bg "#00ffcc"
-  :muted "#5a5b7c" :prompt-marker "#ff007f"
-  :status-info-fg "#00ffcc" :status-info-bg nil
-  :status-ok-fg "#0c0d19" :status-ok-bg "#39ff14"
-  :status-error-fg "#ffffff" :status-error-bg "#ff0055"
-  :sidebar-title "#ff007f" :sidebar-label "#00ffcc"
-  :file-added "#39ff14" :file-removed "#ff0055"
-  :modal-bg-fg "#00ffcc" :modal-bg-bg "#141629"
-  :modal-border "#ff007f"
-  :modal-input-fg "#ffffff" :modal-input-bg "#212440"
-  :tab-active-fg "#0c0d19" :tab-active-bg "#ff007f"
-  :tab-inactive-fg "#5a5b7c" :tab-inactive-bg nil
-  :keyhint "#00ffcc"
-  :lsp-ok "#39ff14"
-  :tool-pending "#ffaa00" :tool-running "#00bfff"
-  :tool-done "#39ff14" :tool-failed "#ff0055"
-  :chat-user "#ffaa00" :chat-assistant nil
-  :chat-thought "#7f00ff" :chat-bash "#39ff14" :chat-error "#ff0055"
-  :completion-fg "#00ffcc" :completion-bg "#141629")
+  :bg "#090a12" :fg "#f4ebd0"
+  :panel-bg "#171923"
+  :sidebar-bg "#12141c"
+  :input-bg "#0f1118"
+  :border "#373a48" :border-accent "#ff8a3d"
+  :header "#ff4fb8" :header-bold "#ff8a3d"
+  :selected-fg "#090a12" :selected-bg "#ff8a3d"
+  :muted "#827c75" :prompt-marker "#36d6ff"
+  :status-info-fg "#f4ebd0" :status-info-bg "#0f1118"
+  :status-ok-fg "#090a12" :status-ok-bg "#8cff66"
+  :status-error-fg "#f4ebd0" :status-error-bg "#ff3f4f"
+  :sidebar-title "#ff4fb8" :sidebar-label "#36d6ff"
+  :file-added "#e5ff5c" :file-removed "#ff3f4f"
+  :modal-bg-fg "#f4ebd0" :modal-bg-bg "#171923"
+  :modal-border "#ff8a3d"
+  :modal-input-fg "#f4ebd0" :modal-input-bg "#0f1118"
+  :tab-active-fg "#090a12" :tab-active-bg "#ff8a3d"
+  :tab-inactive-fg "#827c75" :tab-inactive-bg "#171923"
+  :keyhint "#36d6ff"
+  :lsp-ok "#8cff66"
+  :tool-pending "#ffd166" :tool-running "#36d6ff"
+  :tool-done "#8cff66" :tool-failed "#ff3f4f"
+  :chat-user "#36d6ff" :chat-assistant "#f4ebd0"
+  :chat-thought "#b284ff" :chat-bash "#8cff66" :chat-error "#ff3f4f"
+  :completion-fg "#f4ebd0" :completion-bg "#171923")
 
 (defun list-available-themes ()
   "Return a list of available theme structs (built-in + user files)."

@@ -53,14 +53,14 @@
           (charms:write-string-at-point win safe-str col row)
         (error () nil)))))
 
-(defun tui-hline (win col row length &optional (ch #\─))
+(defun tui-hline (win col row length &optional (ch #\-))
   "Draw a horizontal line on WIN."
   (loop for x from col below (+ col length)
         do (handler-case
                (charms:write-char-at-point win ch x row)
              (error () nil))))
 
-(defun tui-vline (win col row length &optional (ch #\│))
+(defun tui-vline (win col row length &optional (ch #\|))
   "Draw a vertical line on WIN."
   (loop for y from row below (+ row length)
         do (handler-case
@@ -69,17 +69,47 @@
 
 (defun tui-box (win col row width height)
   "Draw a box outline on WIN."
-  (let ((right (+ col width -1))
-        (bottom (+ row height -1))) ;; corners
-    (handler-case (charms:write-char-at-point win #\┌ col row) (error () nil))
-    (handler-case (charms:write-char-at-point win #\┐ right row) (error () nil))
-    (handler-case (charms:write-char-at-point win #\└ col bottom) (error () nil))
-    (handler-case (charms:write-char-at-point win #\┘ right bottom) (error () nil))
-    ;; edges
-    (tui-hline win (1+ col) row (- width 2) #\─)
-    (tui-hline win (1+ col) bottom (- width 2) #\─)
-    (tui-vline win col (1+ row) (- height 2) #\│)
-    (tui-vline win right (1+ row) (- height 2) #\│)))
+  (when (and (> width 1) (> height 1))
+    (let ((right (+ col width -1))
+          (bottom (+ row height -1))) ;; corners
+      (handler-case (charms:write-char-at-point win #\+ col row) (error () nil))
+      (handler-case (charms:write-char-at-point win #\+ right row) (error () nil))
+      (handler-case (charms:write-char-at-point win #\+ col bottom) (error () nil))
+      (handler-case (charms:write-char-at-point win #\+ right bottom) (error () nil))
+      ;; edges
+      (tui-hline win (1+ col) row (- width 2) #\-)
+      (tui-hline win (1+ col) bottom (- width 2) #\-)
+      (tui-vline win col (1+ row) (- height 2) #\|)
+      (tui-vline win right (1+ row) (- height 2) #\|))))
+
+(defun tui-fill-rect (win col row width height role)
+  "Fill a rectangular area using ROLE's color pair."
+  (when (and (> width 0) (> height 0))
+    (let ((pair (tui-color-pair role)))
+      (when (> pair 0)
+        (charms/ll:attron (charms/ll:color-pair pair)))
+      (loop for y from row below (+ row height)
+            do (tui-safe-write win (make-string width :initial-element #\Space)
+                               col y width))
+      (when (> pair 0)
+        (charms/ll:attroff (charms/ll:color-pair pair))))))
+
+(defun tui-box-with-title (win col row width height title &key (border-role :border) (title-role :header-bold))
+  "Draw a box and embed TITLE into its top border."
+  (charms/ll:attron (charms/ll:color-pair (tui-color-pair border-role)))
+  (tui-box win col row width height)
+  (charms/ll:attroff (charms/ll:color-pair (tui-color-pair border-role)))
+  (when (and title (> width 6))
+    (charms/ll:attron (charms/ll:color-pair (tui-color-pair title-role)))
+    (charms/ll:attron charms/ll:a_bold)
+    (tui-safe-write win (format nil " ~A " title) (+ col 2) row (- width 4))
+    (charms/ll:attroff charms/ll:a_bold)
+    (charms/ll:attroff (charms/ll:color-pair (tui-color-pair title-role)))))
+
+(defun tui-draw-panel (win col row width height title &key (fill-role :panel) (border-role :border))
+  "Fill and border a reusable panel."
+  (tui-fill-rect win col row width height fill-role)
+  (tui-box-with-title win col row width height title :border-role border-role))
 
 ;;* completion helpers
 (defun tui-reset-completions ()
@@ -416,10 +446,10 @@
 (defun tui-tool-call-status-icon (status)
   "Return a short icon/prefix for a tool call status."
   (cond
-    ((string= status "pending") "◌")
-    ((string= status "in_progress") "⟳")
-    ((string= status "completed") "✓")
-    ((string= status "failed") "✗")
+    ((string= status "pending") "o")
+    ((string= status "in_progress") "*")
+    ((string= status "completed") "+")
+    ((string= status "failed") "x")
     (t "?")))
 
 (defun tui-set-status (text &optional (type :info))
@@ -500,10 +530,51 @@
   "Return a copy of RUN with :dim T added to its style plist."
   (cons (car run) (list* :dim t (cdr run))))
 
+(defun tui-chat-type-label (type)
+  "Return a compact display label for a chat line TYPE."
+  (case type
+    (:user "YOU")
+    (:assistant "LLM")
+    (:thought "THINKING")
+    (:bash "SHELL")
+    (:error "FAIL")
+    (:tool-call "TOOL")
+    (:tool-call-detail "DETAIL")
+    (t nil)))
+
+(defun tui-chat-type-color-role (type)
+  "Return the semantic color role used to label chat line TYPE."
+  (case type
+    (:user :chat-user)
+    (:assistant :chat-assistant)
+    (:thought :chat-thought)
+    (:bash :chat-bash)
+    (:error :chat-error)
+    (:tool-call :tool-running)
+    (:tool-call-detail :muted)
+    (t :muted)))
+
+(defun tui-chat-header-runs (type)
+  "Build a cyberpunk-style status header for a chat block."
+  (let ((label (tui-chat-type-label type)))
+    (when label
+      (let ((role (tui-chat-type-color-role type)))
+        (list (cons "+- " (list :color role :bold t))
+             (cons label (list :color role :bold t))
+             (cons " " (list :color :muted))
+             (cons (make-string 18 :initial-element #\-)
+                   (list :color :muted :dim t)))))))
+
 ;;* Rendering
 (defun tui-render-chat-panel (win col row width height)
   "Render the main chat area with visual distinction between message blocks."
-  (let* ((content-width (- width 2))
+  (tui-draw-panel win col row width height " hactar // conversation "
+                 :fill-role :panel
+                 :border-role :border-accent)
+  (let* ((inner-col (+ col 2))
+         (inner-row (+ row 2))
+         (inner-height (max 0 (- height 4)))
+         (content-width (max 1 (- width 5)))
          (all-display-lines '())
          (len (length *tui-chat-lines*))
          (most-recent-user-idx (position-if (lambda (line) (eq (getf line :type) :user))
@@ -514,7 +585,7 @@
                     (dim-p (and most-recent-user-idx (> i most-recent-user-idx))))
                ;; If this is the most recent user prompt, insert the separator before it
                (when (and most-recent-user-idx (= i most-recent-user-idx))
-                 (push (list :runs (list (cons "_____________________________" '(:color :muted :bold nil :dim nil))) :type :separator)
+                 (push (list :runs (list (cons "-- current exchange --" '(:color :muted :bold nil :dim t))) :type :separator)
                        all-display-lines))
 
                (cond
@@ -526,6 +597,11 @@
                          (header-runs (format-tool-call-header name args status)))
                     (when dim-p
                       (setf header-runs (mapcar #'dim-run header-runs)))
+                    (let ((block-header (tui-chat-header-runs type)))
+                      (when block-header
+                        (when dim-p
+                          (setf block-header (mapcar #'dim-run block-header)))
+                        (push (list :runs block-header :type type) all-display-lines)))
                     (push (list :runs header-runs :type :tool-call) all-display-lines)
 
                     (when *tui-expand-tool-calls*
@@ -545,6 +621,11 @@
                  (t
                   (let* ((text (getf chat-line :text))
                          (wrapped-lines (wrap-ansi-text text content-width)))
+                    (let ((block-header (tui-chat-header-runs type)))
+                      (when block-header
+                        (when dim-p
+                          (setf block-header (mapcar #'dim-run block-header)))
+                        (push (list :runs block-header :type type) all-display-lines)))
                     (dolist (wl (or wrapped-lines (list (list (cons "" '(:color nil :bold nil :dim nil))))))
                       (let ((styled-wl wl))
                         (when dim-p
@@ -552,11 +633,11 @@
                         (push (list :runs styled-wl :type type) all-display-lines))))))))
     (setf all-display-lines (nreverse all-display-lines))
     (let* ((total-lines (length all-display-lines))
-           (visible-lines height)
+           (visible-lines inner-height)
            (start (max 0 (- total-lines visible-lines *tui-scroll-offset*))))
       (loop for i from 0 below visible-lines
             for line-idx = (+ start i)
-            for screen-row = (+ row i)
+            for screen-row = (+ inner-row i)
             do (if (and (>= line-idx 0) (< line-idx total-lines))
                    (let* ((dline (nth line-idx all-display-lines))
                           (runs (getf dline :runs))
@@ -572,41 +653,52 @@
                                         (:role-header (tui-color-pair :muted))
                                         (:tool-call 0)
                                         (:tool-call-detail (tui-color-pair :muted))
-                                        (t 0))))
+                                        (t (tui-color-pair :panel)))))
                        ;; Write the runs one by one
-                       (tui-write-runs win runs col screen-row content-width base-pair (eq type :user))))
+                       (tui-write-runs win runs inner-col screen-row content-width base-pair (eq type :user))))
                    ;; Empty line
                    nil)))))
 
 (defun tui-render-sidebar (win col row width height)
   "Render the right sidebar using the widget system.
-   Iterates *tui-sidebar-widgets* top to bottom, drawing separators between widgets."
-  (let ((content-col (+ col 2))
-        (content-width (- width 4))
-        (y row)
-        (max-y (+ row height)))
+   Iterates *tui-sidebar-widgets* top to bottom, drawing each widget in a reusable card."
+  (tui-draw-panel win col row width height " context "
+                 :fill-role :sidebar
+                 :border-role :border)
+  (let ((card-col (+ col 1))
+        (card-width (- width 2))
+        (y (+ row 2))
+        (max-y (+ row height -1)))
     (dolist (widget *tui-sidebar-widgets*)
       (when (>= y max-y) (return))
       (when (or (null (tui-sidebar-widget-visible-fn widget))
                 (funcall (tui-sidebar-widget-visible-fn widget)))
-        ;; Draw separator between widgets (not before the first one)
-        (when (> y row)
-          (tui-hline win col y width #\─)
-          (incf y))
-        (let ((remaining (- max-y y)))
+        (let* ((content-col (+ card-col 2))
+               (content-row (1+ y))
+               (content-width (- card-width 4))
+               (remaining (- max-y content-row 1)))
           (when (> remaining 0)
-            (let ((used (funcall (tui-sidebar-widget-render-fn widget)
-                                 win content-col y content-width remaining)))
-              (incf y (1+ used)))))))))
+            (tui-fill-rect win card-col y card-width (min max-y (+ remaining 2)) :sidebar)
+            (let* ((used (funcall (tui-sidebar-widget-render-fn widget)
+                                 win content-col content-row content-width remaining))
+                  (card-height (max 3 (min (- max-y y) (+ used 2)))))
+              (tui-box-with-title win card-col y card-width card-height nil
+                                 :border-role (if (string= (tui-sidebar-widget-name widget) "project-header")
+                                                  :border-accent
+                                                  :border))
+              (incf y (1+ card-height)))))))))
 
 (defun tui-render-input-bar (win col row width)
   "Render the input bar at the bottom with prompt marker."
+  (tui-draw-panel win col row width 3 " prompt "
+                 :fill-role :input
+                 :border-role :border-accent)
   (charms/ll:attron (charms/ll:color-pair (tui-color-pair :prompt-marker)))
-  (tui-safe-write win "> " col row 2)
+  (tui-safe-write win "> " (+ col 2) (1+ row) 2)
   (charms/ll:attroff (charms/ll:color-pair (tui-color-pair :prompt-marker)))
-  (let ((text-width (- width 3)))
+  (let ((text-width (- width 6)))
     (tui-safe-write win (str:shorten text-width *tui-input-buffer* :ellipsis "")
-                    (+ col 2) row text-width)))
+                   (+ col 4) (1+ row) text-width)))
 
 (defun tui-render-autocomplete-popup (win col start-row width)
   "Render the new autocomplete popup below the input line."
@@ -646,39 +738,39 @@
                  (tui-safe-write win help-text (+ col 20) current-row (- width 21))
                  (charms/ll:attroff (charms/ll:color-pair (tui-color-pair :muted)))
                  (incf current-row)))
-      ;; Draw "↓ N more" indicator
+      ;; Draw "N more" indicator
       (when has-more
         (let ((remaining (- count visible-count)))
           (charms/ll:attron (charms/ll:color-pair (tui-color-pair :muted)))
-          (tui-safe-write win (format nil "  ↓ ~A more" remaining) col current-row (- width 1))
+          (tui-safe-write win (format nil "  v ~A more" remaining) col current-row (- width 1))
           (charms/ll:attroff (charms/ll:color-pair (tui-color-pair :muted)))
           (incf current-row)))
       ;; Draw hints
-      ;; Hint line 1: ↑/↓ Navigate  ·  enter Select  ·  tab Complete
+      ;; Hint line 1: up/dn Navigate  ·  enter Select  ·  tab Complete
       (let ((hint1-col (+ col 2)))
-        ;; Write ↑/↓ in prompt-marker color
+        ;; Write up/dn in prompt-marker color
         (charms/ll:attron (charms/ll:color-pair (tui-color-pair :prompt-marker)))
-        (tui-safe-write win "↑/↓" hint1-col current-row 3)
+        (tui-safe-write win "up/dn" hint1-col current-row 5)
         (charms/ll:attroff (charms/ll:color-pair (tui-color-pair :prompt-marker)))
         ;; Write " Navigate  ·  " in muted color
         (charms/ll:attron (charms/ll:color-pair (tui-color-pair :muted)))
-        (tui-safe-write win " Navigate  ·  " (+ hint1-col 3) current-row 14)
+        (tui-safe-write win " Navigate  |  " (+ hint1-col 5) current-row 14)
         (charms/ll:attroff (charms/ll:color-pair (tui-color-pair :muted)))
         ;; Write enter in prompt-marker color
         (charms/ll:attron (charms/ll:color-pair (tui-color-pair :prompt-marker)))
-        (tui-safe-write win "enter" (+ hint1-col 17) current-row 5)
+        (tui-safe-write win "enter" (+ hint1-col 19) current-row 5)
         (charms/ll:attroff (charms/ll:color-pair (tui-color-pair :prompt-marker)))
         ;; Write " Select  ·  " in muted color
         (charms/ll:attron (charms/ll:color-pair (tui-color-pair :muted)))
-        (tui-safe-write win " Select  ·  " (+ hint1-col 22) current-row 12)
+        (tui-safe-write win " Select  |  " (+ hint1-col 24) current-row 12)
         (charms/ll:attroff (charms/ll:color-pair (tui-color-pair :muted)))
         ;; Write tab in prompt-marker color
         (charms/ll:attron (charms/ll:color-pair (tui-color-pair :prompt-marker)))
-        (tui-safe-write win "tab" (+ hint1-col 34) current-row 3)
+        (tui-safe-write win "tab" (+ hint1-col 36) current-row 3)
         (charms/ll:attroff (charms/ll:color-pair (tui-color-pair :prompt-marker)))
         ;; Write " Complete" in muted color
         (charms/ll:attron (charms/ll:color-pair (tui-color-pair :muted)))
-        (tui-safe-write win " Complete" (+ hint1-col 37) current-row 9)
+        (tui-safe-write win " Complete" (+ hint1-col 39) current-row 9)
         (charms/ll:attroff (charms/ll:color-pair (tui-color-pair :muted)))
         (incf current-row))
       ;; Hint line 2: esc to cancel
@@ -695,7 +787,7 @@
     (charms/ll:attron (charms/ll:color-pair pair))
     ;; Fill the entire row with spaces first for background color
     (tui-safe-write win (make-string width :initial-element #\Space) col row width)
-    (tui-safe-write win (str:shorten width *tui-status-line* :ellipsis "..") col row width)
+    (tui-safe-write win (str:shorten width (format nil " ~A " *tui-status-line*) :ellipsis "..") col row width)
     (charms/ll:attroff (charms/ll:color-pair pair))))
 
 ;;* Command Palette
@@ -782,10 +874,10 @@
 
     ;; Draw vertical divider between help and command panels
     (charms/ll:attron (charms/ll:color-pair (tui-color-pair :modal-border)))
-    (tui-vline win divider-col (1+ modal-row) (- modal-height 2) #\│)
+    (tui-vline win divider-col (1+ modal-row) (- modal-height 2) #\|)
     ;; Connect divider to top and bottom borders
-    (handler-case (charms:write-char-at-point win #\┬ divider-col modal-row) (error () nil))
-    (handler-case (charms:write-char-at-point win #\┴ divider-col (+ modal-row modal-height -1)) (error () nil))
+    (handler-case (charms:write-char-at-point win #\+ divider-col modal-row) (error () nil))
+    (handler-case (charms:write-char-at-point win #\+ divider-col (+ modal-row modal-height -1)) (error () nil))
     (charms/ll:attroff (charms/ll:color-pair (tui-color-pair :modal-border)))
 
     ;; --- Help panel (left side) ---
@@ -929,48 +1021,53 @@
   "Full render pass of the 3-column TUI."
   (charms:clear-window win :force-repaint t)
   (multiple-value-bind (total-width total-height)
-      (charms:window-dimensions win)
-    (let* ((sidebar-width (max 20 (min 35 (floor total-width 4))))
-           (chat-width (- total-width sidebar-width 1)) ;; 1 for divider
-           (comp-height (tui-completions-height))
-           (input-row (- total-height comp-height 3))
-           (status-row (- total-height 1))
-           (chat-height (- total-height comp-height 4)) ;; room for input + status + border + completions
-           (sidebar-col (- total-width sidebar-width))
-           (divider-col (1- sidebar-col)))
+		       (charms:window-dimensions win)
+		       (let* ((margin 1)
+			      (gap 1)
+			      (sidebar-width (max 24 (min 40 (floor total-width 4))))
+			      (main-width (max 20 (- total-width sidebar-width gap (* 2 margin))))
+			      (main-col margin)
+			      (sidebar-col (+ main-col main-width gap))
+			      (comp-height (tui-completions-height))
+			      (status-row (- total-height 1))
+			      (input-height 3)
+			      (input-row (max 4 (- status-row comp-height input-height)))
+			      (chat-row 1)
+			      (chat-height (max 3 (- input-row chat-row 1)))
+			      (sidebar-row 1)
+			      (sidebar-height (max 3 (- status-row sidebar-row 1)))
+			      (divider-col (1- sidebar-col)))
 
-      ;; Draw vertical divider between chat and sidebar
-      (charms/ll:attron (charms/ll:color-pair (tui-color-pair :border)))
-      (tui-vline win divider-col 0 (- total-height 2) #\│)
-      (charms/ll:attroff (charms/ll:color-pair (tui-color-pair :border)))
+			 ;; Paint the terminal background before drawing panels.
+			 (tui-fill-rect win 0 0 total-width total-height :background)
 
-      ;; Draw horizontal separator above input
-      (charms/ll:attron (charms/ll:color-pair (tui-color-pair :border)))
-      (tui-hline win 0 input-row chat-width #\─)
-      (charms/ll:attroff (charms/ll:color-pair (tui-color-pair :border)))
+			 ;; Draw vertical divider between main workspace and sidebar.
+			 (charms/ll:attron (charms/ll:color-pair (tui-color-pair :border)))
+			 (tui-vline win divider-col 1 (- status-row 2) #\|)
+			 (charms/ll:attroff (charms/ll:color-pair (tui-color-pair :border)))
 
-      ;; Render chat panel
-      (tui-render-chat-panel win 1 0 chat-width chat-height)
+			 ;; Render chat panel
+			 (tui-render-chat-panel win main-col chat-row main-width chat-height)
 
-      ;; Render input bar
-      (tui-render-input-bar win 1 (1+ input-row) chat-width)
+			 ;; Render input bar
+			 (tui-render-input-bar win main-col input-row main-width)
 
-      ;; Render completion dropdown below input
-      (when (> comp-height 0)
-        (tui-render-autocomplete-popup win 1 (+ input-row 2) chat-width))
+			 ;; Render completion dropdown below input
+			 (when (> comp-height 0)
+			   (tui-render-autocomplete-popup win (+ main-col 2) (+ input-row input-height) (- main-width 4)))
 
-      ;; Render sidebar
-      (tui-render-sidebar win sidebar-col 1 sidebar-width (- total-height 2))
+			 ;; Render sidebar
+			 (tui-render-sidebar win sidebar-col sidebar-row sidebar-width sidebar-height)
 
-      ;; Render status bar (full width, bottom)
-      (unless (> comp-height 0)
-        (tui-render-status-bar win 0 status-row total-width))
+			 ;; Render status bar (full width, bottom)
+			 (unless (> comp-height 0)
+			   (tui-render-status-bar win 0 status-row total-width))
 
-      ;; Render command modal if open
-      (when *tui-command-modal-open*
-        (tui-render-command-modal win total-width total-height))))
+			 ;; Render command modal if open
+			 (when *tui-command-modal-open*
+			   (tui-render-command-modal win total-width total-height)))
 
-  (charms:refresh-window win))
+		       (charms:refresh-window win)))
 
 ;;; --- Input handling ---
 
@@ -1698,6 +1795,11 @@
                               (:cyan (tui-color-pair :ansi-cyan))
                               (:white (tui-color-pair :ansi-white))
                               (:muted (tui-color-pair :muted))
+                              (:chat-user (tui-color-pair :chat-user))
+                              (:chat-assistant (tui-color-pair :chat-assistant))
+                              (:chat-thought (tui-color-pair :chat-thought))
+                              (:chat-bash (tui-color-pair :chat-bash))
+                              (:chat-error (tui-color-pair :chat-error))
                               (:tool-pending (tui-color-pair :tool-pending))
                               (:tool-running (tui-color-pair :tool-running))
                               (:tool-done (tui-color-pair :tool-done))
