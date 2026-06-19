@@ -469,6 +469,30 @@
   :chat-thought "#4c566a" :chat-bash "#a3be8c" :chat-error "#bf616a"
   :completion-fg "#d8dee9" :completion-bg "#3b4252")
 
+(deftheme "cyberpunk"
+  :bg "#0c0d19" :fg "#00ffcc"
+  :border "#ff007f" :border-accent "#39ff14"
+  :header "#ff007f" :header-bold "#ff007f"
+  :selected-fg "#0c0d19" :selected-bg "#00ffcc"
+  :muted "#5a5b7c" :prompt-marker "#ff007f"
+  :status-info-fg "#00ffcc" :status-info-bg nil
+  :status-ok-fg "#0c0d19" :status-ok-bg "#39ff14"
+  :status-error-fg "#ffffff" :status-error-bg "#ff0055"
+  :sidebar-title "#ff007f" :sidebar-label "#00ffcc"
+  :file-added "#39ff14" :file-removed "#ff0055"
+  :modal-bg-fg "#00ffcc" :modal-bg-bg "#141629"
+  :modal-border "#ff007f"
+  :modal-input-fg "#ffffff" :modal-input-bg "#212440"
+  :tab-active-fg "#0c0d19" :tab-active-bg "#ff007f"
+  :tab-inactive-fg "#5a5b7c" :tab-inactive-bg nil
+  :keyhint "#00ffcc"
+  :lsp-ok "#39ff14"
+  :tool-pending "#ffaa00" :tool-running "#00bfff"
+  :tool-done "#39ff14" :tool-failed "#ff0055"
+  :chat-user "#ffaa00" :chat-assistant nil
+  :chat-thought "#7f00ff" :chat-bash "#39ff14" :chat-error "#ff0055"
+  :completion-fg "#00ffcc" :completion-bg "#141629")
+
 (defun list-available-themes ()
   "Return a list of available theme structs (built-in + user files)."
   (let ((themes (mapcar #'funcall *tui-builtin-themes*)))
