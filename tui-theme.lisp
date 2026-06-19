@@ -307,10 +307,10 @@
        ',fn-name)))
 
 (deftheme "default"
-  :bg "#15171d" :fg "#efe6d1"
-  :panel-bg "#202128"
-  :sidebar-bg "#1b1d23"
-  :input-bg "#181a20"
+  :bg nil :fg "#efe6d1"
+  :panel-bg nil
+  :sidebar-bg nil
+  :input-bg nil
   :border "#3b3d49"
   :border-accent "#ff8a3d"
   :header "#ff7ab6"
@@ -318,24 +318,24 @@
   :selected-fg "#15171d" :selected-bg "#ff8a3d"
   :muted "#8b8378"
   :prompt-marker "#4fc3ff"
-  :status-info-fg "#efe6d1" :status-info-bg "#181a20"
+  :status-info-fg "#efe6d1" :status-info-bg nil
   :status-ok-fg "#15171d" :status-ok-bg "#73f59b"
   :status-error-fg "#efe6d1" :status-error-bg "#ff4d57"
   :sidebar-title "#ff7ab6"
   :sidebar-label "#4fc3ff"
   :file-added "#d7ff57" :file-removed "#ff4d57"
-  :modal-bg-fg "#efe6d1" :modal-bg-bg "#202128"
+  :modal-bg-fg "#efe6d1" :modal-bg-bg nil
   :modal-border "#ff8a3d"
-  :modal-input-fg "#efe6d1" :modal-input-bg "#181a20"
+  :modal-input-fg "#efe6d1" :modal-input-bg nil
   :tab-active-fg "#15171d" :tab-active-bg "#ff8a3d"
-  :tab-inactive-fg "#8b8378" :tab-inactive-bg "#202128"
+  :tab-inactive-fg "#8b8378" :tab-inactive-bg nil
   :keyhint "#4fc3ff"
   :lsp-ok "#73f59b"
   :tool-pending "#ffd166" :tool-running "#4fc3ff"
   :tool-done "#73f59b" :tool-failed "#ff4d57"
   :chat-user "#4fc3ff" :chat-assistant "#efe6d1"
   :chat-thought "#a48cf2" :chat-bash "#73f59b" :chat-error "#ff4d57"
-  :completion-fg "#efe6d1" :completion-bg "#202128")
+  :completion-fg "#efe6d1" :completion-bg nil)
 
 (deftheme "gruvbox-dark"
   :bg "#282828" :fg "#ebdbb2"
@@ -482,31 +482,31 @@
   :completion-fg "#d8dee9" :completion-bg "#3b4252")
 
 (deftheme "cyberpunk"
-  :bg "#090a12" :fg "#f4ebd0"
-  :panel-bg "#171923"
-  :sidebar-bg "#12141c"
-  :input-bg "#0f1118"
+  :bg nil :fg "#f4ebd0"
+  :panel-bg nil
+  :sidebar-bg nil
+  :input-bg nil
   :border "#373a48" :border-accent "#ff8a3d"
   :header "#ff4fb8" :header-bold "#ff8a3d"
   :selected-fg "#090a12" :selected-bg "#ff8a3d"
   :muted "#827c75" :prompt-marker "#36d6ff"
-  :status-info-fg "#f4ebd0" :status-info-bg "#0f1118"
+  :status-info-fg "#f4ebd0" :status-info-bg nil
   :status-ok-fg "#090a12" :status-ok-bg "#8cff66"
   :status-error-fg "#f4ebd0" :status-error-bg "#ff3f4f"
   :sidebar-title "#ff4fb8" :sidebar-label "#36d6ff"
   :file-added "#e5ff5c" :file-removed "#ff3f4f"
-  :modal-bg-fg "#f4ebd0" :modal-bg-bg "#171923"
+  :modal-bg-fg "#f4ebd0" :modal-bg-bg nil
   :modal-border "#ff8a3d"
-  :modal-input-fg "#f4ebd0" :modal-input-bg "#0f1118"
+  :modal-input-fg "#f4ebd0" :modal-input-bg nil
   :tab-active-fg "#090a12" :tab-active-bg "#ff8a3d"
-  :tab-inactive-fg "#827c75" :tab-inactive-bg "#171923"
+  :tab-inactive-fg "#827c75" :tab-inactive-bg nil
   :keyhint "#36d6ff"
   :lsp-ok "#8cff66"
   :tool-pending "#ffd166" :tool-running "#36d6ff"
   :tool-done "#8cff66" :tool-failed "#ff3f4f"
   :chat-user "#36d6ff" :chat-assistant "#f4ebd0"
   :chat-thought "#b284ff" :chat-bash "#8cff66" :chat-error "#ff3f4f"
-  :completion-fg "#f4ebd0" :completion-bg "#171923")
+  :completion-fg "#f4ebd0" :completion-bg nil)
 
 (defun list-available-themes ()
   "Return a list of available theme structs (built-in + user files)."
