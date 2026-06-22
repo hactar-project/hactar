@@ -79,26 +79,73 @@
     (is-true (hactar::get-mode "MIXEDMODE"))
     (is (string= "mixedmode" (hactar::mode-name-string (hactar::get-mode "mixedmode"))))))
 
+(defun run-registered-command (cmd-name)
+  "Invoke the registered slash command CMD-NAME (e.g. \"/greet\") and capture its output."
+  (let ((info (gethash cmd-name hactar::*commands*)))
+    (when info
+      (with-output-to-string (*standard-output*)
+        (funcall (first info) '())))))
+
 (test refactor-defmode-command
-  "defmode-command runs the body only when the owning mode is active."
+  "A mode command is registered only while its owning mode is active."
   (let ((hactar::*modes* (make-hash-table :test 'equal))
         (hactar::*active-modes* '())
         (hactar::*active-rules* (make-hash-table :test 'equal))
         (hactar::*commands* (make-hash-table :test 'equal))
         (hactar::*sub-commands* (make-hash-table :test 'equal))
-        (hactar::*acp-commands* (make-hash-table :test 'equal)))
-    (eval '(hactar::defmode-command demo greet (args)
-             (declare (ignore args))
-             (format t "hello-from-demo")))
-    (let ((fn (first (gethash "/demo.greet" hactar::*commands*))))
-      (is-true fn)
-      ;; Not active -> prints "not active"
-      (let ((out (with-output-to-string (*standard-output*) (funcall fn '()))))
-        (is (search "not active" out)))
-      ;; Active -> runs body
-      (push "demo" hactar::*active-modes*)
-      (let ((out (with-output-to-string (*standard-output*) (funcall fn '()))))
-        (is (search "hello-from-demo" out))))))
+        (hactar::*command-completions* (make-hash-table :test 'equal))
+        (hactar::*acp-commands* (make-hash-table :test 'equal))
+        (hactar::*hidden-commands* (make-hash-table :test 'equal))
+        (hactar::*tui-hidden-commands* (make-hash-table :test 'equal))
+        (hactar::*editor-hidden-commands* (make-hash-table :test 'equal)))
+    (eval '(hactar::defmode demo "Demo mode"
+             :commands ((hactar::defmode-command demo greet (args)
+                          (declare (ignore args))
+                          (format t "hello-from-demo")))))
+    ;; Not active -> the bare command is not registered.
+    (is-false (gethash "/greet" hactar::*commands*))
+    ;; Active -> command registered and runnable.
+    (hactar::activate-mode "demo")
+    (is-true (gethash "/greet" hactar::*commands*))
+    (is (search "hello-from-demo" (run-registered-command "/greet")))
+    ;; Deactivated -> command removed.
+    (hactar::deactivate-mode "demo")
+    (is-false (gethash "/greet" hactar::*commands*))))
+
+(test refactor-mode-shared-command-names
+  "Two modes can declare the same command name; the active mode's body wins."
+  (let ((hactar::*modes* (make-hash-table :test 'equal))
+        (hactar::*active-modes* '())
+        (hactar::*active-rules* (make-hash-table :test 'equal))
+        (hactar::*commands* (make-hash-table :test 'equal))
+        (hactar::*sub-commands* (make-hash-table :test 'equal))
+        (hactar::*command-completions* (make-hash-table :test 'equal))
+        (hactar::*acp-commands* (make-hash-table :test 'equal))
+        (hactar::*hidden-commands* (make-hash-table :test 'equal))
+        (hactar::*tui-hidden-commands* (make-hash-table :test 'equal))
+        (hactar::*editor-hidden-commands* (make-hash-table :test 'equal)))
+    (eval '(hactar::defmode railsmode "Rails"
+             :commands ((hactar::defmode-command railsmode route.create (args)
+                          (declare (ignore args))
+                          (format t "rails-route")))))
+    (eval '(hactar::defmode reactmode "React"
+             :commands ((hactar::defmode-command reactmode route.create (args)
+                          (declare (ignore args))
+                          (format t "react-route")))))
+    ;; Neither registered until activation.
+    (is-false (gethash "/route.create" hactar::*commands*))
+    ;; Activate rails -> rails body is live.
+    (hactar::activate-mode "railsmode")
+    (is (search "rails-route" (run-registered-command "/route.create")))
+    ;; Activate react -> most recently activated wins.
+    (hactar::activate-mode "reactmode")
+    (is (search "react-route" (run-registered-command "/route.create")))
+    ;; Deactivate react -> rails implementation is restored.
+    (hactar::deactivate-mode "reactmode")
+    (is (search "rails-route" (run-registered-command "/route.create")))
+    ;; Deactivate rails -> command gone entirely.
+    (hactar::deactivate-mode "railsmode")
+    (is-false (gethash "/route.create" hactar::*commands*))))
 
 (test refactor-mode-command-listing
   "/mode list outputs registered modes and marks the active one."

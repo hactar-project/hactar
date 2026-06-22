@@ -196,12 +196,14 @@
   "tui-add-bash-output adds task header, command, and output lines."
   (let ((hactar::*tui-chat-lines* '()))
     (hactar::tui-add-bash-output "build" "make all" (format nil "ok~%done"))
-    ;; Should have: task header + command line + 2 output lines = 4
-    (is (= 4 (length hactar::*tui-chat-lines*)))
+    ;; Should have: task header + command line + 1 multiline output line = 3
+    (is (= 3 (length hactar::*tui-chat-lines*)))
     ;; Newest first, so first element is last added line
     (let ((all-texts (mapcar (lambda (l) (getf l :text)) (reverse hactar::*tui-chat-lines*))))
       (is (search "build" (first all-texts)))
-      (is (search "make all" (second all-texts))))))
+      (is (search "make all" (second all-texts)))
+      (is (search "ok" (third all-texts)))
+      (is (search "done" (third all-texts))))))
 
 (test tui-add-bash-output-nil-command
   "tui-add-bash-output with nil command skips the command line."
@@ -1184,3 +1186,37 @@
         (is (eq t (hactar::confirm-action-tui "Confirm this action?")))
         (is (identity tui-render-called))
         (is (identity refresh-window-called))))))
+
+(test rgb-to-ansi-color-test
+  "rgb-to-ansi-color maps various RGB values to standard ANSI colors."
+  (is (eq :red (hactar::rgb-to-ansi-color 255 0 0)))
+  (is (eq :green (hactar::rgb-to-ansi-color 0 255 0)))
+  (is (eq :blue (hactar::rgb-to-ansi-color 0 0 255)))
+  (is (eq :yellow (hactar::rgb-to-ansi-color 255 255 0)))
+  (is (eq :magenta (hactar::rgb-to-ansi-color 255 0 255)))
+  (is (eq :cyan (hactar::rgb-to-ansi-color 0 255 255)))
+  (is (eq :white (hactar::rgb-to-ansi-color 250 250 250)))
+  (is (eq :muted (hactar::rgb-to-ansi-color 30 30 30)))
+  (is (eq :muted (hactar::rgb-to-ansi-color 100 100 100))))
+
+(test parse-ansi-string-truecolor-test
+  "parse-ansi-string correctly handles truecolor escape codes by approximating them."
+  (let* ((str (format nil "~C[38;2;255;0;0mRedText~C[0m" #\Esc #\Esc))
+         (runs (hactar::parse-ansi-string str)))
+    (is (= 1 (length runs)))
+    (let ((run (first runs)))
+      (is (string= "RedText" (car run)))
+      (is (eq :red (getf (cdr run) :color))))))
+
+(test highlight-xml-blocks-test
+  "highlight-xml-blocks matches tags and calls highlight-with-bat."
+  (let ((input "<json>{\"foo\": \"bar\"}</json>")
+        (result (hactar::highlight-xml-blocks "<json>{\"foo\": \"bar\"}</json>")))
+    (is (stringp result))
+    (if (hactar::find-executable "bat")
+        (progn
+          (is (not (string= input result)))
+          (is (not (null (search "<json>" result))))
+          (is (not (null (search "</json>" result))))
+          (is (char= #\Esc (char result 0))))
+        (is (string= input result)))))

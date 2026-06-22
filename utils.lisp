@@ -328,6 +328,61 @@ Accepted inputs:
           (t
            (format t "Failed to copy to clipboard. Neither 'wl-copy' nor 'xclip' found in PATH.~%"))))
       (unless *silent* (format t "No text to copy.~%"))))
+(defun map-tag-to-bat-lang (tag)
+  "Map common XML tag names to language names supported by bat."
+  (let ((lower (string-downcase tag)))
+    (cond
+      ((string= lower "js") "javascript")
+      ((string= lower "ts") "typescript")
+      ((string= lower "yml") "yaml")
+      ((string= lower "md") "markdown")
+      ((string= lower "py") "python")
+      ((string= lower "rs") "rust")
+      ((string= lower "hs") "haskell")
+      ((string= lower "clj") "clojure")
+      ((string= lower "el") "lisp")
+      (t lower))))
+
+(defun highlight-with-bat (content language)
+  "Highlight CONTENT with `bat` using LANGUAGE. Returns the highlighted string,
+   or NIL if bat is not installed or fails/unknown language."
+  (let ((lang (map-tag-to-bat-lang language)))
+    (handler-case
+        (with-input-from-string (s content)
+          (multiple-value-bind (output error-output exit-code)
+              (uiop:run-program (list "bat" "-l" lang "--color=always" "--style=plain")
+                                :input s
+                                :output :string
+                                :error-output :string
+                                :ignore-error-status t)
+            (declare (ignore error-output))
+            (if (zerop exit-code)
+                output
+                nil)))
+      (error () nil))))
+
+(defun highlight-xml-blocks (text)
+  "Find XML-tagged blocks (e.g., <json>...</json>) in TEXT and highlight them using bat."
+  (if (or (null text) (string= text ""))
+      text
+      (cl-ppcre:regex-replace-all
+       "(?s)<([a-zA-Z0-9_-]+)>(.*?)</([a-zA-Z0-9_-]+)>"
+       text
+       (lambda (target-string start end match-start match-end reg-starts reg-ends)
+         (declare (ignore start end))
+         (let ((open-tag (subseq target-string (aref reg-starts 0) (aref reg-ends 0)))
+               (content (subseq target-string (aref reg-starts 1) (aref reg-ends 1)))
+               (close-tag (subseq target-string (aref reg-starts 2) (aref reg-ends 2))))
+           (if (string-equal open-tag close-tag)
+               (let ((highlighted (highlight-with-bat content open-tag)))
+                 (if highlighted
+                     (let ((trimmed (string-trim '(#\Newline #\Return) highlighted)))
+                       (format nil "~C[36;2m<~A>~C[0m~%~A~%~C[36;2m</~A>~C[0m"
+                               #\Esc open-tag #\Esc
+                               trimmed
+                               #\Esc close-tag #\Esc))
+                     (subseq target-string match-start match-end)))
+               (subseq target-string match-start match-end)))))))
 
 ;;** String utils
 (defun split-lines (text)

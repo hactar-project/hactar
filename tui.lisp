@@ -415,8 +415,11 @@
   (when command
     (tui-add-chat-line (format nil "  task: ~A" command) :type :text))
   (when output
-    (dolist (line (str:lines output))
-      (tui-add-chat-line (format nil "    ~A" line) :type :text))))
+    (let ((indented-output
+            (with-output-to-string (s)
+              (dolist (line (str:lines output))
+                (format s "    ~A~%" line)))))
+      (tui-add-chat-line indented-output :type :text))))
 
 ;;* tool calls
 (defun tui-add-tool-call (id name kind)
@@ -1328,8 +1331,7 @@
                 (charms:clear-window charms:*standard-window* :force-repaint t)
                 (charms:refresh-window charms:*standard-window*))
               (when (and output-string (> (length output-string) 0))
-                (dolist (line (str:lines output-string))
-                  (tui-add-chat-line line :type :text))))
+                (tui-add-chat-line output-string :type :text)))
           (serious-condition (e)
             ;; Make sure curses is back even if something blew up.
             (ignore-errors (charms/ll:reset-prog-mode))
@@ -1601,6 +1603,30 @@
   (handler-case (uiop:run-program '("stty" "-raw" "echo"))
     (error (e) (debug-log "Failed to exit raw mode with stty:" e))))
 
+(defun rgb-to-ansi-color (r g b)
+  "Approximate an RGB color to one of the standard ANSI colors."
+  (let* ((max-val (max r g b))
+         (min-val (min r g b))
+         (diff (- max-val min-val)))
+    (cond
+      ((< max-val 60) :muted)
+      ((< diff 30) (if (> max-val 180) :white :muted))
+      ((= max-val r)
+       (cond
+         ((> g (+ b 30)) :yellow)
+         ((> b (+ g 30)) :magenta)
+         (t :red)))
+      ((= max-val g)
+       (cond
+         ((> r (+ b 30)) :yellow)
+         ((> b (+ r 30)) :cyan)
+         (t :green)))
+      (t ;; max-val is b
+       (cond
+         ((> r (+ g 30)) :magenta)
+         ((> g (+ r 30)) :cyan)
+         (t :blue))))))
+
 (defun parse-ansi-string (str)
   "Parse a string containing ANSI escape sequences into a list of (substring . style-plist) runs."
   (let ((runs '())
@@ -1653,9 +1679,13 @@
                               (setf (getf current-style :color)
                                     (idx->color (aref vec (+ k 2))))
                               (incf k 2))
-                             ;; truecolor foreground: 38;2;R;G;B (approximate as default)
+                             ;; truecolor foreground: 38;2;R;G;B
                              ((and (= code 38) (< (+ k 4) n) (= (aref vec (+ k 1)) 2))
-                              (setf (getf current-style :color) nil)
+                              (let ((r (aref vec (+ k 2)))
+                                    (g (aref vec (+ k 3)))
+                                    (b (aref vec (+ k 4))))
+                                (setf (getf current-style :color)
+                                      (rgb-to-ansi-color r g b)))
                               (incf k 4))
                              ((member code '(30 90)) (setf (getf current-style :color) nil))
                              ((member code '(31 91)) (setf (getf current-style :color) :red))
@@ -1759,7 +1789,7 @@
   (unless text
     (return-from wrap-ansi-text nil))
   (let ((all-wrapped-lines '())
-        (raw-lines (str:lines text)))
+        (raw-lines (str:lines (highlight-xml-blocks text))))
     (unless raw-lines
       (setf raw-lines (list "")))
     (dolist (raw-line raw-lines)
