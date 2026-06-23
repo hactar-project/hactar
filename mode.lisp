@@ -184,14 +184,42 @@
     ((null args)
      (if (zerop (hash-table-count *modes*))
          (format t "No modes defined.~%")
-         (progn
-           (format t "Modes:~%")
-           (maphash (lambda (name m)
-                      (format t "  ~A~A — ~A~%"
-                              name
-                              (if (mode-active-p m) " [ACTIVE]" "")
-                              (or (mode-description m) "")))
-                    *modes*))))
+         (cond
+           ((and (or *acp-mode* (not *in-repl*))
+                 (not (and (boundp '*tui-running*) (symbol-value '*tui-running*))))
+            (format t "Modes:~%")
+            (maphash (lambda (name m)
+                       (format t "  ~A~A — ~A~%"
+                               name
+                               (if (mode-active-p m) " [ACTIVE]" "")
+                               (or (mode-description m) "")))
+                     *modes*))
+           (t
+            ;; Interactive mode with fuzzy-select
+            (let* ((items (let ((acc '()))
+                            (maphash (lambda (name m)
+                                       (push `((:item . ,(format nil "~A~A" name (if (mode-active-p m) " [ACTIVE]" "")))
+                                               (:preview . ,(format nil "Mode: ~A~%Status: ~A~%Description: ~A"
+                                                                    name
+                                                                    (if (mode-active-p m) "Active" "Inactive")
+                                                                    (or (mode-description m) "")))
+                                               (:mode-name . ,name)
+                                               (:active . ,(mode-active-p m)))
+                                             acc))
+                                     *modes*)
+                            (nreverse acc)))
+                   (selected (fuzzy-select items)))
+              (if selected
+                  (let ((name (cdr (assoc :mode-name selected)))
+                        (active (cdr (assoc :active selected))))
+                    (if active
+                        (progn
+                          (deactivate-mode name)
+                          (format t "Deactivated mode: ~A~%" name))
+                        (progn
+                          (activate-mode name)
+                          (format t "Activated mode: ~A~%" name))))
+                  (format t "Mode selection cancelled.~%")))))))
     ((string-equal (first args) "list")
      (mode '()))
     ((string-equal (first args) "off")

@@ -1012,10 +1012,10 @@
     (is (null (hactar::tui-sidebar-widget-visible-fn widget)))))
 
 (test make-default-sidebar-widgets-list
-  "make-default-sidebar-widgets returns a list of 7 widgets."
+  "make-default-sidebar-widgets returns a list of 8 widgets."
   (let ((widgets (hactar::make-default-sidebar-widgets)))
     (is (listp widgets))
-    (is (= 7 (length widgets)))
+    (is (= 8 (length widgets)))
     (dolist (w widgets)
       (is (hactar::tui-sidebar-widget-p w))
       (is (functionp (hactar::tui-sidebar-widget-render-fn w))))))
@@ -1024,6 +1024,7 @@
   "All sidebar widget factory functions return valid widgets."
   (dolist (factory (list #'hactar::make-sidebar-widget-project-header
                          #'hactar::make-sidebar-widget-model
+                         #'hactar::make-sidebar-widget-modes
                          #'hactar::make-sidebar-widget-files
                          #'hactar::make-sidebar-widget-docs
                          #'hactar::make-sidebar-widget-tool-calls

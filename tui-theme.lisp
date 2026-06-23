@@ -615,6 +615,26 @@
       (incf y))
     (- y row)))
 
+(defun sidebar-render-modes (win col row width max-height)
+  "Render the active modes section. Returns rows used."
+  (let ((y row))
+    (when (<= (- y row) max-height)
+      (charms/ll:attron (charms/ll:color-pair (tui-color-pair :sidebar-label)))
+      (tui-safe-write win "Active Modes" col y width)
+      (charms/ll:attroff (charms/ll:color-pair (tui-color-pair :sidebar-label)))
+      (incf y))
+    (if *tui-sidebar-modes*
+        (dolist (m *tui-sidebar-modes*)
+          (when (<= (- y row) max-height)
+            (tui-safe-write win (format nil "  ~A" m) col y width)
+            (incf y)))
+        (when (<= (- y row) max-height)
+          (charms/ll:attron (charms/ll:color-pair (tui-color-pair :muted)))
+          (tui-safe-write win "  None" col y width)
+          (charms/ll:attroff (charms/ll:color-pair (tui-color-pair :muted)))
+          (incf y)))
+    (- y row)))
+
 (defun sidebar-render-files (win col row width max-height)
   "Render the files-in-context section. Returns rows used."
   (let ((y row))
@@ -761,6 +781,12 @@
    :name "model"
    :render-fn #'sidebar-render-model))
 
+(defun make-sidebar-widget-modes ()
+  "Create the active modes sidebar widget."
+  (make-tui-sidebar-widget
+   :name "modes"
+   :render-fn #'sidebar-render-modes))
+
 (defun make-sidebar-widget-files ()
   "Create the files-in-context sidebar widget."
   (make-tui-sidebar-widget
@@ -795,6 +821,7 @@
   "Create the default sidebar widget list."
   (list (make-sidebar-widget-project-header)
         (make-sidebar-widget-model)
+        (make-sidebar-widget-modes)
         (make-sidebar-widget-files)
         (make-sidebar-widget-docs)
         (make-sidebar-widget-tool-calls)

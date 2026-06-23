@@ -6,6 +6,7 @@
 (defvar *tui-running* nil "T when the 3-column TUI is active.")
 (defvar *tui-chat-lines* '() "List of chat line plists for the main panel.")
 (defvar *tui-sidebar-model* nil "Current model name string for sidebar display.")
+(defvar *tui-sidebar-modes* '() "List of active mode strings for sidebar display.")
 (defvar *tui-sidebar-files* '() "List of modified file strings for sidebar.")
 (defvar *tui-sidebar-docs* '() "List of doc titles in context for sidebar.")
 (defvar *tui-sidebar-lsps* '() "List of LSP plists ((:name . n) (:status . s)).")
@@ -464,6 +465,7 @@
   "Pull current state into sidebar display variables."
   (setf *tui-sidebar-model*
         (if *current-model* (model-config-name *current-model*) "None"))
+  (setf *tui-sidebar-modes* (active-modes))
   (setf *tui-project-name* (or *name* ""))
   (setf *tui-project-path*
         (if *repo-root* (format nil "~A" (uiop:native-namestring *repo-root*)) ""))
