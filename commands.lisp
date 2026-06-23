@@ -351,6 +351,24 @@
                      nil)))
        ',name)))
 
+(defun undefine-command (name)
+  "Remove command NAME (with or without a leading slash) from every command
+   registry: slash commands, sub-commands, completions, ACP handlers, and the
+   hidden / tui-hidden / editor-hidden sets. Used when deactivating a mode so its
+   commands no longer pollute the command space."
+  (let* ((bare (string-left-trim "/" (string-downcase (string name))))
+         (slash (format nil "/~A" bare)))
+    (remhash slash *commands*)
+    (remhash bare *sub-commands*)
+    (remhash slash *command-completions*)
+    (remhash slash *acp-commands*)
+    (remhash slash *hidden-commands*)
+    (remhash slash *tui-hidden-commands*)
+    (remhash slash *editor-hidden-commands*)
+    (when (fboundp 'unregister-format-handlers)
+      (funcall 'unregister-format-handlers slash))
+    bare))
+
 (defun get-command-completions (cmd-name text args)
   "Get completions for CMD-NAME's arguments. TEXT is the partial word being completed.
    ARGS is the list of arguments typed so far. Returns a list of matching completion strings."

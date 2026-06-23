@@ -9,9 +9,9 @@ classes subclassing ApplicationRecord; RESTful routes go in config/routes.rb;
 file names are snake_case."
   :commands
   ((defmode-command rails "model.create" (args)
-     "Create a Rails model. Usage: /rails.model.create <Name>"
+     "Create a Rails model. Usage: /model.create <Name>"
      (if (null args)
-         (format t "Usage: /rails.model.create <Name>~%")
+         (format t "Usage: /model.create <Name>~%")
          (let* ((name (first args))
                 (class-name (pascal-case name))
                 (file-name (format nil "app/models/~A.rb"
@@ -21,9 +21,9 @@ file names are snake_case."
            (scaffold-create-file file-name content))))
 
    (defmode-command rails "route.create" (args)
-     "Add a RESTful resource route. Usage: /rails.route.create <resource>"
+     "Add a RESTful resource route. Usage: /route.create <resource>"
      (if (null args)
-         (format t "Usage: /rails.route.create <resource>~%")
+         (format t "Usage: /route.create <resource>~%")
          (let ((resource (string-downcase (first args))))
            (scaffold-modify-file
             "config/routes.rb"

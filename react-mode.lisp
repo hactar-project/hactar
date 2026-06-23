@@ -34,9 +34,9 @@
 - Prefer controlled components for form inputs."
   :commands
   ((defmode-command react "component.create" (args)
-     "Generate a React functional component. Usage: /react.component.create <Name>"
+     "Generate a React functional component. Usage: /component.create <Name>"
      (if (null args)
-         (format t "Usage: /react.component.create <Name>~%")
+         (format t "Usage: /component.create <Name>~%")
          (let* ((name (first args))
                 (class-name (pascal-case name))
                 (file-name (format nil "src/components/~A.tsx" class-name))
@@ -45,9 +45,9 @@
            (scaffold-create-file file-name content))))
 
    (defmode-command react "hook.create" (args)
-     "Generate a custom React hook. Usage: /react.hook.create <Name>"
+     "Generate a custom React hook. Usage: /hook.create <Name>"
      (if (null args)
-         (format t "Usage: /react.hook.create <Name>~%")
+         (format t "Usage: /hook.create <Name>~%")
          (let* ((name (first args))
                 (hook-name (format nil "use~A" (pascal-case name)))
                 (file-name (format nil "src/hooks/~A.ts" hook-name))
@@ -56,9 +56,9 @@
            (scaffold-create-file file-name content))))
 
    (defmode-command react "test.create" (args)
-     "Generate component tests with Testing Library. Usage: /react.test.create <Target>"
+     "Generate component tests with Testing Library. Usage: /test.create <Target>"
      (if (null args)
-         (format t "Usage: /react.test.create <Target>~%")
+         (format t "Usage: /test.create <Target>~%")
          (let* ((name (first args))
                 (class-name (pascal-case name))
                 (file-name (format nil "src/components/~A.test.tsx" class-name))
@@ -67,14 +67,14 @@
            (scaffold-create-file file-name content))))
 
    (defmode-command react "error-boundary.create" (args)
-     "Generate a React Error Boundary component. Usage: /react.error-boundary.create"
+     "Generate a React Error Boundary component. Usage: /error-boundary.create"
      (identity args)
      (let* ((file-name "src/components/ErrorBoundary.tsx")
             (content (format nil "import React, { Component, ErrorInfo, ReactNode } from 'react';~%~%interface Props {~%  children: ReactNode;~%  fallback?: ReactNode;~%}~%~%interface State {~%  hasError: boolean;~%}~%~%export class ErrorBoundary extends Component<Props, State> {~%  public state: State = {~%    hasError: false~%  };~%~%  public static getDerivedStateFromError(_: Error): State {~%    return { hasError: true };~%  }~%~%  public componentDidCatch(error: Error, errorInfo: ErrorInfo) {~%    console.error('Uncaught error:', error, errorInfo);~%  }~%~%  public render() {~%    if (this.state.hasError) {~%      return this.props.fallback || <h1>Sorry, something went wrong.</h1>;~%    }~%    return this.props.children;~%  }~%}~%")))
        (scaffold-create-file file-name content)))
 
    (defmode-command react "auth-context.create" (args)
-     "Generate AuthContext provider and useAuth hook for React. Usage: /react.auth-context.create"
+     "Generate AuthContext provider and useAuth hook for React. Usage: /auth-context.create"
      (identity args)
      (let* ((ctx-file "src/auth/AuthContext.tsx")
             (ctx-content (format nil "import React, { createContext, useState, useContext, ReactNode } from 'react';~%~%interface AuthContextType {~%  user: any;~%  login: (userData: any) => void;~%  logout: () => void;~%  isAuthenticated: boolean;~%}~%~%const AuthContext = createContext<AuthContextType | undefined>(undefined);~%~%export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) => {~%  const [user, setUser] = useState<any>(null);~%  const login = (userData: any) => setUser(userData);~%  const logout = () => setUser(null);~%  return (~%    <AuthContext.Provider value={{ user, login, logout, isAuthenticated: !!user }}>~%      {children}~%    </AuthContext.Provider>~%  );~%};~%"))
@@ -84,28 +84,28 @@
        (scaffold-create-file hook-file hook-content)))
 
    (defmode-command react "auth-middleware.create" (args)
-     "Generate auth middleware for Express/Node. Usage: /react.auth-middleware.create"
+     "Generate auth middleware for Express/Node. Usage: /auth-middleware.create"
      (identity args)
      (let* ((file-name "src/server/middleware/auth.ts")
             (content (format nil "import { Request, Response, NextFunction } from 'express';~%~%export const authMiddleware = (req: Request, res: Response, next: NextFunction) => {~%  const authHeader = req.headers.authorization;~%  if (!authHeader) return res.status(401).json({ error: 'Unauthorized' });~%  next();~%};~%")))
        (scaffold-create-file file-name content)))
 
    (defmode-command react "protected-route.create" (args)
-     "Generate React ProtectedRoute component. Usage: /react.protected-route.create"
+     "Generate React ProtectedRoute component. Usage: /protected-route.create"
      (identity args)
      (let* ((file-name "src/components/ProtectedRoute.tsx")
             (content (format nil "import React from 'react';~%import { Navigate } from 'react-router-dom';~%import { useAuth } from '../auth/useAuth';~%~%export const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {~%  const { isAuthenticated } = useAuth();~%  if (!isAuthenticated) return <Navigate to='/login' replace />;~%  return <>{children}</>;~%};~%")))
        (scaffold-create-file file-name content)))
 
    (defmode-command react "auth-guard.create" (args)
-     "Client-side route guard using AuthContext. Usage: /react.auth-guard.create"
+     "Client-side route guard using AuthContext. Usage: /auth-guard.create"
      (identity args)
      (let* ((file-name "src/components/AuthGuard.tsx")
             (content (format nil "import React from 'react';~%import { useAuth } from '../auth/useAuth';~%~%export const AuthGuard: React.FC<{ children: React.ReactNode }> = ({ children }) => {~%  const { isAuthenticated } = useAuth();~%  if (!isAuthenticated) return <div>Access Denied</div>;~%  return <>{children}</>;~%};~%")))
        (scaffold-create-file file-name content)))
 
    (defmode-command react "token-refresh.create" (args)
-     "Automatic token refresh with interceptor. Usage: /react.token-refresh.create"
+     "Automatic token refresh with interceptor. Usage: /token-refresh.create"
      (identity args)
      (let* ((file-name "src/auth/tokenRefresh.ts")
             (content (format nil "export const setupTokenRefresh = () => {~%  console.log('Token refresh initialized');~%};~%")))

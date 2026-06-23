@@ -14,6 +14,8 @@
   (skills '() :type list)
   (on-activate nil :type (or null function))
   (on-deactivate nil :type (or null function))
+  (command-definers '() :type list)
+  (active-command-names '() :type list)
   (active-p nil :type boolean))
 
 (defun mode-name-string (m)
@@ -32,6 +34,9 @@
         (commands (getf body :commands))
         (name-str (string-downcase (string name))))
     `(progn
+       (let ((existing (gethash ,name-str *modes*)))
+         (when (and existing (mode-active-p existing))
+           (deactivate-mode ,name-str)))
        (setf (gethash ,name-str *modes*)
              (make-mode :name ',name
                         :description ,description
@@ -47,18 +52,44 @@
        ',name)))
 
 (defmacro defmode-command (mode name args &body body)
-  "Define a command namespaced under MODE that only runs when the mode is active."
-  (let ((full-name (format nil "~A.~A"
-                           (string-downcase (string mode))
-                           (string-downcase (string name))))
+  "Register a command owned by MODE. The command is defined (registered in the
+   command tables) under its bare NAME only while MODE is active, and removed
+   when MODE is deactivated. This lets different modes provide commands with the
+   same name (e.g. route.create for both a Rails and a React-Router mode)."
+  (let ((cmd-name (string-downcase (string name)))
         (mode-str (string-downcase (string mode))))
-    `(define-command ,full-name ,args
-       (if (member ,mode-str *active-modes* :test #'string=)
-           (locally ,@body)
-           (format t "Mode '~A' is not active. Activate it first.~%" ,mode-str)))))
+    `(register-mode-command ,mode-str ,cmd-name
+                            (lambda ()
+                              (define-command ,name ,args ,@body)))))
 
 (defun get-mode (name)
   (gethash (string-downcase (string name)) *modes*))
+
+(defun register-mode-command (mode-name cmd-name definer)
+  "Attach a command DEFINER thunk to the mode named MODE-NAME. DEFINER, when
+   called, defines the command via DEFINE-COMMAND and registers it in the command
+   tables. The command is only defined while the mode is active; if the mode is
+   already active it is defined immediately."
+  (let* ((key (string-downcase (string mode-name)))
+         (m (or (gethash key *modes*)
+                (setf (gethash key *modes*) (make-mode :name mode-name)))))
+    (setf (mode-command-definers m)
+          (cons (cons cmd-name definer)
+                (remove cmd-name (mode-command-definers m)
+                        :key #'car :test #'string=)))
+    (when (mode-active-p m)
+      (funcall definer)
+      (pushnew cmd-name (mode-active-command-names m) :test #'string=))
+    cmd-name))
+
+(defun other-active-mode-definer (cmd-name except-mode)
+  "Return a command DEFINER thunk for CMD-NAME from an active mode other than
+   EXCEPT-MODE, or NIL if no other active mode provides it."
+  (loop for name in *active-modes*
+        for m = (get-mode name)
+        when (and m (not (eq m except-mode)))
+          do (let ((entry (assoc cmd-name (mode-command-definers m) :test #'string=)))
+               (when entry (return (cdr entry))))))
 
 (defun load-docs-for-mode (name-str)
   "Locate and load stack-specific documentation files for a mode."
@@ -86,11 +117,16 @@
               (load file :if-does-not-exist nil))))))))
 
 (defun activate-mode (name)
-  "Activate a mode: inject its rules and load its skills."
+  "Activate a mode: define its commands, inject its rules and load its skills."
   (let ((m (get-mode name)))
     (when (and m (not (mode-active-p m)))
       (setf (mode-active-p m) t)
       (pushnew (mode-name-string m) *active-modes* :test #'string=)
+      (dolist (entry (reverse (mode-command-definers m)))
+        (let ((cmd-name (car entry))
+              (definer (cdr entry)))
+          (funcall definer)
+          (pushnew cmd-name (mode-active-command-names m) :test #'string=)))
       (when (mode-rules m)
         (setf (gethash (format nil "mode/~A" (mode-name-string m)) *active-rules*)
               (mode-rules m)))
@@ -103,11 +139,17 @@
       m)))
 
 (defun deactivate-mode (name)
-  "Deactivate a mode: remove its rules."
+  "Deactivate a mode: remove its commands and rules."
   (let ((m (get-mode name)))
     (when (and m (mode-active-p m))
       (setf (mode-active-p m) nil)
       (setf *active-modes* (remove (mode-name-string m) *active-modes* :test #'string=))
+      (dolist (cmd-name (mode-active-command-names m))
+        (let ((other (other-active-mode-definer cmd-name m)))
+          (if other
+              (funcall other)
+              (undefine-command cmd-name))))
+      (setf (mode-active-command-names m) '())
       (remhash (format nil "mode/~A" (mode-name-string m)) *active-rules*)
       (when (mode-on-deactivate m) (funcall (mode-on-deactivate m)))
       m)))

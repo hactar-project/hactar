@@ -1,4 +1,5 @@
 #+title: Mode Command Refactor Plan
+#+status: Completed
 
 * Problem
 Mode commands (defined via =defmode-command=) are registered in the global
@@ -17,33 +18,32 @@ at call time when the owning mode is inactive. This:
   mode's implementation is the live one.
 
 * Design
-** mode struct (mode.lisp)
-Add two slots:
+** DONE mode struct (mode.lisp)
 - =command-definers= :: alist of (command-name . thunk). Each thunk defines the
   command via =define-command=.
 - =active-command-names= :: command names currently registered by this mode,
   used to undefine them on deactivation.
 
-** defmode-command (mode.lisp)
+** DONE defmode-command (mode.lisp)
 Expands to =register-mode-command= with the *bare* command name and a thunk that
 performs the =define-command=. No mode prefix, so modes can share names.
 
-** register-mode-command (mode.lisp)
+** DONE register-mode-command (mode.lisp)
 Attaches a definer to a mode. If the mode is already active, defines the command
 immediately.
 
-** activate-mode (mode.lisp)
+** DONE activate-mode (mode.lisp)
 Runs each command definer and records the bare names.
 
-** deactivate-mode (mode.lisp)
+** DONE deactivate-mode (mode.lisp)
 For each command the mode registered: if another *active* mode also provides
 that name, re-run that mode's definer (restore it); otherwise =undefine-command=.
 
-** undefine-command (commands.lisp)
+** DONE undefine-command (commands.lisp)
 Removes a command from =*commands*=, =*sub-commands*=, =*command-completions*=,
 =*acp-commands*=, and the hidden / tui-hidden / editor-hidden sets.
 
-** defmode reload safety (mode.lisp)
+** DONE defmode reload safety (mode.lisp)
 If a mode is redefined while active, deactivate it first so stale commands are
 removed before the fresh definition is installed.
 
@@ -51,10 +51,10 @@ removed before the fresh definition is installed.
 When several active modes declare the same command name the most recently
 activated mode wins; deactivating it restores the next active provider, if any.
 
-* Tests (tests/mode.test.lisp)
-- A mode command is absent before activation, present/runnable after activation,
+* DONE Tests (tests/mode.test.lisp)
+- [x] A mode command is absent before activation, present/runnable after activation,
   and absent again after deactivation.
-- Two modes declaring the same command name coexist; activation selects the live
+- [x] Two modes declaring the same command name coexist; activation selects the live
   implementation and deactivation restores/removes correctly.
 
 * Touched files
