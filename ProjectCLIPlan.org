@@ -1,0 +1,362 @@
+#+TITLE: Project CLI Generation — Design Plan
+#+AUTHOR: Hactar
+#+STARTUP: overview
+#+OPTIONS: toc:3 num:t
+
+* Summary
+
+Generate a single, per-project Common Lisp file —
+=CWD/.hactar.lisp= — that defines dev tooling commands scoped to a
+specific project and its stack. The file is:
+
+- *Generated*, partly by hard-coded logic (project-type detection,
+  wrapping a stack mode's commands) and partly by an LLM (project
+  semantics: routes, models, features, freeform =*.gen= commands).
+- *Human-editable*: it is ordinary, readable Hactar Lisp (=defmode=,
+  =defmode-command=, =define-web-command=, =define-sub-command=), with
+  clearly delimited generated vs. hand-edited regions.
+- *Loaded by Hactar* on startup like any other project config — no new
+  runtime needed, just =load=.
+- *Continuously updated* by a fast diffusion model that is fed new code
+  as it changes, keeping the file in sync with the codebase.
+
+Worked example throughout: project *Tal* — a chess visualization
+trainer built on *RedwoodSDK*.
+
+#+begin_example
+hactar tal commands
+hactar tal routes.list
+hactar tal routes.create login --path logins
+hactar tal routes.gen "a route that shows a saved game by id"
+hactar tal routes.list tag auth
+hactar tal routes.list --md
+hactar tal routes.list --org
+hactar tal models.list
+hactar tal feature auth
+hactar tal schema
+hactar tal schema users
+hactar tal build
+hactar tal release
+hactar tal project.update
+#+end_example
+
+* Goals / Non-goals
+
+** Goals
+- One file per project at =CWD/.hactar.lisp=, loaded automatically.
+- Commands scoped under the project name: =hactar <project> <command>=.
+- Mix of deterministic (hard-coded) and LLM-generated command bodies.
+- Stack-aware: detect project type, reuse existing stack *modes*
+  (=redwood=, =react=, =react-router=, =rails=…) and *targets*
+  (=deftarget :redwood=) rather than re-implementing them.
+- Output formats per command: plain, =--md= (markdown bundle),
+  =--org= (literate org-mode), and structured listing/filtering
+  (e.g. =routes.list tag auth=).
+- =scan=/=init= generates the file; =project.update= rescans fully.
+- A diffusion model keeps =.hactar.lisp= fresh from live code changes,
+  configured via a state var and an environment variable.
+
+** Non-goals
+- Not replacing existing global sub-commands or modes — this *composes*
+  with them.
+- Not a general plugin system; the surface is "one generated Lisp file".
+- The diffusion model itself is pluggable; we specify the integration
+  contract, not a particular model implementation.
+
+* Existing architecture we build on
+
+All of the primitives needed already exist in the codebase. The plan
+reuses them rather than inventing parallel mechanisms.
+
+| Concern                          | Existing primitive                                                                     | File                                           |
+|----------------------------------+----------------------------------------------------------------------------------------+------------------------------------------------|
+| Stack-scoped command bundles     | =defmode= / =defmode-command= (=:when= on =*stack*=)                                   | =mode.lisp=                                    |
+| Stack detection                  | =def-analyzer= on =*package-json-analyzed-hook*= / =*file-event-hook*=, =add-to-stack= | =analyzers.lisp=, =utils.lisp=, =js-mode.lisp= |
+| CLI sub-commands (+ options)     | =define-sub-command= → =*sub-commands*= (=:cli-options=, =:examples=, =:syntax=)       | =commands.lisp=                                |
+| Pattern-routed commands w/ flags | =define-web-command= / =defwebroute= (priority-matched patterns)                       | =web.lisp=                                     |
+| Per-project config load          | =load-project-config= (currently =.hactar.toml=)                                       | =config.lisp=, =hactar.lisp=                   |
+| Project/stack state              | =*stack*=, =*repo-root*=, =*name*=, =*current-model*=                                  | =state.lisp=                                   |
+| RedwoodSDK code emission         | =deftarget :redwood=, =defcomponent=, =defaction=, =defclient=                         | =redwood-target.lisp=                          |
+| File-change reactions            | =def-analyzer= on =*file-event-hook*=                                                  | =analyzers.lisp=, =litmode.lisp=               |
+| Scaffolding helpers              | =scaffold-create-file=, =scaffold-modify-file=, =pascal-case=, =kebab-case=            | (used in modes)                                |
+| Help / spec surfaces             | =emit-cli-spec=, =emit-man-page=, =print-subcommands-for-base=                         | =commands.lisp=, =hactar.lisp=                 |
+
+Reference precedents:
+- =react-mode.lisp= — a full mode with many =defmode-command= bodies,
+  a =defrule=, and a =*.docs.gen= sub-command.
+- =modes/rails.lisp= — minimal mode wrapping =model.create= /
+  =route.create= with scaffolding helpers.
+- =web.lisp= (=hn= example) — pattern routing with sub-routes and
+  markdown output, the model for =routes.list=/=schema=.
+- =redwood-target.lisp= — RedwoodSDK code generation target for Tal.
+
+* The generated file: =CWD/.hactar.lisp=
+
+** Loading
+Extend project-config loading so that, after =*repo-root*= is set and
+=load-project-config= runs (see =hactar.lisp= call site), Hactar also:
+
+1. Looks for =(merge-pathnames ".hactar.lisp" *repo-root*)=.
+2. If present, =load= it inside the =:hactar= package with errors
+   trapped and logged (mirroring the =handler-case= style already used
+   in =load-project-config= and =load-docs-for-mode=).
+3. Records it as loaded so =project.update= / file-watch reloads can
+   re-=load= it idempotently.
+
+No new file format: it is Lisp, evaluated by =load=, so it can register
+modes, sub-commands, web-commands and rules exactly like in-tree code.
+
+** Anatomy (human-editable, regenerable)
+A generated =.hactar.lisp= has labelled regions so the diffusion model
+and hard-coded generator know what they may overwrite and what is
+hand-owned:
+
+#+begin_src lisp
+;;; -*- mode: lisp; package: hactar -*-
+;;; .hactar.lisp — generated project CLI for "tal"
+;;; Edit freely. Regions between BEGIN/END GENERATED markers are
+;;; owned by the generator + diffusion model and may be rewritten.
+(in-package :hactar)
+
+;; <<<BEGIN GENERATED: meta>>>
+(register-project-cli "tal"
+  :stack '("redwood" "react" "prisma" "typescript")
+  :root *repo-root*)
+;; <<<END GENERATED: meta>>>
+
+;; <<<BEGIN GENERATED: routes>>>
+(define-project-command "tal" routes.list (args) ...)
+(define-project-command "tal" routes.create (args) ...)   ; hard-coded scaffold
+(define-project-command "tal" routes.gen (args) ...)      ; LLM-backed
+;; <<<END GENERATED: routes>>>
+
+;; <<<BEGIN GENERATED: models>>>
+(define-project-command "tal" models.list (args) ...)
+(define-project-command "tal" schema (args) ...)
+;; <<<END GENERATED: models>>>
+
+;; <<<BEGIN GENERATED: stack-wrapped>>>
+;; Thin wrappers re-exporting the active stack mode's commands
+;; (redwood/react) under the project scope.
+;; <<<END GENERATED: stack-wrapped>>>
+
+;; --- USER REGION (never auto-overwritten) ---
+;; Add custom commands below; the generator preserves anything outside
+;; GENERATED markers.
+#+end_src
+
+Region preservation rule: regeneration only replaces text between a
+matching =BEGIN/END GENERATED: <tag>= pair; everything else (including
+user edits *inside* a region that the user has "claimed" by deleting the
+markers) is preserved.
+
+* Command scoping model
+
+User-facing form: =hactar <project> <command> [args/flags]=.
+
+Two viable implementations; the plan chooses (A) as primary with (B) as
+an internal mechanism:
+
+- *(A) Project namespace dispatch.* Register the project name as a
+  sub-command (=define-sub-command "tal"=) whose handler dispatches the
+  remaining args to project-scoped commands stored in a per-project
+  table. This yields the exact =hactar tal routes.list= surface and a
+  =hactar tal commands= listing. The =commands= word lists everything in
+  the project's table (reusing =print-subcommands-for-base= styling).
+- *(B) Web-command routing under the hood.* Each project command with
+  rich flag/sub-pattern behavior (=routes.list tag auth=,
+  =schema users=, =routes.list --md=) is implemented with
+  =define-web-command=/=defwebroute= pattern routing, which already
+  supports =&rest= patterns, priorities and markdown-style returns
+  (see the =hn= example in =web.lisp=).
+
+New thin macro =define-project-command= (to add) expands to either a
+=defwebroute= within the project's =define-web-command= (for
+list/filter/format commands) or a plain handler (for simple actions like
+=build=), and registers the command in the project table keyed by
+=(project . name)=. This keeps =.hactar.lisp= terse and readable while
+reusing existing dispatch.
+
+=hactar tal commands= prints the table: name, one-line doc, and
+generated-vs-user provenance.
+
+* Command catalogue (Tal / RedwoodSDK)
+
+Each entry notes generation strategy: *HC* = hard-coded/deterministic,
+*LLM* = model-generated body, *HYB* = hard-coded skeleton with
+LLM-filled specifics.
+
+** Routes
+- =routes.list= *(HC)* — enumerate RedwoodSDK routes by statically
+  scanning route definitions (e.g. =src/app= worker routes, the
+  Redwood router config). Reuses =deftarget :redwood= knowledge of where
+  routes live.
+- =routes.list tag <tag>= *(HC)* — filter by tag; tags derived from
+  route metadata / nearby comments / directory.
+- =routes.list --md= *(HC)* — emit a markdown bundle: every route plus
+  its handler/component source, using the markdown-output style from
+  =web.lisp= and =md-render.lisp=.
+- =routes.list --org= *(HC)* — emit a literate org-mode document of all
+  routes (one heading per route, source in =src= blocks), reusing
+  =org-mode.lisp= / =to-org.lisp= / =litmode.lisp=.
+- =routes.create <name> --path <p> [--layout <l>]= *(HC)* — scaffold a
+  new route using =scaffold-create-file= / =scaffold-modify-file= and
+  the Redwood target emitters (=defcomponent=, route registration),
+  exactly like =react-router.lisp= =route.create=. Example:
+  =routes.create login --path logins= → route at =/logins= named
+  =login=.
+- =routes.gen "<instructions>"= *(LLM)* — generate a route from a
+  natural-language spec via =*current-model*= (=get-llm-response=),
+  constrained by a Redwood route template and written through the same
+  scaffolding helpers; respects the response-mode/conformance machinery.
+
+** Models / schema
+- =models.list= *(HC)* — list models by parsing the Prisma schema
+  (=schema.prisma=) or ORM models.
+- =schema= *(HC)* — print the full schema.
+- =schema <table>= *(HC)* — print one table/model's schema
+  (=schema users=). Implemented as a =defwebroute= sub-pattern.
+
+** Feature mapping
+- =feature <name>= *(HYB)* — list/collect all code dealing with a
+  concern (=feature auth=). Hard-coded: gather candidate files via
+  ctags/repo-map (=*repo-map*=, =ctags.lisp=) and grep. LLM: rank and
+  summarize relevance. Note this name overlaps the existing global
+  =/feature= (=mode.lisp=); project scoping (=hactar tal feature auth=)
+  disambiguates from the global mode command.
+
+** Build / release / lifecycle
+- =build= *(HC)* — run the project's build (Redwood/Vite build);
+  command derived from =package.json= scripts or =*stack*= defaults,
+  consistent with =*test-command*=/=*lint-command*= derivation.
+- =release= *(HC)* — run the release/deploy flow (e.g. Cloudflare
+  Workers deploy for RedwoodSDK; wrangler is already modeled in
+  =redwood-target.lisp=).
+
+** Project lifecycle
+- =scan= / =init= *(HC+LLM)* — generate =.hactar.lisp= (see below).
+- =project.update= *(HC+LLM)* — full rescan + regenerate generated
+  regions, preserving user regions.
+
+* Generation pipeline
+
+Two cooperating generators write into the labelled regions.
+
+** Hard-coded generator (deterministic)
+Responsibilities (no LLM):
+1. *Detect project type / stack.* Reuse the analyzer pipeline:
+   =package.json= analyzer (=js-mode.lisp=), =add-to-stack=, and the
+   per-framework analyzers (=react-mode.lisp=, =react-router.lisp=,
+   redwood detection). Result populates =*stack*=.
+2. *Wrap stack-mode commands.* For each active mode whose =:when=
+   matches =*stack*= (e.g. =redwood=, =react=), emit thin project-scoped
+   wrappers around its =defmode-command= entries (read via
+   =mode-command-definers=). This is the "wrapping the commands from a
+   mode e.g. redwood" path — pure mechanism, no model needed.
+3. *Emit deterministic listing/build commands*: =routes.list=,
+   =models.list=, =schema=, =build=, =release= templates, parameterized
+   by detected paths.
+
+** LLM generator (semantic)
+Responsibilities (requires =*current-model*=):
+1. Bodies for =*.gen= commands (=routes.gen=) — emit a handler that, at
+   call time, prompts the model with a stack-specific template.
+2. Project-specific listing/feature heuristics that benefit from
+   summarization (=feature <name>= ranking).
+3. Filling skeletons (HYB commands) the hard-coded generator leaves as
+   TODO blocks.
+
+The two are merged into a single =.hactar.lisp= with the region markers
+above. Hard-coded output is authoritative for structure; LLM output is
+confined to clearly-tagged regions/bodies so it can be regenerated
+safely.
+
+** =scan= / =init= flow
+#+begin_example
+hactar tal scan      (or: hactar scan / hactar init in CWD)
+  1. Run analyzers → populate *stack*, *repo-map*, ctags.
+  2. Hard-coded generator emits structural + stack-wrapped + listing cmds.
+  3. LLM generator fills *.gen bodies and HYB skeletons.
+  4. Write CWD/.hactar.lisp (preserving USER REGION if file exists).
+  5. load the file; report `hactar tal commands`.
+#+end_example
+
+* Continuous update via diffusion model
+
+The diffusion model continuously rewrites the generated regions as code
+changes, keeping =.hactar.lisp= in sync.
+
+** Trigger
+Reuse the file-watch + analyzer machinery (=def-analyzer= on
+=*file-event-hook*=, as in =litmode.lisp= and =analyzers.lisp=). A new
+analyzer (=project-cli-diffusion=) reacts to relevant source changes
+(routes, schema, components) and enqueues a regeneration job (debounced,
+like the existing AI-comment queue =*ai-comment-queue*=).
+
+** Mechanism
+1. On change, gather a *delta context*: the changed files + current
+   =.hactar.lisp= generated regions + repo-map summary.
+2. Feed to the diffusion model, which returns updated generated
+   regions only.
+3. Splice updated regions back between their =BEGIN/END GENERATED=
+   markers; never touch USER REGION.
+4. Re-=load= the file (idempotent registration; =defmode= already
+   handles redefinition/deactivation cleanly).
+
+** Configuration
+- New state var: =*diffusion-model*= (a =defstate= in =state.lisp=,
+  defaulting from an env var), e.g.:
+  #+begin_src lisp
+  (defstate *diffusion-model*
+    (uiop:getenv "HACTAR_DIFFUSION_MODEL")
+    "Model used to continuously regenerate CWD/.hactar.lisp from code changes.")
+  #+end_src
+- Environment variable: =HACTAR_DIFFUSION_MODEL= (name/endpoint of the
+  fast diffusion model). Additional knobs (debounce interval, on/off)
+  follow the existing =*auto-*= flag conventions (e.g. an
+  =*auto-project-cli*= toggle alongside =*auto-lint*= etc.).
+- When unset, continuous update is disabled; =scan=/=project.update=
+  still work using the hard-coded + =*current-model*= path.
+
+* New/changed surfaces (implementation checklist — for later)
+
+This plan is *not* to be implemented now. When implemented, the work
+decomposes into:
+
+1. =config.lisp= / =hactar.lisp=: load =CWD/.hactar.lisp= after
+   =load-project-config=; track loaded path for reload.
+2. New file =project-cli.lisp= (analogous to =react-mode.lisp=):
+   - =register-project-cli=, per-project command table, dispatch.
+   - =define-project-command= macro (wrapping =defwebroute= /
+     handlers).
+   - =hactar <project>= sub-command + =<project> commands= listing.
+3. Generators:
+   - =project-cli-detect= (reuse analyzers) → stack/paths.
+   - =project-cli-generate= (hard-coded emit + region writer).
+   - =project-cli-llm-fill= (=*current-model*= bodies).
+   - =define-sub-command= entries: =scan=/=init=, =project.update=.
+4. Diffusion integration:
+   - =defstate *diffusion-model*= + =HACTAR_DIFFUSION_MODEL=.
+   - =def-analyzer project-cli-diffusion= on =*file-event-hook*=,
+     debounced regeneration queue, region-splice writer.
+5. Stack command templates for RedwoodSDK routes/models/schema/build/
+   release, reusing =redwood-target.lisp= and =worker-target.lisp=.
+6. Tests (=tests/=): generation determinism for hard-coded regions,
+   region-preservation on regenerate, dispatch of
+   =hactar tal routes.list [--md|--org|tag X]=, schema sub-pattern,
+   diffusion analyzer enqueue/splice (model mocked).
+7. Docs / help: ensure project commands appear in =emit-cli-spec= /
+   =emit-man-page= surfaces.
+
+* Open questions
+
+- *Name collisions*: =feature= and =build= exist globally; confirm
+  project scoping (=hactar <project> …=) fully isolates them, or namespace
+  generated commands to avoid shadowing.
+- *Region format*: comment-marker regions vs. a manifest section listing
+  generated forms — markers are simpler and human-visible; chosen here.
+- *Diffusion output trust*: whether to require the regenerated file to
+  =compile-file= clean (or at least =read= without error) before
+  swapping it in — recommended as a guardrail.
+- *Multi-project monorepos*: one =.hactar.lisp= per package dir vs. one
+  at repo root with multiple =register-project-cli= calls.
