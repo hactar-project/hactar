@@ -249,6 +249,7 @@ use for probing whether a specific route exists (e.g. custom doc routes)."
   "Check if ARG is a valid option (either --long or -short) for the subcommand SUBCMD."
   (or (string= arg "--spec")
       (string= arg "--spec-lisp")
+      (string= arg "--man")
       (let ((sub-info (and (boundp '*sub-commands*) (gethash subcmd *sub-commands*))))
         (when sub-info
           (let ((options (third sub-info)))
