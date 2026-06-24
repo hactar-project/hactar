@@ -82,12 +82,14 @@
                 :acp t)
 
 (define-command help (args)
-                "Display available commands and their descriptions. Use --spec or --spec-lisp for machine-readable output."
+                "Display available commands and their descriptions. Use --spec, --spec-lisp, or --man for formatted output."
                 (cond
                   ((member "--spec-lisp" args :test #'string=)
                    (emit-cli-spec :lisp-p t))
                   ((member "--spec" args :test #'string=)
                    (emit-cli-spec))
+                  ((member "--man" args :test #'string=)
+                   (emit-man-page))
                   (t
                   (format t "~A~%" (colorize "Available commands:" :bold-cyan))
                  ;; Sort commands alphabetically for better readability
@@ -132,6 +134,8 @@
                          ((member "--spec" cmd-args :test #'string=)
                           `(("text" . ,(with-output-to-string (s) (emit-cli-spec :stream s)))
                             ("data" . ,(build-cli-spec))))
+                         ((member "--man" cmd-args :test #'string=)
+                          `(("text" . ,(with-output-to-string (s) (emit-man-page :stream s)))))
                          (t
                         (let ((commands '()))
                           (maphash (lambda (cmd-name handler)
@@ -1253,6 +1257,149 @@ This is installed via HANDLER-BIND in the REPL and must accept exactly one argum
               (unless *silent* (format t "~&Loading custom mode: ~A~%" file))
               (load file))))))))
 
+(defun current-date-string ()
+  (multiple-value-bind (sec min hour day month year) (get-decoded-time)
+    (declare (ignore sec min hour))
+    (format nil "~D-~2,'0D-~2,'0D" year month day)))
+
+(defun escape-troff (str)
+  "Escape special characters for troff/groff."
+  (if (not str)
+      ""
+      (let ((res str))
+        ;; Replace backslashes with \e
+        (setf res (cl-ppcre:regex-replace-all "\\\\" res "\\e"))
+        ;; Replace single quotes at start of line
+        (setf res (cl-ppcre:regex-replace-all "(?m)^'" res "\\&'"))
+        ;; Replace dots at start of line
+        (setf res (cl-ppcre:regex-replace-all "(?m)^\\." res "\\&."))
+        ;; Replace hyphens with \- to prevent Unicode em-dashes and fix option copy-paste
+        (setf res (cl-ppcre:regex-replace-all "-" res "\\-"))
+        res)))
+
+(defun emit-man-page (&key (stream *standard-output*))
+  "Generate and output a troff/groff manual page for Hactar to STREAM."
+  (let ((date-str (current-date-string)))
+    (format stream ".TH HACTAR 1 \"~A\" \"hactar ~A\" \"Hactar Manual\"~%" date-str *hactar-version*)
+    (format stream ".SH NAME~%")
+    (format stream "hactar \\- Hactar AI Pair Programmer~%")
+    (format stream ".SH SYNOPSIS~%")
+    (format stream ".B hactar~%")
+    (format stream "[\\fBOPTIONS\\fR] [\\fBSUBCOMMAND\\fR|\\fBURI\\fR] [\\fBARGS...\\fR]~%")
+    (format stream ".SH DESCRIPTION~%")
+    (format stream "\\fBhactar\\fR is an agentic AI coding assistant and pair programmer. It uses an agentic workflow to manage configurations, update dependencies, run tests, and assist with codebase development. Unmatched command-line arguments are routed via a unified route/URI system.~%")
+    (format stream ".SH OPTIONS~%")
+    (let ((flags (list-registered-flags)))
+      (dolist (flag (sort flags #'string<
+                          :key (lambda (f) (or (first (flag-long-names f))
+                                               (first (flag-short-names f))
+                                               ""))))
+        (let* ((short (first (flag-short-names flag)))
+               (long (first (flag-long-names flag)))
+               (desc (flag-description flag))
+               (takes-val (flag-takes-value flag)))
+          (format stream ".TP~%")
+          (format stream ".B ")
+          (cond
+            ((and short long)
+             (format stream "\\fB~A\\fR, \\fB~A\\fR" (escape-troff short) (escape-troff long)))
+            (short
+             (format stream "\\fB~A\\fR" (escape-troff short)))
+            (long
+             (format stream "\\fB~A\\fR" (escape-troff long))))
+          (when takes-val
+            (format stream " \\fI<value>\\fR"))
+          (format stream "~%")
+          (format stream "~A~%" (escape-troff desc)))))
+    
+    (format stream ".SH SUBCOMMANDS~%")
+    (let ((sorted-subcommands (sort (alexandria:hash-table-keys *sub-commands*) #'string<)))
+      (dolist (subcmd-name sorted-subcommands)
+        (unless (gethash (format nil "/~A" subcmd-name) *hidden-commands*)
+          (let* ((subcmd-info (gethash subcmd-name *sub-commands*))
+                 (description (second subcmd-info))
+                 (cli-options (third subcmd-info))
+                 (examples (fifth subcmd-info))
+                 (syntax (sixth subcmd-info)))
+            (format stream ".TP~%")
+            (format stream ".B ~A~%" (escape-troff subcmd-name))
+            (format stream "~A~%" (escape-troff description))
+            (when syntax
+              (format stream ".IP~%")
+              (format stream "Syntax: \\fB~A\\fR~%" (escape-troff syntax)))
+            (when cli-options
+              (format stream ".IP~%")
+              (format stream "Options:~%")
+              (format stream ".RS~%")
+              (dolist (opt cli-options)
+                (let ((opt-short (getf opt :short))
+                      (opt-long (getf opt :long))
+                      (opt-desc (getf opt :description)))
+                  (format stream ".TP~%")
+                  (format stream ".B ")
+                  (cond
+                    ((and opt-short opt-long)
+                     (format stream "\\fB-~A\\fR, \\fB--~A\\fR" (escape-troff opt-short) (escape-troff opt-long)))
+                    (opt-short
+                     (format stream "\\fB-~A\\fR" (escape-troff opt-short)))
+                    (opt-long
+                     (format stream "\\fB--~A\\fR" (escape-troff opt-long))))
+                  (format stream "~%")
+                  (format stream "~A~%" (escape-troff opt-desc))))
+              (format stream ".RE~%"))
+            (when examples
+              (format stream ".IP~%")
+              (format stream "Examples:~%")
+              (format stream ".RS~%")
+              (dolist (ex examples)
+                (format stream "\\fB~A\\fR~%~%" (escape-troff ex)))
+              (format stream ".RE~%"))))))
+    
+    (format stream ".SH SLASH COMMANDS~%")
+    (format stream "These commands are available in slash command mode or the ACP interface:~%")
+    (let ((sorted-commands (sort (alexandria:hash-table-keys *commands*) #'string<)))
+      (dolist (cmd sorted-commands)
+        (unless (gethash cmd *hidden-commands*)
+          (let* ((cmd-info (gethash cmd *commands*))
+                 (description (second cmd-info))
+                 (syntax (sixth cmd-info)))
+            (format stream ".TP~%")
+            (format stream ".B ~A~%" (escape-troff cmd))
+            (format stream "~A~%" (escape-troff description))
+            (when syntax
+              (format stream ".IP~%")
+              (format stream "Syntax: \\fB~A\\fR~%" (escape-troff syntax)))))))
+    
+    (format stream ".SH URIS (INFINITE CLI)~%")
+    (format stream "Any unmatched argument is routed via the unified router. Wiki queries are routed automatically:~%")
+    (format stream ".PP~%")
+    (format stream "\\fBhactar redwood.docs/auth.types\\fR~%")
+    (format stream ".PP~%")
+    (format stream "\\fBhactar wiki:redwood.docs/auth.example\\fR~%")
+    
+    (format stream ".SH GENERAL EXAMPLES~%")
+    (format stream ".TP~%")
+    (format stream "\\fBhactar\\fR~%")
+    (format stream "Start the interactive TUI/REPL.~%")
+    (format stream ".TP~%")
+    (format stream "\\fBhactar \\-\\-model anthropic/claude\\-sonnet\\-4.6\\fR~%")
+    (format stream "Start with a specific model.~%")
+    (format stream ".TP~%")
+    (format stream "\\fBhactar \\-q \\\"Explain this code\\\"\\fR~%")
+    (format stream "Query the active LLM.~%")
+    (format stream ".TP~%")
+    (format stream "\\fBhactar \\-e \\\"list all files modified today\\\"\\fR~%")
+    (format stream "Generate and execute a shell command.~%")
+    (format stream ".TP~%")
+    (format stream "\\fBhactar hactar.init\\fR~%")
+    (format stream "Initialize the Hactar workspace.~%")
+    
+    (format stream ".SH AUTHORS~%")
+    (format stream "Written by K\\-2052.~%")
+    (format stream ".SH LICENSE~%")
+    (format stream "MIT License.~%")
+    (force-output stream)))
+
 ;;* CLI
 (defun help--print (&optional cmd)
   "Print comprehensive help for Hactar using the unified flag/route registries.
@@ -2024,12 +2171,14 @@ CMD argument is ignored (kept for backward compatibility)."
     (uiop:quit (if ok 0 1))))
 
 (define-sub-command help (args)
-		    "Display comprehensive help information about Hactar. Use --spec or --spec-lisp for machine-readable output."
+		    "Display comprehensive help information about Hactar. Use --spec, --spec-lisp, or --man for formatted output."
 		    (cond
 		      ((member "--spec-lisp" args :test #'string=)
 		       (emit-cli-spec :lisp-p t))
 		      ((member "--spec" args :test #'string=)
 		       (emit-cli-spec))
+		      ((member "--man" args :test #'string=)
+		       (emit-man-page))
 		      (t
 		       (help--print nil)))
 		    (uiop:quit 0))
@@ -2076,6 +2225,37 @@ CMD argument is ignored (kept for backward compatibility)."
         (t
          (flag-help--print flag)))
       (uiop:quit 0))))
+
+(defun directory-writable-p (dir)
+  (let ((temp-file (merge-pathnames ".hactar-write-test" (uiop:ensure-directory-pathname dir))))
+    (handler-case
+        (progn
+          (with-open-file (s temp-file :direction :output :if-exists :supersede :if-does-not-exist :create)
+            (write-line "test" s))
+          (delete-file temp-file)
+          t)
+      (error () nil))))
+
+(define-sub-command hactar.man.install (args)
+  "Install or update the hactar man page to ~/.local/share/man/hactar if ~/.local/share/man exists and is writable."
+  (declare (ignore args))
+  (let* ((man-dir (merge-pathnames ".local/share/man/" (user-homedir-pathname)))
+         (dest-path (merge-pathnames "hactar" man-dir)))
+    (unless (uiop:directory-exists-p man-dir)
+      (format *error-output* "Error: Directory ~A does not exist.~%" man-dir)
+      (uiop:quit 1))
+    (unless (directory-writable-p man-dir)
+      (format *error-output* "Error: Directory ~A is not writable.~%" man-dir)
+      (uiop:quit 1))
+    (handler-case
+        (progn
+          (with-open-file (out dest-path :direction :output :if-exists :supersede :if-does-not-exist :create)
+            (emit-man-page :stream out))
+          (format t "Successfully installed/updated the man page to ~A~%" dest-path)
+          (uiop:quit 0))
+      (error (c)
+        (format *error-output* "Error: Failed to write man page to ~A: ~A~%" dest-path c)
+        (uiop:quit 1)))))
 
 (defun find-symbol-by-name (name-str)
   "Find a symbol by name string, supporting package prefixes."

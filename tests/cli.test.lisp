@@ -55,3 +55,40 @@
                   (funcall (first (gethash "copilotapi" hactar::*sub-commands*)) '("help")))))
     (is-true (search "Usage: hactar copilotapi" output))
     (is-true (search "help       - Display this help message" output))))
+
+(test cli-syntax-recording-test
+  "Test that :syntax option is recorded correctly."
+  (let ((hactar::*sub-commands* (make-hash-table :test 'equal)))
+    (eval `(hactar::define-sub-command test-syntax-cmd (args)
+             "A test command for syntax"
+             (declare (ignore args))
+             :syntax "hactar test-syntax-cmd <arg1>"))
+    (let ((info (gethash "test-syntax-cmd" hactar::*sub-commands*)))
+      (is (string= (sixth info) "hactar test-syntax-cmd <arg1>")))))
+
+(test cli-man-page-generation-test
+  "Test that emit-man-page outputs valid troff markup."
+  (let ((output (with-output-to-string (s)
+                  (hactar::emit-man-page :stream s))))
+    (is-true (search ".TH HACTAR 1" output))
+    (is-true (search ".SH NAME" output))
+    (is-true (search ".SH SYNOPSIS" output))
+    (is-true (search ".SH DESCRIPTION" output))
+    (is-true (search ".SH OPTIONS" output))
+    (is-true (search ".SH SUBCOMMANDS" output))))
+
+(test cli-man-install-test
+  "Test hactar.man.install writes output to writable dir."
+  (uiop:with-temporary-file (:pathname temp-file :keep nil)
+    (let* ((temp-dir (uiop:ensure-directory-pathname
+                      (make-pathname :name nil :type nil :defaults temp-file)))
+           (hactar::*sub-commands* (make-hash-table :test 'equal)))
+      ;; We can test the helper directly
+      (is-true (hactar::directory-writable-p temp-dir))
+      ;; Test writing to a nested path in the temp directory
+      (let ((dest (merge-pathnames "hactar-man-test" temp-dir)))
+        (with-open-file (out dest :direction :output :if-exists :supersede :if-does-not-exist :create)
+          (hactar::emit-man-page :stream out))
+        (is-true (uiop:file-exists-p dest))
+        (uiop:delete-file-if-exists dest)))))
+

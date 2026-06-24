@@ -87,6 +87,7 @@
                      (if (and (consp raw) (eq (first raw) 'quote))
                          (second raw)
                          raw)))
+         (syntax (getf plist :syntax nil))
          (actual-args (gensym "ACTUAL-ARGS"))
          (fn-name (%command-fn-name "SLASH-CMD" command-name-key))
          (short-map (when cli-options
@@ -127,7 +128,8 @@
                    ,(or docstring "No description available.")
                    ',cli-options
                    ',positional-args
-                   ',examples)))))
+                   ',examples
+                   ,syntax)))))
 
 (defmacro define-sub-command (name args &body body)
   "Define a sub-command for CLI use. Sets *in-repl* to nil.
@@ -149,6 +151,7 @@
                      (if (and (consp raw) (eq (first raw) 'quote))
                          (second raw)
                          raw)))
+         (syntax (getf plist :syntax nil))
          (actual-args (gensym "ACTUAL-ARGS"))
          (fn-name (%command-fn-name "SUB-CMD" command-name-key))
          (short-map (when cli-options
@@ -208,7 +211,8 @@
                    ,(or docstring "No description available.")
                    ',cli-options
                    ',positional-args
-                   ',examples)))))
+                   ',examples
+                   ,syntax)))))
 
 (defmacro define-command (name args &body body)
   "Define a command, available as a slash command and/or a sub-command.
@@ -248,6 +252,7 @@
          (in-editor-opt (getf plist :in-editor t))
          (hidden-opt (getf plist :hidden nil))
          (examples-opt (getf plist :examples nil))
+         (syntax (getf plist :syntax nil))
          ;; Build mode-dispatching body: :tui and :repl provide alternate
          ;; implementations for TUI mode (hactar --tui) and REPL mode (hactar)
          (has-tui-body (and tui-opt (not (eq tui-opt t))))
@@ -271,11 +276,13 @@
          (slash-body (append (when docstring (list docstring)) dispatched-body
                              (when cli-options `(:cli-options ,cli-options))
                              (when positional-args `(:positional-args ,positional-args))
-                             (when examples-opt `(:examples ,examples-opt))))
+                             (when examples-opt `(:examples ,examples-opt))
+                             (when syntax `(:syntax ,syntax))))
          (sub-body (append (when docstring (list docstring)) dispatched-body
                            (when cli-options `(:cli-options ,cli-options))
                            (when positional-args `(:positional-args ,positional-args))
-                           (when examples-opt `(:examples ,examples-opt))))
+                           (when examples-opt `(:examples ,examples-opt))
+                           (when syntax `(:syntax ,syntax))))
          (command-name-key
            (if (stringp name)
                (string-downcase (string-trim '(#\/) name))
@@ -534,14 +541,17 @@
 
 (defun build-command-spec-entry (name info &key strip-slash)
   "Build a spec alist for a single command. INFO is the registry value list
-   (fn-name description cli-options positional-args examples)."
+   (fn-name description cli-options positional-args examples syntax)."
   (let* ((description (or (second info) ""))
          (cli-options (third info))
          (pos-args (fourth info))
          (examples (fifth info))
+         (syntax (sixth info))
          (display-name (if strip-slash (string-left-trim "/" name) name))
          (entry `(("name" . ,display-name)
                   ("description" . ,description))))
+    (when syntax
+      (setf entry (append entry `(("syntax" . ,syntax)))))
     (when pos-args
       (setf entry (append entry
                           `(("args" . ,(coerce (mapcar #'normalize-positional-arg pos-args)
