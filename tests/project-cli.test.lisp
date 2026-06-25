@@ -1,13 +1,14 @@
 (in-package :hactar-tests)
 
 (def-suite project-cli-tests
-  :description "Tests for the generated per-project CLI (project-cli.lisp).")
+  :description "Tests for the generated per-project data map (project-cli.lisp).")
 
 (in-suite project-cli-tests)
 
 (defun %make-tal-fixture ()
   "Create a temporary Tal/RedwoodSDK-like project and return its directory
-pathname."
+pathname. worker.tsx contains multiple route() calls to exercise line-range
+extraction; Home.tsx is a file-based route with tags."
   (let* ((dir (uiop:ensure-directory-pathname (make-temp-dir))))
     (ensure-directories-exist (merge-pathnames "src/app/pages/" dir))
     (ensure-directories-exist (merge-pathnames "prisma/" dir))
@@ -34,7 +35,11 @@ export function Home() { return null; }")
     (hactar::write-file-content
      (uiop:native-namestring (merge-pathnames "src/worker.tsx" dir))
      "// @tags: auth
-import { route } from 'rwsdk/router';")
+import { route } from 'rwsdk/router';
+export default defineApp([
+  route('/login', LoginHandler),
+  route('/logout', LogoutHandler),
+]);")
     dir))
 
 (defmacro with-tal-fixture ((dir-var) &body body)
@@ -45,8 +50,20 @@ then reset project CLI state."
           (hactar::*name* nil)
           (hactar::*silent* t)
           (hactar::*project-clis* (make-hash-table :test 'equal))
+          (hactar::*pcli-current-project* nil)
           (hactar::*stack* '()))
      ,@body))
+
+(test parse-loc-test
+  "parse-loc splits path and a 1-based inclusive line range."
+  (multiple-value-bind (path start end) (hactar::parse-loc "src/worker.tsx:222-555")
+    (is (string= "src/worker.tsx" path))
+    (is (= 222 start))
+    (is (= 555 end)))
+  (multiple-value-bind (path start end) (hactar::parse-loc "src/routes/login.tsx")
+    (is (string= "src/routes/login.tsx" path))
+    (is (null start))
+    (is (null end))))
 
 (test detect-stack-test
   "Stack detection reads package.json deps and the Prisma schema."
@@ -64,39 +81,64 @@ then reset project CLI state."
     (declare (ignore dir))
     (is (string= "tal" (hactar::pcli-project-name)))))
 
+(test extract-routes-line-range-test
+  "extract-routes emits per-call entries with line ranges for files with
+multiple route() calls, and a whole-file entry for file-based routes."
+  (with-tal-fixture (dir)
+    (declare (ignore dir))
+    (let* ((routes (hactar::extract-routes))
+           (login (find "/login" routes :key #'hactar::route-entry-path :test #'equal))
+           (home (find-if (lambda (r) (search "Home.tsx" (hactar::route-entry-file r)))
+                          routes)))
+      (is-true login "a /login route should be extracted")
+      (is-true (search "src/worker.tsx:" (hactar::route-entry-file login))
+               "embedded route should carry a line range")
+      (is-true (hactar::route-entry-line-start login))
+      (is-true (member (hactar::pcli-as-symbol "auth")
+                       (hactar::route-entry-tags login)))
+      (is-true home "Home.tsx file-based route should be extracted")
+      (is (null (hactar::route-entry-line-start home))
+          "file-based route uses whole-file LOC"))))
+
 (test generate-and-register-test
-  "Generating the file registers a project CLI and a top-level sub-command."
+  "Generating the file writes data regions and registers a project CLI."
   (with-tal-fixture (dir)
     (let ((file (hactar::generate-project-cli-file :load t)))
       (is-true (probe-file file))
       (is-true (hactar::get-project-cli "tal"))
       (is-true (gethash "tal" hactar::*sub-commands*))
-      ;; Generated file contains region markers.
       (let ((content (uiop:read-file-string file)))
         (is-true (search "BEGIN GENERATED: meta" content))
         (is-true (search "BEGIN GENERATED: routes" content))
-        (is-true (search hactar::*pcli-user-region-marker* content))))))
+        (is-true (search "BEGIN GENERATED: models" content))
+        (is-true (search "(defproject" content))
+        (is-true (search "(defroutes" content))
+        (is-true (search "(defmodels" content))
+        (is-true (search hactar::*pcli-user-region-marker* content)))
+      ;; Loading the file populated the in-memory model.
+      (is-true (plusp (length (hactar::project-routes "tal"))))
+      (is-true (plusp (length (hactar::project-models "tal")))))))
 
 (test command-catalogue-test
-  "All expected commands are registered after generation."
+  "The default engine command set is registered after generation."
   (with-tal-fixture (dir)
     (declare (ignore dir))
     (hactar::generate-project-cli-file :load t)
     (let ((cmds (hactar::project-cli-commands (hactar::get-project-cli "tal"))))
-      (dolist (name '("routes.list" "routes.create" "routes.gen"
+      (dolist (name '("routes.list" "routes.search" "routes.add" "routes.gen"
                       "models.list" "schema" "feature" "build" "release"))
         (is-true (gethash name cmds) "command ~A should be registered" name)))))
 
 (test models-and-schema-test
-  "models.list and schema parse the Prisma schema."
+  "models.list and schema read the model map / source spans."
   (with-tal-fixture (dir)
     (declare (ignore dir))
     (hactar::generate-project-cli-file :load t)
     (let ((models-out
             (with-output-to-string (*standard-output*)
               (hactar::dispatch-project-command "tal" (list "models.list")))))
-      (is-true (search "User" models-out))
-      (is-true (search "Game" models-out)))
+      (is-true (search "user" (string-downcase models-out)))
+      (is-true (search "game" (string-downcase models-out))))
     (let ((schema-out
             (with-output-to-string (*standard-output*)
               (hactar::dispatch-project-command "tal" (list "schema" "User")))))
@@ -104,19 +146,29 @@ then reset project CLI state."
       (is-true (search "email" schema-out)))))
 
 (test routes-list-and-tag-filter-test
-  "routes.list lists route files and filters by tag."
+  "routes.list returns route-entries from the map and filters by tag."
   (with-tal-fixture (dir)
     (declare (ignore dir))
     (hactar::generate-project-cli-file :load t)
-    (let ((all (hactar::pcli-routes-list "tal" '())))
-      (is-true (some (lambda (f) (search "Home.tsx" f)) all))
-      (is-true (some (lambda (f) (search "worker.tsx" f)) all)))
-    (let ((auth (hactar::pcli-routes-list "tal" (list "tag" "auth"))))
-      (is (= 1 (length auth)))
-      (is-true (search "worker.tsx" (first auth))))))
+    (let ((all (hactar::pcli-cmd-routes-list "tal" '())))
+      (is-true (every #'hactar::route-entry-p all))
+      (is-true (some (lambda (r) (search "worker.tsx" (hactar::route-entry-file r))) all)))
+    (let ((auth (hactar::pcli-cmd-routes-list "tal" (list "tag" "auth"))))
+      ;; worker.tsx has two route() calls, both tagged auth.
+      (is (= 2 (length auth)))
+      (is-true (every (lambda (r) (search "worker.tsx" (hactar::route-entry-file r))) auth)))))
+
+(test routes-search-test
+  "routes.search filters by path/name/tag substring over the map."
+  (with-tal-fixture (dir)
+    (declare (ignore dir))
+    (hactar::generate-project-cli-file :load t)
+    (let ((hits (hactar::pcli-cmd-routes-search "tal" (list "logout"))))
+      (is (= 1 (length hits)))
+      (is (string= "/logout" (hactar::route-entry-path (first hits)))))))
 
 (test routes-list-md-and-org-test
-  "routes.list emits markdown and org output."
+  "routes.list emits markdown and org output reading source spans."
   (with-tal-fixture (dir)
     (declare (ignore dir))
     (hactar::generate-project-cli-file :load t)
@@ -129,6 +181,35 @@ then reset project CLI state."
       (is-true (search "#+TITLE: Routes" org))
       (is-true (search "#+begin_src" org)))))
 
+(test routes-add-mutates-map-and-file-test
+  "routes.add scaffolds a component, adds an entry to the map, and
+re-serializes the defroutes region so the new route survives a reload."
+  (with-tal-fixture (dir)
+    (let ((file (hactar::generate-project-cli-file :load t))
+          (before (length (hactar::project-routes "tal"))))
+      (hactar::dispatch-project-command
+       "tal" (list "routes.add" "settings" "--path" "/settings" "--tags" "auth"))
+      ;; In-memory map gained the route.
+      (is (= (1+ before) (length (hactar::project-routes "tal"))))
+      (is-true (hactar::find-route "tal" :path "/settings"))
+      ;; The file's defroutes region was rewritten with the new entry.
+      (let ((content (uiop:read-file-string file)))
+        (is-true (search "/settings" content)))
+      ;; A fresh reload (clearing the map first) rebuilds the route from file.
+      (setf (hactar::project-cli-routes (hactar::get-project-cli "tal")) '())
+      (hactar::load-project-cli-file dir)
+      (is-true (hactar::find-route "tal" :path "/settings")))))
+
+(test round-trip-fixpoint-test
+  "Generation is a fixpoint: generate, then regenerate, yields byte-identical
+generated regions (no file-watcher churn)."
+  (with-tal-fixture (dir)
+    (let* ((file (hactar::generate-project-cli-file :load t))
+           (first-pass (uiop:read-file-string file)))
+      (hactar::generate-project-cli-file :load t)
+      (let ((second-pass (uiop:read-file-string file)))
+        (is (string= first-pass second-pass))))))
+
 (test user-region-preserved-test
   "Regeneration preserves hand-written content in the user region."
   (with-tal-fixture (dir)
@@ -137,7 +218,6 @@ then reset project CLI state."
       (with-open-file (s file :direction :output :if-exists :append
                               :if-does-not-exist :create)
         (format s "~%(define-project-command \"tal\" hello (args)~%  (declare (ignore args))~%  (format t \"hi\"))~%"))
-      ;; Regenerate; the custom command must survive.
       (hactar::generate-project-cli-file :load nil)
       (let ((content (uiop:read-file-string file)))
         (is-true (search "\"tal\" hello" content))))))

@@ -224,7 +224,7 @@
           :last-modified ,(getf plist :last-modified)
           :last-modified ,(getf plist :last-modified))))
 
-(defmacro defproject (id &rest plist)
+(defmacro defmonolith-project (id &rest plist)
   `(setf (gethash ,id *projects*)
          (make-org-project
           :id ,id
@@ -287,7 +287,7 @@
                *concepts*)
       ;; Write projects
       (maphash (lambda (id p)
-                 (format s "(hactar-monolith::defproject ~S~%  :name ~S~%  :path ~S~%  :repos '~S~%  :sync-config '~S)~%~%"
+                 (format s "(hactar-monolith::defmonolith-project ~S~%  :name ~S~%  :path ~S~%  :repos '~S~%  :sync-config '~S)~%~%"
                          id
                          (org-project-name p)
                          (when (org-project-path p) (namestring (org-project-path p)))

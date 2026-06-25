@@ -1,0 +1,257 @@
+#+TITLE: Project CLI Refactor — Data-Map Architecture
+#+AUTHOR: Hactar
+#+STARTUP: overview
+#+OPTIONS: toc:3 num:t
+
+* Summary
+
+Refactor the project CLI so that =CWD/.hactar.lisp= is no longer a bundle
+of regex-driven command definitions, but a *declarative Lisp map of the
+project*. The generated file describes the project's structure as data
+(routes, models, schema, stack), and all commands become *higher-order
+functions over that map* rather than ad-hoc scanners.
+
+Today (=project-cli.lisp=), every command re-scans the filesystem with
+regex at call time: =routes.list= calls =pcli-routes-list= which globs
+files and greps tags on each invocation. The generated file only holds
+=define-project-command= forms delegating back to hard-coded =pcli-*=
+functions. The *map lives nowhere*; it is recomputed every call.
+
+After this refactor:
+
+- Scanning/extraction happens *once, at generation time*. Its output is
+  a persisted Lisp data map — the durable source of truth.
+- =CWD/.hactar.lisp= contains forms like =defroutes=, =defmodels=,
+  =defproject= — a high-level, human-readable, human-editable model of
+  the project.
+- Commands (=routes.list=, =routes.search=, =routes.add=, =models.list=,
+  =schema=, …) are generic operations defined *once* in the engine and
+  query/mutate the in-memory map. No per-command regex at call time.
+- New higher-order tooling (route search, route add, dependency views)
+  is trivial to build on the map.
+
+Target shape of the generated data:
+
+#+begin_src lisp
+(defproject "tal"
+  :stack (redwood react prisma typescript)
+  :root *repo-root*)
+
+(defroutes
+  (:file "src/routes/login.tsx"    :path "/login"  :name login  :tags (auth))
+  ;; logout handler is embedded inside the worker
+  (:file "src/worker.tsx:222-555"  :path "/logout" :name logout :tags (auth)))
+
+(defmodels
+  (:name User :file "prisma/schema.prisma:1-6"  :fields (id email name))
+  (:name Game :file "prisma/schema.prisma:7-12" :fields (id pgn)))
+#+end_src
+
+The =:file= value supports an optional =:line-range= suffix
+(=path:start-end=), so a map entry can point at a span inside a larger
+file.
+
+* Goals / Non-goals
+
+** Goals
+- =.hactar.lisp= is a *data map*, not a command script.
+- One in-memory representation of the project (=project-cli= registry of
+  typed entries), populated by loading the map forms.
+- Commands are generic higher-order functions over the map, defined in
+  the engine and shared across all projects.
+- Mutating commands (=routes.add=) update the map *and* re-serialize the
+  relevant =def...= form back into =.hactar.lisp= (round-trip).
+- Regex/AST extraction is confined to the *generation* path; never on
+  the read/query path.
+- Preserve existing behaviour surface: =hactar tal routes.list=,
+  =routes.list tag auth=, =--md=, =--org=, =models.list=, =schema=,
+  =build=, =release=, =feature=, =scan=/=init=/=project.update=, and
+  diffusion updates.
+
+** Non-goals
+- Not changing the dispatch entrypoint (=hactar <project> <command>=)
+  or the file-load hook in =hactar-session-new= — those stay.
+- Not building a full TypeScript parser; extraction stays heuristic but
+  its *output* becomes durable data.
+- Not removing the diffusion mechanism — it is retargeted to rewrite
+  map forms instead of command forms.
+
+* Current state (what changes)
+
+| Concern                | Today                                            | After                                                |
+|------------------------+--------------------------------------------------+------------------------------------------------------|
+| =.hactar.lisp= content | =define-project-command= forms (behaviour)       | =defproject= / =defroutes= / =defmodels= (data)      |
+| Route listing          | =pcli-routes-list= regex-scans files every call  | Query in-memory route entries                        |
+| Tag filter             | =pcli-file-tags= greps each file every call      | =:tags= already stored on each entry                 |
+| Models / schema        | =pcli-parse-models= re-parses schema every call  | =defmodels= entries; schema span via =:file= range   |
+| Commands               | Re-emitted per project into the file             | Defined once in engine; not regenerated              |
+| Adding a route         | Scaffolds a file only                            | Scaffolds file + inserts a =defroutes= entry         |
+| Generation             | Emits command forms                              | Emits data forms (the map)                           |
+| Diffusion regenerate   | Rewrites whole file incl. command regions        | Rewrites only the data (=def...=) regions            |
+
+Functions to retire or repurpose in =project-cli.lisp=:
+- *Retire from call path* (move into generation/extraction only):
+  =pcli-route-files=, =pcli-file-tags=, =pcli-parse-models=,
+  =pcli-emit-route-commands=, =pcli-emit-model-commands=,
+  =pcli-emit-feature-commands=, =pcli-emit-lifecycle-commands=,
+  =pcli-emit-stack-wrapped=.
+- *Repurpose*: =pcli-routes-list= / =pcli-models-list= / =pcli-schema=
+  become thin readers over the registry; =pcli-routes-create= becomes
+  =pcli-routes-add= (scaffold + map insert + re-serialize).
+- *Keep as-is*: registry plumbing (=register-project-cli=,
+  =project-cli= struct, =dispatch-project-command=), =scan=/=init=/
+  =project.update= sub-commands, load hook, diffusion analyzer wiring.
+
+* New architecture
+
+Three layers, cleanly separated:
+
+** 1. The map (declarative data forms) — lives in =.hactar.lisp=
+A small DSL of macros. Each expands to a registration call into the
+project's in-memory map; none of them scan the filesystem.
+
+- =(defproject NAME &key stack root)= — replaces/extends
+  =register-project-cli=; sets project identity, stack, root, and
+  installs the =hactar <name> …= sub-command.
+- =(defroutes ENTRY...)= — each ENTRY is a plist:
+  =(:file LOC :path STRING :name SYMBOL :tags (SYMBOL...) :component SYMBOL)=.
+- =(defmodels ENTRY...)= — =(:name SYMBOL :file LOC :fields (SYMBOL...))=.
+- (extensible) =(deffeatures ...)=, =(defscripts ...)= as needed.
+
+=LOC= grammar: ="path"= or ="path:START-END"= (1-based inclusive line
+range). A helper =parse-loc= → =(values relative-path start end)=.
+
+** 2. The registry (in-memory model) — engine state
+Typed structs, keyed inside the existing =project-cli= struct:
+
+#+begin_src lisp
+(defstruct route-entry file path name tags component line-start line-end)
+(defstruct model-entry name file fields line-start line-end)
+;; project-cli gains: routes (list of route-entry), models (list of model-entry)
+#+end_src
+
+Macros in layer 1 push parsed entries into the current project's lists.
+Loading =.hactar.lisp= thus *is* building the model. Provide a public
+query/mutation API:
+
+- =project-routes (project)= → list of =route-entry=
+- =find-route (project &key path name tag)= → matching entries
+- =add-route! (project entry)= → push + mark dirty for re-serialize
+- =project-models (project)=, =find-model (project name)=
+- =route-source (entry)= → read file (honouring line range) on demand
+
+** 3. The commands (higher-order functions) — engine, shared
+Defined once (not per project), dispatched by =dispatch-project-command=
+against the loaded map:
+
+- =routes.list [tag T] [--md|--org]= → over =project-routes=; tag filter
+  is a plist lookup, not a grep. =--md=/=--org= read =route-source= for
+  each entry (line-range aware).
+- =routes.search <query>= → *new*, filter by path/name/tag substring.
+- =routes.add <name> --path P [--tags ...]= → scaffold component (reuse
+  =scaffold-create-file=), then =add-route!= and re-serialize the
+  =defroutes= form into the file.
+- =routes.gen "<instr>"= → LLM proposes a =route-entry= (+ component);
+  on accept, same path as =routes.add=.
+- =models.list= / =schema [table]= → over =project-models= /
+  =route-source= of the model entry's =:file= range.
+- =feature <name>=, =build=, =release= → unchanged in spirit (feature may
+  stay dynamic grep; build/release read scripts).
+
+* Generation = extraction → data emission
+
+=generate-project-cli-file= is rewritten as an *extractor + serializer*:
+
+1. *Extract* (the only place regex/heuristics run):
+   - =extract-routes (root)= → list of =route-entry= by scanning route
+     files (current =pcli-route-files= + =pcli-file-tags= logic), now
+     also capturing =:path= (from =route('/x', …)= / file path) and
+     line spans where a handler is embedded (e.g. =worker.tsx:222-555=).
+   - =extract-models (root)= → list of =model-entry= from the Prisma
+     schema (current =pcli-parse-models=), capturing line spans.
+   - =detect-stack= / =project-name= unchanged.
+2. *Serialize* the structs to forms via printers:
+   - =render-defproject=, =render-defroutes=, =render-defmodels= —
+     pretty-print entries as the data DSL.
+3. *Write* with the existing region markers (=BEGIN/END GENERATED: …=)
+   and USER-REGION preservation, but the generated regions now contain
+   *data forms*, not command forms.
+4. *Load* the file → populates the registry → engine commands work.
+
+The LLM half (per the original plan) now contributes *map enrichment*
+(better =:path=/=:tags=/=:name= inference, embedded-handler detection)
+rather than command bodies.
+
+* Persistence / round-trip
+
+Mutating commands must keep the file and the in-memory map in sync:
+
+- After =add-route!= (or =routes.gen= accept), call
+  =reserialize-region (project :routes)= which regenerates only the
+  =defroutes= GENERATED region from the current =route-entry= list and
+  splices it back between its markers (reuse the region-splice logic
+  already in =pcli-diffusion-regenerate=).
+- Same mechanism powers diffusion: the analyzer re-extracts on file
+  change and re-serializes the affected data region(s) only.
+
+* Diffusion retargeting
+
+=pcli-diffusion-relevant-p= stays. =pcli-diffusion-regenerate= changes
+from "re-render whole file" to "re-extract → re-serialize the data
+regions (=meta=, =routes=, =models=) only", preserving USER REGION and
+leaving non-data regions intact. Config (=*diffusion-model*=,
+=*auto-project-cli*=, =HACTAR_DIFFUSION_MODEL=) unchanged.
+
+* Backward-compatible dispatch
+
+=register-project-cli= remains (called by =defproject= internally) so the
+=hactar <project>= sub-command and =dispatch-project-command= keep
+working. The difference: the per-project command *table* is no longer
+filled by the generated file. Instead, =dispatch-project-command= falls
+back to a *default engine command set* (registered once) when the
+project defines no override. Projects may still hand-define a
+=define-project-command= in their USER REGION to override or extend.
+
+Resolution order in =dispatch-project-command=:
+1. project-specific command (USER REGION override), else
+2. engine default command operating on the map.
+
+* Implementation checklist (later)
+
+1. =project-cli.lisp= — data DSL: =defproject=, =defroutes=, =defmodels=;
+   =route-entry= / =model-entry= structs; =parse-loc=.
+2. Registry API: =project-routes=, =find-route=, =add-route!=,
+   =project-models=, =find-model=, =route-source=.
+3. Engine default commands over the map (list/search/add/gen/models/
+   schema) + dispatch fallback (override → default).
+4. Extraction: =extract-routes=, =extract-models= (fold in existing
+   =pcli-route-files=, =pcli-file-tags=, =pcli-parse-models=; add path
+   and line-span capture).
+5. Serializers: =render-defproject=, =render-defroutes=,
+   =render-defmodels=; =reserialize-region=.
+6. Rewrite =generate-project-cli-file= as extract→serialize→write→load.
+7. Retarget diffusion regenerate to data regions only.
+8. Tests (=tests/project-cli.test.lisp=): map load → registry populated;
+   =routes.list=/=tag=/=--md=/=--org= read the map (no FS scan asserted
+   via a stubbed root); =routes.add= mutates map *and* re-serializes;
+   =parse-loc= ranges; round-trip stability (generate → load → generate
+   is a fixpoint); USER REGION preserved.
+9. Docs: update ProjectCLIPlan.org references to point at the data-map
+   model.
+
+* Open questions
+
+- *Comment preservation in data regions*: the example shows inline
+  comments inside =defroutes=. Re-serialization via =print= drops
+  comments. Options: (a) accept loss in GENERATED regions (the
+  generator owns them), (b) store rationale as a =:note= plist key that
+  survives round-trips. Recommend (b).
+- *Round-trip fixpoint*: generation must be idempotent — generate →
+  load → re-serialize should be byte-stable to avoid churn under the
+  file watcher. Needs a canonical printer (stable key order, sorting).
+- *Path inference accuracy*: deriving =:path= from RedwoodSDK
+  =route()= calls vs. file-based routing — start heuristic, let the LLM
+  refine, allow hand-editing in the map.
+- *Map vs. truth drift*: when a user edits source but not the map (auto
+  diffusion off), commands read a stale map. Document that =project.update=
+  re-extracts, and that the map is authoritative by design.
