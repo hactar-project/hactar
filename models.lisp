@@ -163,6 +163,32 @@
   "Find a model configuration by name."
   (find name *available-models* :key #'model-config-name :test #'string=))
 
+(defun register-default-model (name provider model-name &key (max-input 32000) (max-output 4096) (supports '("chat" "edit")))
+  (unless (find-model-by-name name)
+    (push (make-model-config
+           :name name
+           :provider provider
+           :model-name model-name
+           :edit-format "diff"
+           :use-repo-map t
+           :max-input-tokens max-input
+           :max-output-tokens max-output
+           :input-cost-per-token 0.0
+           :output-cost-per-token 0.0
+           :supports supports)
+          *available-models*)))
+
+(register-default-model "diffusion-gemma" "nvidia_nim" "google/diffusiongemma-26b-a4b-it"
+                        :max-input 8192
+                        :max-output 8192
+                        :supports '("chat" "edit" "diffusion"))
+
+(register-default-model "nvidia_nim/google/diffusiongemma-26b-a4b-it" "nvidia_nim" "google/diffusiongemma-26b-a4b-it"
+                        :max-input 8192
+                        :max-output 8192
+                        :supports '("chat" "edit" "diffusion"))
+
+
 (defun set-current-model (model-name)
   "Set the current model by name."
   (let ((model (find-model-by-name model-name)))

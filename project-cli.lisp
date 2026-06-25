@@ -26,6 +26,10 @@
   (export '(defproject
             defroutes
             defmodels
+            defscripts
+            defcomponents
+            defdeps
+            defimports
             register-project-cli
             define-project-command
             generate-project-cli-file
@@ -279,6 +283,24 @@ symbols; ROOT is an evaluated form (e.g. *repo-root*)."
   "Declare the project's models. Each ENTRY is a plist:
   (:name SYMBOL :file LOC :fields (SYMBOL...) :note STRING)"
   `(pcli-set-models (list ,@(mapcar (lambda (e) `(plist->model-entry ',e)) entries))))
+
+(defvar *project-scripts* (make-hash-table :test 'equal))
+(defvar *project-components* (make-hash-table :test 'equal))
+(defvar *project-deps* (make-hash-table :test 'equal))
+(defvar *project-imports* (make-hash-table :test 'equal))
+
+(defmacro defscripts (&rest entries)
+  `(setf (gethash *pcli-current-project* *project-scripts*) ',entries))
+
+(defmacro defcomponents (&rest entries)
+  `(setf (gethash *pcli-current-project* *project-components*) ',entries))
+
+(defmacro defdeps (&rest entries)
+  `(setf (gethash *pcli-current-project* *project-deps*) ',entries))
+
+(defmacro defimports (&rest entries)
+  `(setf (gethash *pcli-current-project* *project-imports*) ',entries))
+
 
 ;;** Query / mutation API (over the in-memory model)
 
@@ -1003,17 +1025,20 @@ preserving the user region. When LOAD, load the result. Returns pathname."
   (unless root
     (ensure-repo-root)
     (setf root *repo-root*))
-  (multiple-value-bind (project stack routes models) (pcli-refresh-map root)
-    (let* ((file (project-cli-pathname root))
-           (existing (when (probe-file file) (uiop:read-file-string file)))
-           (content (pcli-render-file project stack routes models existing)))
-      (ensure-directories-exist file)
-      (write-file-content (uiop:native-namestring file) content)
-      (unless *silent*
-        (format t "~&Generated project map: ~A (stack: ~{~A~^, ~}; ~A routes, ~A models)~%"
-                (uiop:native-namestring file) stack (length routes) (length models)))
-      (when load (load-project-cli-file root))
-      file)))
+  (let* ((name (pcli-project-name root))
+         (stack (pcli-detect-stack root))
+         (file (project-cli-pathname root))
+         (pcli (ensure-project-cli name)))
+    (setf (project-cli-name pcli) name
+          (project-cli-root pcli) root
+          (project-cli-stack pcli) stack)
+    (setf *pcli-current-project* name)
+    (write-hactar-lisp (list `(defproject ,name :stack ,stack :root *repo-root*))
+                       file
+                       :merge-p nil)
+    (run-active-fusions pcli)
+    (when load (load-project-cli-file root))
+    file))
 
 ;;** Sub-commands: scan / init / project.update
 
@@ -1059,28 +1084,15 @@ CWD/.hactar.lisp, preserving the user region."
   (pushnew (namestring pathname) *project-cli-update-queue* :test #'equal))
 
 (defun pcli-diffusion-regenerate ()
-  "Re-extract the project map on source change and re-serialize only the data
-regions (meta, routes, models), preserving the USER REGION."
+  "Re-extract the project map using active fusions and regenerate CWD/.hactar.lisp."
   (let* ((root *repo-root*)
-         (file (project-cli-pathname root)))
-    (when (and file (probe-file file))
-      (handler-case
-          (multiple-value-bind (project stack routes models) (pcli-refresh-map root)
-            ;; Refresh the in-memory model, then splice each data region.
-            (let ((pcli (ensure-project-cli project)))
-              (setf (project-cli-name pcli) project
-                    (project-cli-stack pcli) stack
-                    (project-cli-root pcli) root
-                    (project-cli-routes pcli) routes
-                    (project-cli-models pcli) models)
-              (setf *pcli-current-project* (project-cli-name pcli)))
-            (reserialize-region project :meta)
-            (reserialize-region project :routes)
-            (reserialize-region project :models)
-            (debug-log "Project map regenerated via diffusion update."))
-        (error (e)
-          (debug-log "Project map diffusion regenerate failed:" e)))
-      (setf *project-cli-update-queue* '()))))
+         (name (pcli-project-name root))
+         (pcli (ensure-project-cli name)))
+    (setf (project-cli-root pcli) root)
+    (setf *pcli-current-project* name)
+    (run-active-fusions pcli)
+    (load-project-cli-file root)
+    (setf *project-cli-update-queue* '())))
 
 (def-analyzer project-cli-diffusion ((*file-event-hook*)) nil (pathname event-type)
   "On relevant source changes, enqueue and (debounced) re-extract the project

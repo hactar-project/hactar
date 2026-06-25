@@ -68,7 +68,25 @@
 	   #:run-hydra
 	   #:*hydras*
 	   #:*hydra-input*
-	   #:*hydra-output*))
+	   #:*hydra-output*
+	   ;; Fern Parser
+	   #:fern-parse
+	   #:fern-edit
+	   #:fern-query
+	   #:defgrammar
+	   #:fern-node-p
+	   #:fern-node-type
+	   #:fern-node-text
+	   #:fern-node-children
+	   #:fern-node-parent
+	   ;; Form Parser
+	   #:parse-diffusion-output
+	   #:write-hactar-lisp
+	   #:read-hactar-lisp
+	   #:merge-hactar-forms
+	   #:validate-hactar-form
+	   ;; Diffusion LLM
+	   #:diffusion-complete))
 
 (in-package :hactar)
 (defpackage :nhooks

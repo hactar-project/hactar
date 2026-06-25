@@ -70,3 +70,75 @@
   (if endpoint
       (llm:ollama-embed text :model model :endpoint endpoint)
       (llm:ollama-embed text :model model)))
+
+(defun generate-fallback-lisp-forms-string (prompt)
+  "Generate programmatic fallback LISP forms string based on local scanning."
+  (let ((prompt-lower (string-downcase prompt))
+        (root (or *repo-root* (uiop:getcwd))))
+    (cond
+      ((search "routes" prompt-lower)
+       (let ((routes (extract-routes root)))
+         (with-output-to-string (s)
+           (format s "(defroutes~%")
+           (dolist (r routes)
+             (let ((name (and (route-entry-name r) (string-downcase (symbol-name (route-entry-name r)))))
+                   (tags (mapcar (lambda (tag) (string-downcase (symbol-name tag))) (route-entry-tags r))))
+               (format s "  (:file ~S :path ~S~@[ :name ~A~] :tags (~{~A~^ ~})~@[ :line-start ~A~]~@[ :line-end ~A~])~%"
+                       (route-entry-file r)
+                       (route-entry-path r)
+                       name
+                       tags
+                       (route-entry-line-start r)
+                       (route-entry-line-end r))))
+           (format s ")~%"))))
+      ((or (search "model" prompt-lower) (search "prisma" prompt-lower))
+       (let ((models (extract-models root)))
+         (with-output-to-string (s)
+           (format s "(defmodels~%")
+           (dolist (m models)
+             (let ((name (and (model-entry-name m) (string-downcase (symbol-name (model-entry-name m)))))
+                   (fields (mapcar #'string-downcase (model-entry-fields m))))
+               (format s "  (:name ~A :file ~S :fields (~{~A~^ ~}))~%"
+                       name
+                       (model-entry-file m)
+                       fields)))
+           (format s ")~%"))))
+      ((or (search "script" prompt-lower) (search "package.json" prompt-lower))
+       (let* ((json (pcli-read-package-json root))
+              (scripts (cdr (assoc :scripts json))))
+         (with-output-to-string (s)
+           (format s "(defscripts~%")
+           (loop for (k . v) in scripts
+                 do (format s "  (:script ~S :command ~S)~%"
+                            (string-downcase (string k)) v))
+           (format s ")~%"))))
+      (t
+       ""))))
+
+(defun diffusion-complete (prompt &key (model "diffusion-gemma"))
+  "Send a prompt to the diffusion model for LISP form generation.
+   Returns raw text that should be parsed/validated by the LISP form parser."
+  (if (or (string-equal model "fast-diffusion")
+          (null (uiop:getenv "HACTAR_DIFFUSION_MODEL")))
+      (generate-fallback-lisp-forms-string prompt)
+      (let* ((model-def (or (find-model-by-name model)
+                            (find-model-by-name "diffusion-gemma")))
+             (provider (if model-def
+                           (intern (string-upcase (model-config-provider model-def)) :keyword)
+                           :nvidia-nim))
+             (model-id (if model-def
+                           (model-config-model-name model-def)
+                           "google/diffusiongemma-26b-a4b-it"))
+             (system-prompt (or (get-prompt :diffusion-system-prompt)
+                                "You are a code intelligence system that generates Common Lisp S-expressions to describe code structure. Output ONLY valid LISP forms.")))
+        (handler-case
+            (multiple-value-bind (content tool-calls msgs)
+                (llm:complete provider
+                              prompt
+                              :model model-id
+                              :system-prompt system-prompt
+                              :stream nil)
+              (declare (ignore tool-calls msgs))
+              (or content (generate-fallback-lisp-forms-string prompt)))
+          (error ()
+            (generate-fallback-lisp-forms-string prompt))))))
