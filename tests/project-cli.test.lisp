@@ -42,6 +42,7 @@ import { route } from 'rwsdk/router';")
 then reset project CLI state."
   `(let* ((,dir-var (%make-tal-fixture))
           (hactar::*repo-root* ,dir-var)
+          (hactar::*name* nil)
           (hactar::*silent* t)
           (hactar::*project-clis* (make-hash-table :test 'equal))
           (hactar::*stack* '()))
