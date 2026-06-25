@@ -76,5 +76,6 @@
 	       (:file "tests/formats.test")
 	       (:file "tests/spec.test")
 	       (:file "tests/hactar-mode")
+               (:file "tests/project-cli.test")
                (:file "hactar-tests"))
   :perform (asdf:test-op (op c) (uiop:symbol-call :hactar-tests '#:run-tests)))

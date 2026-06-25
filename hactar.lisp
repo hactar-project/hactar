@@ -1177,6 +1177,9 @@ This is installed via HANDLER-BIND in the REPL and must accept exactly one argum
     (load-user-customizations)
     (load-hypertext-files)
 
+    (when (fboundp 'load-project-cli-file)
+      (funcall 'load-project-cli-file *repo-root*))
+
     (setf *file-watcher-stopped* nil)
     (start-file-watcher *repo-root*)
 
@@ -2392,7 +2395,20 @@ Free arguments are dispatched as:
        (uiop:quit 0)))
     ;; If a known sub-command is present, dispatch directly.
     (let* ((first-arg (first free-args))
+           ;; Ensure a generated project CLI (CWD/.hactar.lisp) is loaded so
+           ;; that `hactar <project> <command>` dispatches. Only attempt when
+           ;; FIRST-ARG is a bare word that is not already a known sub-command.
+           (loaded-project-cli
+             (when (and first-arg
+                        (not (gethash first-arg *sub-commands*))
+                        (not (search "/" first-arg))
+                        (not (cl-ppcre:scan "^[a-zA-Z0-9_.-]+:" first-arg))
+                        (fboundp 'load-project-cli-file))
+               (ignore-errors
+                 (ensure-repo-root)
+                 (funcall 'load-project-cli-file *repo-root*))))
            (sub-info (and first-arg (gethash first-arg *sub-commands*))))
+      (declare (ignore loaded-project-cli))
       (cond
         (sub-info
          (let* ((cmd-args (rest free-args)))

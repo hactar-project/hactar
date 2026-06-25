@@ -145,6 +145,7 @@
 	       (:file "ruhe")
 	       (:file "slynk")
 	       (:file "wiki")
+	       (:file "project-cli")
 	       (:file "hactar"))
   :build-operation "program-op"
   :build-pathname "hactar"

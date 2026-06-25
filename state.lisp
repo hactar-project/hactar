@@ -498,3 +498,17 @@ Generated using tree-sitter")
   "List of currently active mode name strings.")
 (defstate *loaded-state* nil
   "Holds the most recently loaded state plist from a session file.")
+
+;;* Project CLI (generated CWD/.hactar.lisp)
+(defstate *project-clis* (make-hash-table :test 'equal)
+  "Registry of generated per-project CLIs, keyed by lowercased project name.")
+(defstate *project-cli-file* nil
+  "Pathname of the loaded CWD/.hactar.lisp project CLI file, if any.")
+(defstate *diffusion-model* (uiop:getenv "HACTAR_DIFFUSION_MODEL")
+  "Name of the fast diffusion model used to continuously regenerate
+CWD/.hactar.lisp from code changes. When NIL, continuous update is disabled.")
+(defstate *auto-project-cli* (let ((v (uiop:getenv "HACTAR_AUTO_PROJECT_CLI")))
+                               (and v (member v '("1" "true" "yes" "on") :test #'string-equal)))
+  "Enable/disable continuous diffusion-driven regeneration of CWD/.hactar.lisp.")
+(defstate *project-cli-update-queue* '()
+  "Debounce queue of source pathnames pending project-CLI regeneration.")
