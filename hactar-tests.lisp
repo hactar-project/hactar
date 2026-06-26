@@ -103,6 +103,7 @@ Returns true iff all suites pass."
                    monolith-tests
                    litmode-tests
                    hactar-mode-tests
-                   project-cli-tests))
+                   project-cli-tests
+                   fern-tests))
          (results (mapcar #'%run-suite suites)))
     (%colorize-test-results suites results)))

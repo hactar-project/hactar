@@ -836,8 +836,7 @@ line-range LOC (path:START-END); otherwise a single whole-file entry."
 (defun pcli-schema-file (&optional (root *repo-root*))
   "Locate the Prisma schema file under ROOT, or NIL. Returns (values full rel)."
   (dolist (rel '("prisma/schema.prisma" "db/schema.prisma" "schema.prisma"))
-    (let ((full (merge-pathnames rel root)))
-      (when (probe-file full)
+    (let ((full (merge-pathnames rel root)))      (when (probe-file full)
         (return-from pcli-schema-file (values full rel)))))
   (values nil nil))
 
