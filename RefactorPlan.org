@@ -1,404 +1,382 @@
-#+title: Hactar Big Refactor Plan
+#+title: Hactar Big Refactor Plan — Hactar IS the Project CLI
 #+author: k
 #+startup: overview
 
-* The Core Idea (what we are protecting)
+* The Reimagined Core Idea
 
-Hactar gives *every software project its own bespoke CLI*. In traditional
-engineering the project's "CLI" is smeared across the stack, the IDE, the
-compiler and a pile of shell aliases. That is an accident of economics, not an
-ideal: nobody has time to hand-craft tooling per project. Hactar's bet is that
-an LLM + a small amount of hard-coded knowledge can manufacture that bespoke
-tooling cheaply.
+Hactar is not a tool you point at a project. *Hactar becomes the project.*
 
-So Hactar is, precisely:
+On first run in a repository, Hactar generates a version of itself specialized
+to that project and its stack — written out as =.hactar.lisp=. From then on,
+"running Hactar" means running *that file*. The generic engine recedes into a
+library; the project's =.hactar.lisp= is the application.
+
+Inside Hactar, an agent watches what you (and other agents) actually do, and
+uses a fast *diffusion model* to continuously rewrite =.hactar.lisp= — adding
+verbs, refining prompts, learning the stack — then reloads itself. The CLI
+literally grows into the shape of the work.
 
 #+begin_quote
-A DSL for building per-project developer tooling (a CLI) out of LLMs.
+Hactar is a DSL for building dev tooling from LLMs. =.hactar.lisp= is a program
+written in that DSL — and Hactar writes (most of) it for you, then keeps
+writing it.
 #+end_quote
 
-Everything that does not serve that sentence is accidental complexity.
+Three things make this real, and each is a section below:
 
-The user-facing shape already exists and is good:
+1. *Self-generation* — first run extracts the project and emits =.hactar.lisp=.
+2. *Self-update* — an opt-in agent (=--auto-update=, default off) monitors chat
+   history + tool calls and diffuses edits into =.hactar.lisp=, with a *closed,
+   whitelisted API* as the only vocabulary it may emit.
+3. *Self-hosting* — the build always lands at =./hactar/build/hactar=, and a
+   generated =.envrc= + a global launcher shim make =hactar= resolve to the
+   project's own binary.
 
-#+begin_src sh
-hactar tal routes.list --md      # bespoke, project-specific verb
-hactar add.auth                  # a verb that means "do the auth thing for THIS stack"
-#+end_src
+The good news: the spine for all three already exists in the codebase
+(=project-cli.lisp=, =lisp-form-parser.lisp=, =fusion.lisp=, =diffusion-complete=).
+This refactor *promotes that spine to the center* and deletes everything that
+competes with it.
 
-The verb resolves to: *route -> prompt (+ context + docs) -> LLM -> apply*.
-That pipeline is the whole product. The refactor's job is to make the codebase
-look like that one sentence.
+* The Two-Layer Architecture
 
-* Guiding Principles
+** Layer 1 — The Engine (a library: =hactar-core=)
+The kernel + the self-gen/self-update machinery. Installed once, globally
+(=ros install=, Nix, release tarball). Provides the DSL, the dispatcher, the
+LLM/diffusion clients, the builder, and the watcher. It defines *no project
+verbs of its own* beyond bootstrap (=init=, =update=, =build=, =doctor=).
 
-1. *Unix philosophy.* A small set of orthogonal primitives that compose. Each
-   primitive does one thing and emits/consumes plain text (org, lisp forms,
-   search/replace blocks). Higher-level features are *compositions*, never new
-   subsystems.
-2. *Composition over configuration.* If a feature can be expressed as
-   "route + prompt + context", it must be, not given its own macro/registry.
-3. *Lisp is the extension language.* Lean on macros to make the primitives feel
-   like a DSL. Users (and agents) extend Hactar by writing small forms, not by
-   editing engine internals.
-4. *One way to do each thing.* Today there are 3-4 overlapping stacks for org
-   files, for "schemas", for code analysis, for prompting. Collapse each family
-   to exactly one.
-5. *Plain files are the API.* State, context, tasks, docs and the project map
-   all live in readable files the user can edit with grep/sed/Emacs.
+** Layer 2 — The Project (=.hactar.lisp=: the application)
+A single per-repo file that =(in-package :hactar)= and is *pure composition of
+kernel primitives*: =defproject=, =defmodels=, =defroutes= (data) plus =defmode=,
+=defaction=, =defprompt=, =defdoc= (behavior). It has two regions, already
+established by the writer (=lisp-form-parser.lisp:207-222=):
 
-* Current Architecture: the sprawl
+- =;; BEGIN GENERATED= … =;; END GENERATED= — owned by the generator + the
+  self-update agent; freely rewritten.
+- A *user region* — hand edits the agent must preserve
+  (=pcli-extract-user-region=).
 
-Measured reality: ~110 source files in =hactar.asd= (plus tests), and several
-clusters that solve the *same problem more than once*.
-
-** Cluster A — "execute a verb"
-- =commands.lisp= : =define-command= / =define-sub-command= / =define-slash-command= / =define-acp-command= (one macro carrying slash/sub/acp/format/visibility policy).
-- =router.lisp= : =defroute= / =defflag= (the "Infinite CLI" dispatcher).
-- =dots.lisp= : =defdot= + =*dot-commands*= — a *separate* registry and execution path. Top-of-file comment already says: "was a useful hack ... now kinda deprecated."
-- =project-cli.lisp= : =defproject= / =defroutes= / =defmodels= + =dispatch-project-command= (the data-map CLI; the most on-target module in the repo).
-
-  *Three dispatch paths* (commands, router, dots) plus a fourth project-local one.
-
-** Cluster B — "guide the model for this stack"
-- =mode.lisp= : =defmode= — lightweight bundle of =:when=, =:rules=, =:skills=, =:commands=, activation lifecycle. *This is the right primitive.*
-- =molds.lisp= (56 KB) : =defmold= + entity/interface/rule structs + parser + import/export + =mold-pour= (entity-specific prompts) + 8 =mold.*= commands + a =:mold= interface. *Duplicates modes* (rules injection, context, prompts) with far more machinery.
-- =*-mode.lisp= (react, redwood, sh, js, stripe, sinatra, hactar, skills, lisp, gpt, agentshell, rails): each repeats stack-detection + a rules string + scaffold commands.
-
-** Cluster C — "org file as workspace"
-- =org-mode-parser.lisp= : real tree parser/serializer (=org-document=, =org-heading=, =org-src-block=, =org-to-string=). *The canonical layer.*
-- =org-mode.lisp= : legacy regex-based org helpers (a second, weaker parser).
-- =to-org.lisp= : codebase -> org exporter.
-- =interface.lisp= : =definterface= — generic two-way file<->state with =:format :org :sections= and a watcher. *The right primitive for a unified org surface.*
-- =litmode.lisp= (64 KB) : single-file =.hactar.org= workspace (scope, tasks, tangling, drift) built on the parser but with its own lifecycle.
-- =hactar-monolith.lisp= (46 KB) : multi-file org knowledge base (Concepts/Projects/Journal) with its *own* index/tangle/drift model.
-
-  Litmode and monolith re-implement indexing/tangling/drift on top of two
-  different parsers, and =definterface= already does the two-way org job.
-
-** Cluster D — "code as structured data / codegen"
-- =fern.lisp= : grammar + query layer (=defgrammar=, parse to =fern-node=).
-- =compiler.lisp= + =vfs.lisp= + =checker.lisp= + =*-target.lisp= : lisp-form -> target-language transpiler (=deftarget=, =defemit=, =defcheck=).
-- =fusion.lisp= + =fusions/*= : =deffusion= pipeline (fern-extract -> diff -> diffuse(LLM) -> validate -> emit).
-- =code-value.lisp= (46 KB) : the "code is a value" semantic unit (=code/select=, =deftransform=, staging/apply).
-
-  Multiple "define a DSL" stacks with different internal representations.
-
-** Cluster E — satellites (not core)
-- =ruhe.lisp= (a webfeed generator with its *own* package and DSLs).
-- =hyperfractal.lisp= (a plaintext web-browser/curl wrapper).
-- =hypertext.lisp= (=defhypertext= doc/URI registry — the "$hypertext" knowledge source; this one is core-adjacent).
-
-* The Simplified Architecture: a 7-primitive kernel
-
-Everything in Hactar should be expressible as a composition of these. Nothing
-else gets a global registry or a bespoke execution path.
-
-| # | Primitive   | One job                                        | Lives in (today)    | Status        |
-|---+-------------+------------------------------------------------+---------------------+---------------|
-| 1 | =llm=       | talk to a model: =complete= / =ask=            | llm.lisp, llm-utils | keep as-is    |
-| 2 | =prompt=    | named, templated text: =defprompt=             | prompts.lisp        | keep, extend  |
-| 3 | =context=   | assemble prompt context (files/docs/rules)     | context.lisp        | keep, slim    |
-| 4 | =route=     | map input string -> handler: =defroute=/=defflag= | router.lisp      | keep; unify   |
-| 5 | =mode=      | the *module*: when + rules + prompts + commands | mode.lisp          | keep; promote |
-| 6 | =interface= | two-way file<->state, render/parse/watch       | interface.lisp      | keep; promote |
-| 7 | =knowledge= | =$hypertext= docs/snippets by URI              | hypertext.lisp      | keep, rename  |
-
-Two optional, clearly-bounded plug-ins (not kernel, off by default):
-- =codegen= : the compiler/vfs/checker/targets stack (deterministic emit).
-- =fern= : structural code parse/query (used by analysis + fusion).
-
-And the one composition that defines the product:
+Loading =.hactar.lisp= builds the in-memory model and registers the project's
+verbs. *That file is the CLI.*
 
 #+begin_src text
-ACTION  ≡  route  +  prompt  +  context  →  llm  →  apply
+   ┌─────────────────────────────────────────────┐
+   │ hactar-core  (global library / engine)       │
+   │   kernel primitives · diffusion · builder ·  │
+   │   watcher · bootstrap verbs (init/update)    │
+   └───────────────────────┬─────────────────────┘
+                           │ (require + compose)
+   ┌───────────────────────▼─────────────────────┐
+   │ ./.hactar.lisp  (per-project application)    │
+   │   defproject/defmodels/defroutes  (DATA)     │
+   │   defmode/defaction/defprompt/defdoc (BEHAV) │
+   │   ── BEGIN GENERATED … END GENERATED ──      │
+   │   ── user region (preserved) ──              │
+   └──────────────────────────────────────────────┘
+            compiled to → ./hactar/build/hactar
 #+end_src
 
-We introduce a single combinator, =defaction=, that *is* that line. Dots, most
-mode commands, and =mold-pour= all collapse into it.
+* Lifecycle
 
-** The =defaction= combinator (the heart of the refactor)
+#+begin_src text
+ first run            every run             during a session (opt-in)
+ ─────────            ─────────             ──────────────────────────
+ detect stack         load .hactar.lisp     watch chat + tool calls
+ extract map          dispatch verb   ◄──┐  └─► diffuse edits to .hactar.lisp
+ diffuse behavior     run               │      validate (closed API)
+ emit .hactar.lisp                      │      hot-reload (or rebuild)
+ build binary                           └──────────── reload ───────────┘
+ write .envrc
+#+end_src
 
-A declarative verb. No bespoke handler body required; the body is data.
+- *Bootstrap* (no =.hactar.lisp= present) → generate + build + wire =.envrc=.
+- *Run* → the project binary loads =.hactar.lisp= and dispatches.
+- *Self-update* (when enabled) → the watcher feeds activity to the diffusion
+  agent, which rewrites the generated region and reloads.
+
+* The Kernel = The Surface (one vocabulary, two audiences)
+
+The kernel is a *small set of orthogonal primitives*. Crucially, the same macros
+serve **two audiences**: a human hand-editing =.hactar.lisp=, and the diffusion
+agent emitting forms. The set of forms the agent may emit is exactly this set —
+the **Surface** (see "API subset" below).
+
+| # | Primitive   | One job                                       | Today's home        | Status        |
+|---+-------------+-----------------------------------------------+---------------------+---------------|
+| 1 | =llm=       | talk to a model: =complete=/=ask=/=diffuse=   | llm.lisp, llm-utils | keep          |
+| 2 | =prompt=    | named, templated text: =defprompt=            | prompts.lisp        | keep, extend  |
+| 3 | =context=   | assemble prompt context (files/docs/rules)    | context.lisp        | keep, slim    |
+| 4 | =route=     | input string -> handler: =defroute=/=defflag= | router.lisp         | keep; unify   |
+| 5 | =mode=      | the *module*: when+rules+prompts+actions      | mode.lisp           | keep; promote |
+| 6 | =interface= | two-way file<->state (the org surface)        | interface.lisp      | keep; promote |
+| 7 | =knowledge= | =$hypertext= docs/snippets by URI: =defdoc=   | hypertext.lisp      | keep, rename  |
+| 8 | =project=   | the data map: =defproject/defroutes/defmodels=| project-cli.lisp    | keep; CENTER  |
+
+Two engine-internal services that power self-update (not user-facing verbs):
+- =diffusion= : =diffusion-complete= + =parse-diffusion-output= + the =deffusion=
+  pipeline (fern-extract → diff → diffuse → validate → emit).
+- =builder=  : =asdf:make= a project binary to =./hactar/build/hactar=.
+
+** The one composition that defines a verb: =defaction=
+=ACTION ≡ route + prompt + context → llm → apply=. A declarative verb whose body
+is data — the form the diffusion agent most often writes.
 
 #+begin_src lisp
-;; .add.auth becomes pure data: a route + a prompt template.
 (defaction add.auth
   :doc    "Add authentication to the project."
   :prompt "Add authentication to project for {{stack}} using {{doc:auth}}."
-  :apply  :search-replace)            ; how to apply the model's output
-
-;; Equivalent expansion (conceptual):
-;;   (defroute "add.auth" (&rest args)
-;;     (apply-result
-;;       (llm:complete (render-prompt 'add.auth
-;;                       (action-bindings args)))   ; {{stack}}, {{doc:auth}}, {{context}}
-;;       :search-replace))
+  :apply  :search-replace)
 #+end_src
 
-Bindings available to every action template, resolved from the kernel:
-- ={{stack}}=     <- active modes / project-cli =:stack=
-- ={{context}}=   <- =context= primitive (selected files)
-- ={{doc:NAME}}=  <- =knowledge= primitive (=$hypertext= lookup)
-- ={{args}}= / named positionals <- the route match
-- ={{model:NAME}}= / ={{route:NAME}}= <- the project-cli data map
+Bindings resolved from the kernel: ={{stack}}= (project =:stack=), ={{context}}=,
+={{doc:NAME}}= (knowledge), ={{model:NAME}}=/={{route:NAME}}= (data map), and
+route args. =:apply= ∈ {=:show=, =:search-replace=, =:create=, =:shell-confirm=,
+=:none=}. Dots, most mode commands, and the old =mold-pour= all collapse into it.
 
-=:apply= strategies (a small fixed set, composable):
-- =:show= (print), =:search-replace= (patch files), =:create= (new file),
-  =:shell-confirm= (propose+confirm a command), =:none=.
+* Self-Generation (first run)
 
-This is the single primitive that removes the dot/mold/per-mode-command
-duplication. ".dots" stop being code; they become rows of data.
+Already 80% built: =generate-project-cli-file= (=project-cli.lisp:1027=) does
+detect-stack → extract routes/models → =write-hactar-lisp= → =run-active-fusions=
+→ =load=. The refactor extends it from *data-only* to *data + behavior*.
 
-* Goal-by-goal Refactor
+** Pipeline
+1. =ensure-repo-root= + =pcli-detect-stack= (existing analyzers).
+2. Hard-coded extraction via =fern=: =extract-routes=, =extract-models=,
+   scripts/deps/envs → deterministic =defroutes=/=defmodels=/=defscripts=.
+3. *Behavior synthesis* (new): from the detected stack, select =defmode=s and
+   emit a starter set of =defaction=s + =defprompt=s. This is a diffusion pass
+   constrained to the Surface (below), seeded by stack templates in
+   =starters.lisp=/=preset.lisp=.
+4. =write-hactar-lisp= with preserved user region (existing).
+5. =builder=: =asdf:make= → =./hactar/build/hactar=; verify it loads
+   (=check-string=/checker) before swapping in.
+6. =doctor=: write =.envrc=, ensure =hactar/build/= is gitignored, print next
+   steps.
 
-** Goal 1 — Deduplicate via primitives (dots = routing + prompts)
+** Entry points
+- =hactar init= (existing =init= sub-command, extended): full bootstrap.
+- =hactar scan= / =hactar project.update=: re-extract the generated region only.
+- =hactar build=: (re)compile the project binary.
 
-*Problem.* =dots.lisp= has ~12 near-identical handlers, each doing
-=(format nil "<name> ~{~A~^ ~}" args)= then =get-llm-response :dot-command-p t=,
-against a single shared =dot-system-prompt=. Separate registry
-(=*dot-commands*=), separate dispatch, deprecated by tool-calling.
+* Self-Update Agent (the diffusion loop)
 
-*Plan.*
-1. Introduce =defaction= (above) backed by =route= + =prompt=. Delete
-   =*dot-commands*= and the parallel parse/dispatch in =parse-command= /
-   =execute-dot-command-for-pipe=.
-2. Re-express each surviving dot as data:
-   #+begin_src lisp
-   (defaction cat  :doc "cat files from context"  :prompt-file "cat.org"      :apply :show)
-   (defaction mod  :doc "modify a file"           :prompt-file "modify.org"   :apply :search-replace)
-   (defaction cmd  :doc "generate a shell command":prompt-file "shell.org"    :apply :shell-confirm)
-   #+end_src
-3. Keep the org/markdown/cat/ls "filesystem-emulation" prompts as *prompt
-   files*, not Lisp. The ".| pipe" operator becomes a generic
-   route-composition helper (compose two actions), not a special case.
-4. Net deletion: ~all of =dots.lisp= becomes one table + a handful of prompt
-   files under =prompts/=.
+The differentiator. *Off by default.* Enabled by a flag/config key
+=:auto-update= (=defflag :auto-update= + =config.lisp= persistence). When on, an
+agent watches the session and continuously reshapes =.hactar.lisp=.
 
-*Acceptance:* =defaction= covers every former dot; =grep defdot= returns
-nothing; =/dots= lists actions from the unified registry.
+** What it watches (the signal)
+Subscribe, via the existing =nhooks= hook system, to:
+- *Chat history* — user/assistant turns (=history.lisp=, =session.lisp=).
+- *Tool calls* — every tool invocation + result (=tools.lisp=, ACP/MCP events).
+- *Applied edits* — search/replace results, created files, run commands.
 
-** Goal 2 — Remove molds; replace with generic prompting
+These are the "diff signal": evidence of verbs the user keeps doing by hand,
+docs they keep pulling, prompts they keep retyping — candidates to crystallize
+into =defaction=/=defprompt=/=defdoc= forms.
 
-*Problem.* =molds.lisp= (56 KB) is a second =mode=: it injects rules
-(=mold-activate-rules= -> =*active-rules*=, same target as modes), builds
-context (=mold-context-string=), and generates entity prompts (=mold-pour=).
-Its unique value is: (a) a *schema* of entities/interfaces, and (b)
-import/export. But the project already has a better home for the schema: the
-=project-cli= data map (=defmodels=/=defroutes=).
+** The loop (reuses =deffusion=, =fusion.lisp:11=)
+#+begin_src text
+collect-signal            ; recent turns + tool calls (windowed, redacted)
+   │
+diff-detect               ; what's new vs current .hactar.lisp model
+   │  (only when signal crosses a threshold; debounced, not every keystroke)
+diffuse                   ; diffusion-complete( surface-spec + current-file + signal )
+   │                        → candidate Hactar forms (parse-diffusion-output)
+validate                  ; validate-hactar-form against the closed Surface;
+   │                        correct-hactar-form heuristics; reject anything else
+merge                     ; merge-hactar-forms into GENERATED region only
+   │                        (user region untouched; pcli-extract-user-region)
+apply + reload            ; write-hactar-lisp :merge-p t; load (hot) — or queue rebuild
+   │
+guard                     ; rollback on load/check failure; loop/oscillation guard
+#+end_src
 
-*Plan.*
-1. *Schema -> data map.* Move "entities/fields" into =defmodels= and
-   "interfaces/routes" into =defroutes= in =.hactar.lisp=. One project model,
-   not two.
-2. *Rules -> mode.* A mold's rules become a =defmode :rules=.
-3. =mold-pour= -> =defaction=. "Pour entity X" is literally:
-   #+begin_src lisp
-   (defaction model.scaffold
-     :doc "Generate code for a model from the project map."
-     :prompt "Implement model {{model:NAME}} for {{stack}} using {{doc:orm}}."
-     :apply  :create)
-   #+end_src
-4. *Import/export -> interface.* If portability is still wanted, it is a
-   render/parse on the unified org interface (Goal 4), not a bespoke format.
-5. Delete =molds.lisp=, the 8 =mold.*= commands, and the =:mold= interface in
-   =interface.lisp:519=. Provide a one-shot =mold.import= migration that reads
-   any existing =mold.org= and writes =defmodels=/=defmode= forms.
+** Cadence & safety
+- *Hot-reload by default*: =load= the merged file into the running image (sub-second);
+  only =builder= rebuilds the binary on session end or on =hactar build=.
+- *Human-in-the-loop modes*: =:auto-update= ∈ {=nil=, =:suggest= (write to an
+  inbox / show a diff), =:auto= (apply silently)}. Default =nil=; =:suggest=
+  recommended.
+- *Rollback*: keep the last-known-good =.hactar.lisp= (and binary); revert if the
+  new file fails =check-string= or fails to load.
+- *Loop guard*: never let an update triggered by an update trigger another;
+  rate-limit; ignore the agent's own edits in the signal.
 
-*Acceptance:* =molds.lisp= removed; no =*active-rules*= writer except modes;
-entity-driven scaffolding works through =defaction= + data map.
+* The API Subset Passed to the Diffusion Model (the "Surface Spec")
 
-** Goal 3 — Modes are THE module
+The diffusion model must only ever produce forms Hactar can safely load. This is
+already modeled by =*hactar-form-schemas*= (=lisp-form-parser.lisp:3-13=) — a
+whitelist with required/optional keys per form, enforced by =validate-hactar-form=
+with =correct-hactar-form= heuristics. The refactor:
 
-*Problem.* "Module" is ambiguous today (mode? mold? *-mode.lisp file?
-command group?). Code separation should follow one axis: the *mode*.
+1. *Extend the schema* from data-only to include behavior forms:
+   =defmode=, =defaction=, =defprompt=, =defdoc=, =defroute=. Each gets a
+   required/optional key spec (e.g. =defaction= → required =(:doc)=, one of
+   =(:prompt :prompt-file)=, optional =(:apply :when)=).
+2. *Generate the spec to feed the model* from the schema, reusing the existing
+   spec machinery (=build-subcommand-group-spec=, =--spec-lisp=/=--spec= in
+   =hactar.lisp:2417-2422=). The diffusion system prompt embeds:
+   - the Surface grammar (allowed forms + keys),
+   - the current =.hactar.lisp= (or just its generated region),
+   - a compact view of the project model (stack, routes, models),
+   - the activity signal.
+3. *Hard boundary*: anything outside the Surface is rejected at =validate=,
+   never =eval='d. No arbitrary Lisp from the model is ever loaded. (The
+   primitives themselves are the sandbox: =defaction= can only express
+   route+prompt+apply; it cannot call out.)
+4. The Surface Spec is the single source of truth shared by: the diffusion
+   prompt, the validator, =--spec= output for editors, and the docs.
 
-*Plan.*
-1. Make =mode= the unit of packaging. Each stack/domain is exactly one
-   =defmode= form that bundles: =:when= (detection), =:rules=, =:prompts=,
-   =:commands= (now =:actions=), =:context= providers, =:knowledge= (docs),
-   =:skills=.
-2. Extend =defmode= so actions are first-class:
-   #+begin_src lisp
-   (defmode react
-     "React functional components and hooks."
-     :when    (stack? "react")
-     :rules   "Prefer functional components and hooks; controlled inputs."
-     :knowledge ("react@19.2")                 ; $hypertext docs auto-loaded
-     :actions ((component.create :prompt-file "react/component.org" :apply :create)
-               (hook.create      :prompt-file "react/hook.org"      :apply :create)))
-   #+end_src
-3. Factor the repeated boilerplate in =*-mode.lisp= into mode helpers:
-   - =stack?= predicate helper (replaces hand-written =:when= members checks).
-   - =scaffold= apply-strategy (replaces per-mode =scaffold-create-file=).
-   - shared rules/prompt loading from =prompts/<mode>/=.
-4. Result: a new mode is ~one form + a folder of prompt files. The
-   =defmode-command= activation/teardown machinery (=mode.lisp:54-167=) stays;
-   it is good. =lisp-mode= / =gpt-mode= (response-interceptors, not =defmode=)
-   become a documented "response-mode" sub-kind of mode, unified under the same
-   macro with a =:response= hook.
+* Self-Hosting: Binary & Symlink Strategy
 
-*Acceptance:* every =*-mode.lisp= is a =defmode= (no ad-hoc command modules);
-adding a stack touches one file + prompts; modes are the only rules source.
+Goal: =hactar= in a project shell always means *that project's specialized
+binary*, with zero manual symlinking, on machines with or without direnv.
 
-** Goal 4 — One org interface replacing litmode + monolith
+** Canonical build path
+All project builds output to a stable, gitignored path:
+=./hactar/build/hactar=. =builder= (=asdf:make=, via the Makefile =build= target)
+writes here; =init=/=build= ensure =hactar/build/= is in =.gitignore=.
 
-*Problem.* =litmode= (64 KB) and =hactar-monolith= (46 KB) both parse org,
-index, tangle, and detect drift — on top of *two* parsers (=org-mode-parser=
-vs =org-mode= regex helpers). =definterface= already provides the two-way
-org-file abstraction with sections + watcher.
+** Primary: generated =.envrc= (direnv)
+=doctor= writes (and offers to commit) a minimal =.envrc=:
+#+begin_src sh
+# .hactar — managed by Hactar
+PATH_add hactar/build      # `hactar` now resolves to ./hactar/build/hactar
+watch_file .hactar.lisp    # re-enter env when the CLI changes
+#+end_src
+=PATH_add= (not an alias) means =hactar <verb>= transparently runs the project
+binary. =.envrc= is safe to commit; =hactar/build/= is not.
 
-*Plan.*
-1. *One parser.* Keep =org-mode-parser.lisp=; delete =org-mode.lisp= after
-   porting any used helper. Repoint monolith's =org-mode:*= calls.
-2. *One surface.* Define a single =:hactar= org interface that *exposes all
-   interfaces in one file* via sections:
-   #+begin_src lisp
-   (definterface :hactar ".hactar.org"
-     :format :org
-     :title  "Hactar"
-     :sections (:context   #'render-context   #'parse-context
-                :tasks      #'render-tasks     #'parse-tasks
-                :prompt     #'render-prompt-in #'parse-prompt-in
-                :project    #'render-projmap   #'parse-projmap    ; routes/models/stack
-                :docs       #'render-docs       #'parse-docs
-                :state      #'render-state      #'parse-state))
-   #+end_src
-   Render walks the kernel (context, project-cli, tasks, knowledge) into one
-   org doc; parse reads edits back. The watcher (already in =interface.lisp:201=)
-   gives live two-way sync. This is the "org-mode interface that simply exposes
-   all the interfaces into one org file."
-3. *Tangle/drift* become two small functions over =org-src-block= nodes
-   (reused by anyone), not a subsystem each.
-4. *Litmode's "scope"* (focus a subtree as context) becomes a section/selector
-   on the =:context= part. *Monolith's* multi-file knowledge base becomes the
-   =knowledge= primitive (=$hypertext=) pointed at a directory — it already does
-   doc registry + URI resolve.
-5. Delete =litmode.lisp= and =hactar-monolith.lisp=; the =--lit= flag now opens
-   the =:hactar= interface.
+** Fallback: the global launcher shim (no direnv required)
+The globally-installed =hactar= becomes a *thin launcher*:
+1. If =./hactar/build/hactar= exists and is current (newer than =.hactar.lisp=),
+   =exec= it with the same args.
+2. If =.hactar.lisp= is newer, rebuild first (or hot-load if running a session).
+3. If neither exists, run bootstrap (=init=).
 
-*Acceptance:* =.hactar.org= round-trips (render -> edit -> parse) every section;
-=--lit= works; no second org parser; litmode/monolith files removed.
+This guarantees correct behavior even without direnv, on Windows, or in CI —
+the global binary self-delegates to the project binary. direnv just removes the
+indirection.
 
-** Goal 5 — Massive simplification via Lisp DSL strength
+** Dev vs release
+- *Dev / self-update*: a resident core image + =load .hactar.lisp= → instant
+  reload, no per-turn compile.
+- *Release*: =asdf:make= a standalone =./hactar/build/hactar= for fast cold
+  starts and distribution. The launcher prefers the binary when present.
 
-*Problem.* 3-4 "define a DSL" stacks (=compiler/deftarget=, =fusion/deffusion=,
-=fern/defgrammar=, =ruhe/defformat=, =molds/defmold=, =code-value/deftransform=)
-with separate representations.
+* How the Original Simplification Goals Fold In
 
-*Plan.*
-1. *Kernel macros are the DSL.* The public extension surface shrinks to:
-   =defmode=, =defaction=, =defprompt=, =defroute=/=defflag=, =definterface=,
-   =defdoc= (renamed =defhypertext=), =defproject=/=defroutes=/=defmodels=.
-   These are what a user composes to build bespoke tooling. Document them as
-   *the* Hactar DSL.
-2. *Codegen is an optional plug-in.* Keep =compiler= + targets + =checker= +
-   =vfs= as a cohesive, separately-loadable system (its own =.asd= component or
-   feature flag). It is the deterministic-emit alternative to =defaction='s
-   LLM-emit; valuable but not core.
-3. *Fern* stays as the single structural-analysis layer (used by codegen and by
-   any action that needs AST context). Remove ad-hoc parsing elsewhere.
-4. *code-value* is retained as the "code is a value" semantic object but slimmed
-   to what actions actually consume (selection + provenance + apply staging);
-   drop unused enrichment paths.
-5. *Extract satellites out of the core system:*
-   - =ruhe.lisp= -> its own ASDF system / repo (it is a separate product).
-   - =hyperfractal.lisp= -> a thin =knowledge= fetcher behind =$hypertext=, or
-     its own utility system.
-6. *Collapse Cluster A dispatch.* =define-command= delegates to =route=;
-   =dots= removed (Goal 1); =project-cli= dispatch becomes routes scoped by
-   project. One dispatcher, one registry.
+The self-generating frame *requires* the same cleanups — a small, closed,
+composable kernel is what makes a diffusion model able to write the CLI safely.
 
-*Acceptance:* one documented DSL surface; codegen/fern/ruhe are
-optional/extracted; a single dispatch path; =hactar.asd= core component list
-roughly halves.
+| Original goal                         | Now justified by                                            |
+|---------------------------------------+-------------------------------------------------------------|
+| Dots = routing + prompts (=defaction=)| Actions are the agent's primary output form; dots' bespoke registry can't be diffused safely. Delete =dots.lisp=. |
+| Remove molds                          | Molds are a second schema competing with =defproject/defmodels=. One project model is what the agent edits. Delete =molds.lisp=. |
+| Modes are THE module                  | Modes are the unit the generator selects per stack; behavior synthesis emits modes + actions. |
+| One org interface (litmode+monolith)  | =.hactar.org= becomes the *human-facing two-way view* of the same project model (=definterface :format :org=); litmode/monolith deleted. |
+| Massive DSL simplification            | The kernel *is* the Surface the diffusion model writes. A small closed vocabulary is a safety requirement, not just aesthetics. |
 
-* Module Disposition (current file -> fate)
+(Per-goal mechanics — =defaction= expansion, mold→data-map migration, mode
+boilerplate factoring, the =:hactar= aggregate org interface — are unchanged from
+the prior plan and still apply.)
 
-| File(s)                              | Fate    | Becomes / Notes                                  |
-|--------------------------------------+---------+--------------------------------------------------|
-| llm.lisp, llm-utils.lisp             | KEEP    | kernel primitive 1                               |
-| prompts.lisp, diffusion-prompts.lisp | KEEP    | primitive 2; host =defaction= templates          |
-| context.lisp                         | SLIM    | primitive 3                                      |
-| router.lisp                          | KEEP    | primitive 4; the one dispatcher                  |
-| commands.lisp                        | SLIM    | =define-command= -> thin wrapper over =defroute= |
-| mode.lisp                            | EXTEND  | primitive 5; add =:actions=, =:response=         |
-| interface.lisp                       | EXTEND  | primitive 6; add =:hactar= aggregate interface   |
-| hypertext.lisp                       | RENAME  | primitive 7 -> =knowledge=/=defdoc=              |
-| org-mode-parser.lisp                 | KEEP    | the one org parser                               |
-| dots.lisp                            | DELETE  | -> =defaction= rows + prompt files               |
-| molds.lisp                           | DELETE  | -> data map + mode rules + =defaction=           |
-| litmode.lisp                         | DELETE  | -> =:hactar= org interface                       |
-| hactar-monolith.lisp                 | DELETE  | -> =knowledge= dir + =:hactar= interface         |
-| org-mode.lisp                        | DELETE  | port helpers into org-mode-parser                |
-| project-cli.lisp                     | KEEP    | the data-map CLI; routes scoped per project      |
-| *-mode.lisp (react/redwood/sh/...)   | REWRITE | each -> one =defmode= + prompts                  |
-| compiler/vfs/checker/*-target.lisp   | PLUGIN  | optional =hactar-codegen= system                 |
-| fern.lisp, fusion.lisp, fusions/*    | KEEP*   | single analysis layer; fusion under codegen      |
-| code-value.lisp                      | SLIM    | semantic object for =:apply= staging             |
-| ruhe.lisp                            | EXTRACT | separate system/repo                             |
-| hyperfractal.lisp                    | EXTRACT | utility behind =knowledge= fetch                 |
-| to-org.lisp                          | KEEP    | reuse for =:hactar= render                       |
+* Module Disposition (current file -> fate, reframed)
+
+The spine of the new architecture is promoted to the center; competitors deleted.
+
+| File(s)                              | Fate    | Becomes / Notes                                       |
+|--------------------------------------+---------+-------------------------------------------------------|
+| project-cli.lisp                     | CENTER  | =.hactar.lisp= = the app; extend to behavior forms    |
+| lisp-form-parser.lisp                | CENTER  | the Surface validator + safe merge/write; extend schema |
+| fusion.lisp, fusions/*               | CENTER  | the self-update pipeline (=deffusion=)                |
+| llm-utils.lisp (=diffusion-complete=)| CENTER  | the diffusion client                                  |
+| fern.lisp                            | KEEP    | hard-coded extraction for generation                  |
+| llm.lisp, prompts.lisp, context.lisp | KEEP    | kernel primitives 1–3                                 |
+| router.lisp                          | KEEP    | the one dispatcher; =defaction= compiles to routes    |
+| mode.lisp                            | EXTEND  | add =:actions=/=:response=; the module unit           |
+| interface.lisp                       | EXTEND  | =:hactar= org surface (human view of the model)       |
+| hypertext.lisp                       | RENAME  | =knowledge=/=defdoc=                                   |
+| hooks/history/session/tools          | KEEP    | the watch signal for self-update                      |
+| build.lisp + Makefile                | EXTEND  | =builder= → =./hactar/build/hactar=; emit =.envrc=    |
+| commands.lisp                        | SLIM    | =define-command= → thin wrapper over =defroute=       |
+| dots.lisp                            | DELETE  | → =defaction= data + prompt files                     |
+| molds.lisp                           | DELETE  | → =defproject/defmodels= + mode rules + =defaction=   |
+| litmode.lisp, hactar-monolith.lisp   | DELETE  | → =:hactar= org interface + =knowledge=               |
+| org-mode.lisp                        | DELETE  | one parser only (=org-mode-parser.lisp=)              |
+| code-value.lisp                      | SLIM    | semantic object for =:apply= staging                  |
+| compiler/vfs/checker/*-target.lisp   | PLUGIN  | optional =hactar-codegen= (deterministic emit)        |
+| ruhe.lisp, hyperfractal.lisp         | EXTRACT | separate systems                                      |
+| hactar.asd                           | SPLIT   | =hactar-core= (engine/library) vs project app         |
 
 * Phased Migration
 
 Each phase compiles, passes =make test=, and is independently shippable.
 
 ** Phase 0 — Safety net
-- Characterize current behavior with tests for: dot commands, =mold.pour=,
-  litmode round-trip, a representative mode (react) scaffold, project-cli
-  dispatch. (Extend =tests/*= ; these become the regression oracle.)
+Characterize current behavior: project-cli generate/load round-trip, form
+validation/merge, a representative dot, a mode scaffold. These become the
+regression oracle for self-modification.
 
-** Phase 1 — Introduce =defaction= (no deletions yet)
-- Build =defaction= over =route= + =prompt= + a small =:apply= dispatcher.
-- Port 2-3 dots as actions alongside the old ones; prove parity in tests.
+** Phase 1 — Engine/app split
+Carve =hactar-core= out of =hactar.asd= (kernel + diffusion + builder). =.hactar.lisp=
+becomes the application that composes it. Prove =hactar= still runs by loading a
+trivial generated file.
 
-** Phase 2 — Collapse dots
-- Move all dots to =defaction= data + prompt files; delete =dots.lisp= and the
-  =*dot-commands*= dispatch branch in =parse-command=.
+** Phase 2 — =defaction= + extend the Surface schema
+Add =defaction= (route+prompt+apply). Extend =*hactar-form-schemas*= with
+=defaction/defmode/defprompt/defdoc=. Generate the Surface Spec from the schema.
 
-** Phase 3 — Remove molds
-- Migration command =mold.import= -> =defmodels=/=defmode=. Move pour to
-  =defaction=. Delete =molds.lisp= + =:mold= interface + =mold.*= commands.
+** Phase 3 — Self-generation of behavior
+Extend =generate-project-cli-file= to emit modes/actions/prompts (behavior
+synthesis), not just data. Validate generated files load + pass checks.
 
-** Phase 4 — Unify the org surface
-- Single parser (delete =org-mode.lisp=). Build =:hactar= aggregate interface
-  with sections. Port scope (litmode) and knowledge-base (monolith) onto it.
-  Delete =litmode.lisp= and =hactar-monolith.lisp=. Wire =--lit=.
+** Phase 4 — Builder + self-hosting
+=builder= target → =./hactar/build/hactar=. Generated =.envrc= + global launcher
+shim + =.gitignore= wiring. Verify =hactar <verb>= resolves to the project binary
+with and without direnv.
 
-** Phase 5 — Modes as the module
-- Rewrite each =*-mode.lisp= as a =defmode= with =:actions=/=:knowledge=.
-  Factor =stack?=, =scaffold=, prompt-folder loading. Fold response-modes
-  (lisp/gpt) under =defmode :response=.
+** Phase 5 — Self-update agent
+Wire the watcher (hooks on history + tool calls) → =deffusion= loop → validate →
+merge into GENERATED region → hot-reload. Implement =:auto-update= ∈
+{=nil=,=:suggest=,=:auto=}, rollback, loop guard. Default =nil=.
 
-** Phase 6 — DSL surface + plug-in extraction
-- Make =define-command= a wrapper over =defroute=. Split codegen/fern/fusion
-  into an optional system. Extract =ruhe= and =hyperfractal=. Trim
-  =code-value=. Update =hactar.asd= component list.
+** Phase 6 — Delete the competitors
+Remove =dots=, =molds=, =litmode=, =monolith=, =org-mode=. Rewrite =*-mode.lisp=
+as =defmode= + prompt folders. Build the =:hactar= org interface.
 
-** Phase 7 — Docs
-- Rewrite README/docs around the 7-primitive kernel + =defaction=. One page:
-  "Build a verb for your project."
+** Phase 7 — Extract & document
+Split =codegen=/=fern=/=fusion= plug-in boundary; extract =ruhe=/=hyperfractal=.
+Rewrite docs around: "Hactar generates a CLI for your project, then keeps
+writing it."
 
-* What success looks like
+* Risks & Safety (self-modifying software)
 
-- A new project verb = one =defaction= form (or a row in =.hactar.lisp=) + one
-  prompt file. No engine changes.
-- A new stack = one =defmode= + a prompt folder.
-- Exactly one: dispatcher, org parser, org surface, rules source, prompt
-  registry, DSL surface.
-- =hactar.asd= core component list ~halved; =molds/litmode/monolith/dots/org-mode=
-  gone; =ruhe/hyperfractal= extracted; codegen optional.
-- The codebase reads like the sentence: *a DSL for building dev tooling from
-  LLMs.*
+1. *Arbitrary code execution* — the model never emits free Lisp; only Surface
+   forms, validated before load. The primitives are the sandbox.
+2. *Bad rewrite bricks the CLI* — last-known-good file + binary kept; revert on
+   =check=/load failure; =hactar doctor --reset= regenerates from scratch.
+3. *Runaway loops* — debounce the signal; ignore the agent's own edits;
+   rate-limit; updates can't trigger updates.
+4. *Clobbering human edits* — only the GENERATED region is rewritten; the user
+   region is extracted and preserved (existing =write-hactar-lisp= behavior).
+5. *Privacy* — chat/tool signal is processed locally for the diffusion prompt;
+   redact secrets; respect the same data boundaries as the rest of Hactar;
+   =:auto-update= is off by default and explicit.
+6. *Reproducibility* — =.hactar.lisp= is committed and diffable; every self-edit
+   is a reviewable change in version control, not hidden state.
 
 * Open Questions (resolve before Phase 1)
 
-1. Is the deterministic =codegen= stack still a product requirement, or can it
-   be archived rather than kept as an optional plug-in?
-2. Should =.hactar.lisp= (data map) and =.hactar.org= (interface) be two files,
-   or is the org file the single source the lisp file is tangled from?
-3. How much of =code-value='s staging/verification workflow do actions actually
-   need vs. a plain search/replace applier?
-4. Backwards-compat window for =mold.org= files in the wild — keep the importer
-   for one release, then drop?
+1. One file or two: is =.hactar.lisp= the single source (data + behavior), or do
+   we keep a human-facing =.hactar.org= that tangles to it?
+2. Per-project compiled binary vs resident core image + =load=: ship both
+   (binary for release, image for the self-update session), or pick one?
+3. Default =:auto-update= mode — is =:suggest= (diff to an inbox) the right
+   on-ramp, or stay fully =nil= until the user opts in per-repo?
+4. Granularity of the watch signal: every turn, on idle, or only on explicit
+   "learn this" cues? What window/debounce avoids noise?
+5. Surface scope: do we let the agent emit raw =defroute=/=defflag=, or restrict
+   it to the higher-level =defaction=/=defmode= for safety?
+6. Should =hactar/build/= (and the binary) ever be committed for zero-build
+   clones, or always rebuilt locally?
