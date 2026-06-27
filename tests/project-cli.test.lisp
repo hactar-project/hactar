@@ -241,3 +241,46 @@ generated regions (no file-watcher churn)."
   (let ((hactar::*auto-project-cli* nil)
         (hactar::*diffusion-model* "fast-diffusion"))
     (is-false (hactar::pcli-diffusion-relevant-p "src/app/pages/Foo.tsx" :file-changed))))
+
+(test harness-primitives-test
+  "Validate and verify defaction, deftool, defskill, defsandbox, defagent."
+  (let ((hactar::*defined-actions* (make-hash-table :test 'equal))
+        (hactar::*defined-skills* (make-hash-table :test 'equal))
+        (hactar::*defined-sandboxes* (make-hash-table :test 'equal))
+        (hactar::*agent-harnesses* (make-hash-table :test 'equal))
+        (hactar::*pcli-current-project* "tal"))
+    ;; 1. Evaluate
+    (hactar::defaction test-action :doc "A test action" :prompt "Prompt name {{name}}" :apply :create)
+    (hactar::deftool test-tool :run "echo {{args}}" :doc "Run echo")
+    (hactar::defskill test-skill :doc "A skill" :rules :test)
+    (hactar::defsandbox test-sandbox :kind :local :allow ("echo"))
+    (hactar::defagent test-harness-agent :model "anthropic/claude-sonnet" :tools (test-tool) :skills (test-skill) :sandbox test-sandbox :instructions "Use echo")
+
+    (is-true (gethash "test-action" hactar::*defined-actions*))
+    (is-true (gethash "test_tool" hactar::*defined-tools*))
+    (is-true (gethash "test-skill" hactar::*defined-skills*))
+    (is-true (gethash "test-sandbox" hactar::*defined-sandboxes*))
+    (is-true (gethash 'hactar::test-harness-agent hactar::*agent-harnesses*))
+
+    ;; 2. Validate
+    (multiple-value-bind (valid-p errors corrected)
+        (hactar::validate-hactar-form '(defaction test-action :doc "Doc" :prompt "Prompt"))
+      (is-true valid-p)
+      (is (null errors))
+      (is-true corrected))
+
+    (multiple-value-bind (valid-p errors corrected)
+        (hactar::validate-hactar-form '(defagent test-agent :model "m" :tools (t1)))
+      (is-true valid-p)
+      (is (null errors))
+      (is-true corrected))
+
+    ;; 3. Merge
+    (let* ((existing '((defaction test-action :doc "Old doc" :prompt "P1")
+                       (defskill test-skill :doc "Old skill" :rules :r1)))
+           (new '((defaction test-action :doc "New doc" :prompt "P2")
+                  (defskill another-skill :doc "Another" :rules :r2)))
+           (merged (hactar::merge-hactar-forms existing new)))
+      (is (= 3 (length merged)))
+      (let ((act (find 'defaction merged :key #'car)))
+        (is (string= "New doc" (getf (cddr act) :doc)))))))

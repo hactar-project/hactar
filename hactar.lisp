@@ -2173,6 +2173,12 @@ CMD argument is ignored (kept for backward compatibility)."
   (let ((ok (hactar-init)))
     (uiop:quit (if ok 0 1))))
 
+(define-sub-command build (args)
+  "Compile the project specialized binary."
+  (declare (ignore args))
+  (build-hactar)
+  (uiop:quit 0))
+
 (define-sub-command help (args)
 		    "Display comprehensive help information about Hactar. Use --spec, --spec-lisp, or --man for formatted output."
 		    (cond

@@ -18,7 +18,7 @@ build-cli:
 # Run the application
 .PHONY: run
 run:
-	./hactar
+	./hactar/build/hactar
 
 # Run the LLM CLI
 .PHONY: run-cli
@@ -44,7 +44,7 @@ coverage:
 # Clean build artifacts
 .PHONY: clean
 clean:
-	rm -f hactar
+	rm -rf hactar/build/
 	rm -f llm-cli
 	rm -f *.fasl
 	rm -f DOCS.md

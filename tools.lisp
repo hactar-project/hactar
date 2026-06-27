@@ -19,63 +19,72 @@
   (enum nil :type list))
 
 ;;* core
-(defmacro deftool (name (&rest params) &body body)
+(defmacro deftool (name &rest args)
   "Define a tool that Hactar can use.
+Supports two syntaxes:
+  1. (deftool name (params) &body body) - original syntax
+  2. (deftool name &key run doc) - new shell run syntax"
+  (if (and args (listp (car args)))
+      (let* ((params (car args))
+             (body (cdr args))
+             (tool-name-str (string-downcase (substitute #\_ #\- (symbol-name name))))
+             (fn-name (intern (format nil "TOOL-~A" (symbol-name name)) :hactar))
+             ;; Parse body for keyword options
+             (description nil)
+             (rules nil)
+             (permissions :confirm)
+             (impl-body body))
 
-NAME: Symbol, the name of the tool (will be converted to snake_case).
-PARAMS: Parameter specifications, each being:
-        (param-name type &key description required enum)
-        or just param-name for a required string parameter.
-BODY: The body can start with keyword options:
-      :description \"...\" - Tool description (required)
-      :rules \"...\" - Optional usage rules/guidelines
-      :permissions :confirm/:auto - Permission level (default :confirm)
-      Then the actual implementation code.
+        (loop while (and impl-body (keywordp (car impl-body)))
+              do (case (car impl-body)
+                   (:description (setf description (cadr impl-body)))
+                   (:rules (setf rules (cadr impl-body)))
+                   (:permissions (setf permissions (cadr impl-body))))
+                 (setf impl-body (cddr impl-body)))
 
-Example:
-  (deftool read-file ((path :string :description \"File path\" :required t))
-    :description \"Read contents of a file\"
-    :rules \"Only read files within the project directory\"
-    :permissions :confirm
-    (let ((file-path (getf args :path)))
-      (uiop:read-file-string file-path)))"
-  (let* ((tool-name-str (string-downcase (substitute #\_ #\- (symbol-name name))))
-         (fn-name (intern (format nil "TOOL-~A" (symbol-name name)) :hactar))
-         ;; Parse body for keyword options
-         (description nil)
-         (rules nil)
-         (permissions :confirm)
-         (impl-body body))
+        (unless description
+          (error "deftool ~A requires a :description" name))
 
-    (loop while (and impl-body (keywordp (car impl-body)))
-          do (case (car impl-body)
-               (:description (setf description (cadr impl-body)))
-               (:rules (setf rules (cadr impl-body)))
-               (:permissions (setf permissions (cadr impl-body))))
-             (setf impl-body (cddr impl-body)))
+        `(progn
+           (defun ,fn-name (hactar::%tool-args%)
+             "Tool implementation function. HACTAR::%TOOL-ARGS% is a plist of parameter values."
+             (let ((hactar::args hactar::%tool-args%))
+               (declare (ignorable hactar::args))
+               ,@impl-body))
 
-    (unless description
-      (error "deftool ~A requires a :description" name))
+           (setf (gethash ,tool-name-str *defined-tools*)
+                 (make-tool-definition
+                  :name ,tool-name-str
+                  :description ,description
+                  :parameters (list ,@(mapcar #'parse-param-spec params))
+                  :rules ,rules
+                  :permissions ,permissions
+                  :function #',fn-name))
 
-    `(progn
-       (defun ,fn-name (hactar::%tool-args%)
-         "Tool implementation function. HACTAR::%TOOL-ARGS% is a plist of parameter values."
-         (let ((hactar::args hactar::%tool-args%))
-           (declare (ignorable hactar::args))
-           ,@impl-body))
-
-       (setf (gethash ,tool-name-str *defined-tools*)
-             (make-tool-definition
-              :name ,tool-name-str
-              :description ,description
-              :parameters (list ,@(mapcar #'parse-param-spec params))
-              :rules ,rules
-              :permissions ,permissions
-              :function #',fn-name))
-
-       (unless *silent*
-         (format t "Defined tool: ~A~%" ,tool-name-str))
-       ',name)))
+           (unless *silent*
+             (format t "Defined tool: ~A~%" ,tool-name-str))
+           ',name))
+      ;; New format: (deftool name &key run doc)
+      (let* ((run (getf args :run))
+             (doc (getf args :doc))
+             (tool-name-str (string-downcase (substitute #\_ #\- (symbol-name name))))
+             (fn-name (intern (format nil "TOOL-~A" (symbol-name name)) :hactar)))
+        `(progn
+           (defun ,fn-name (hactar::%tool-args%)
+             (let ((args-str (or (getf hactar::%tool-args% :args) "")))
+               (let ((cmd (cl-ppcre:regex-replace-all "\\{\\{args\\}\\}" ,run args-str)))
+                 (format t "$ ~A~%" cmd)
+                 (uiop:run-program cmd :output t :error-output t :ignore-error-status t))))
+           (setf (gethash ,tool-name-str *defined-tools*)
+                 (make-tool-definition
+                  :name ,tool-name-str
+                  :description ,doc
+                  :parameters (list (make-tool-parameter :name "args" :type :string :description "Arguments for the command" :required nil))
+                  :permissions :confirm
+                  :function #',fn-name))
+           (unless *silent*
+             (format t "Defined tool: ~A~%" ,tool-name-str))
+           ',name))))
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
   (defun parse-param-spec (spec)

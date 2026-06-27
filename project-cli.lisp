@@ -31,6 +31,11 @@
             defdeps
             defimports
             defenvs
+            defaction
+            deftool
+            defskill
+            defsandbox
+            defagent
             register-project-cli
             define-project-command
             generate-project-cli-file
@@ -274,6 +279,83 @@ Replacement (not append) keeps reload idempotent."
   "Declare the project this file describes. STACK is a literal list of stack
 symbols; ROOT is an evaluated form (e.g. *repo-root*)."
   `(pcli-define-project ,name :stack ',stack :root ,root))
+
+(defvar *defined-actions* (make-hash-table :test 'equal))
+
+(defun resolve-action-prompt (template name-arg)
+  (let ((prompt (or template "")))
+    (setf prompt (cl-ppcre:regex-replace-all "\\{\\{name\\}\\}" prompt (or name-arg "")))
+    (let* ((pcli (and *pcli-current-project* (get-project-cli *pcli-current-project*)))
+           (stack-str (if pcli (format nil "~{~A~^, ~}" (project-cli-stack pcli)) "")))
+      (setf prompt (cl-ppcre:regex-replace-all "\\{\\{stack\\}\\}" prompt stack-str)))
+    (setf prompt (cl-ppcre:regex-replace-all
+                  "\\{\\{doc:([a-zA-Z0-9_-]+)\\}\\}"
+                  prompt
+                  (lambda (match &rest regs)
+                    (declare (ignore match))
+                    (let ((doc-name (first regs)))
+                      (or (resolve-hypertext-uri (format nil "docs:~A" doc-name))
+                          (resolve-hypertext-uri (format nil "wiki:~A" doc-name))
+                          "")))))
+    prompt))
+
+(defun run-action-verb (project action-name args)
+  (let* ((action (gethash (string-downcase action-name) *defined-actions*))
+         (doc (getf action :doc))
+         (prompt-tmpl (getf action :prompt))
+         (apply-type (getf action :apply))
+         (name-arg (first args))
+         (resolved-prompt (resolve-action-prompt prompt-tmpl name-arg)))
+    (format t "~&Running action: ~A (~A)...~%" action-name (or doc ""))
+    (format t "~&LLM Prompt:~%~A~%~%" resolved-prompt)
+    (if *current-model*
+        (let ((response (get-llm-response resolved-prompt :stream t :add-to-history nil)))
+          (case apply-type
+            (:create
+             (let ((blocks (parse-search-replace-blocks response)))
+               (if blocks
+                   (progn
+                     (format t "~&Creating file/applying changes...~%")
+                     (apply-search-replace-blocks blocks))
+                   (format t "~&No SEARCH/REPLACE blocks found in LLM response.~%"))))
+            (:search-replace
+             (let ((blocks (parse-search-replace-blocks response)))
+               (if blocks
+                   (apply-search-replace-blocks blocks)
+                   (format t "~&No SEARCH/REPLACE blocks found to apply.~%"))))
+            (:show
+             (format t "~&Response:~%~A~%" response))
+            (t
+             (format t "~&Response:~%~A~%" response))))
+        (format t "No model selected. Use /model to select one before running actions.~%"))))
+
+(defmacro defaction (name &key doc prompt apply when)
+  (let ((cmd-name (string-downcase (string name))))
+    `(progn
+       (setf (gethash ,cmd-name *defined-actions*)
+             (list :name ',name :doc ,doc :prompt ,prompt :apply ,apply :when ,when))
+       (when *pcli-current-project*
+         (register-project-command
+          *pcli-current-project*
+          ,cmd-name
+          (lambda (args)
+            (run-action-verb *pcli-current-project* ,cmd-name args))
+          ,doc))
+       ',name)))
+
+(defmacro defskill (name &key doc rules)
+  (let ((key (string-downcase (symbol-name name))))
+    `(progn
+       (setf (gethash ,key *defined-skills*)
+             (list :name ',name :doc ,doc :rules ',rules))
+       ',name)))
+
+(defmacro defsandbox (name &key kind allow)
+  (let ((key (string-downcase (symbol-name name))))
+    `(progn
+       (setf (gethash ,key *defined-sandboxes*)
+             (list :name ',name :kind ,kind :allow ',allow))
+       ',name)))
 
 (defmacro defroutes (&rest entries)
   "Declare the project's routes. Each ENTRY is a plist:
@@ -1024,6 +1106,60 @@ reload. Returns the file pathname or NIL."
         (models (extract-models root)))
     (values project stack routes models)))
 
+(defun generate-stack-harness-forms (stack)
+  "Generate starter deftool, defskill, defsandbox, defagent, and defaction forms based on STACK."
+  (let ((forms '()))
+    (push `(defsandbox project :kind :local :allow ("npx" "node" "git")) forms)
+    (let ((tools '())
+          (skills '()))
+      (dolist (tech stack)
+        (cond
+          ((string-equal tech "typescript")
+           (push `(deftool tsc :run "npx tsc --noEmit" :doc "Type-check the project.") forms)
+           (push 'tsc tools))
+          ((string-equal tech "react-router")
+           (push `(deftool rr-routes :run "npx react-router routes" :doc "List the route tree.") forms)
+           (push 'rr-routes tools)
+           (push `(defskill react-router :doc "react-router.org" :rules :react-router) forms)
+           (push 'react-router skills)
+           (push `(defaction route.create
+                     :doc "Create a React Router route."
+                     :prompt "Create a React Router route {{name}} under src/routes with typed loader/action. {{doc:react-router}}"
+                     :apply :create)
+                 forms)
+           (push `(defaction api.create
+                     :doc "Create a React Router API resource route."
+                     :prompt "Create a React Router API resource route {{name}} with typed request/response handlers. {{doc:react-router}}"
+                     :apply :create)
+                 forms))
+          ((string-equal tech "prisma")
+           (push `(deftool prisma-migrate :run "npx prisma migrate dev {{args}}" :doc "Run Prisma migrations.") forms)
+           (push 'prisma-migrate tools)
+           (push `(defaction model.create
+                     :doc "Create a Prisma model."
+                     :prompt "Create a Prisma model {{name}} in schema.prisma and run prisma migrate. {{doc:prisma}}"
+                     :apply :search-replace)
+                 forms))
+          ((string-equal tech "vitest")
+           (push `(deftool vitest :run "npx vitest run {{args}}" :doc "Run unit tests.") forms)
+           (push 'vitest tools))))
+      (unless (member 'vitest tools)
+        (push `(deftool vitest :run "npx vitest run {{args}}" :doc "Run unit tests.") forms)
+        (push 'vitest tools))
+      (push `(defagent dev
+               :model "anthropic/claude-sonnet-4-6"
+               :tools ,(nreverse tools)
+               :skills ,(nreverse skills)
+               :sandbox project
+               :instructions "Build features end-to-end: scaffold, wire data loader/action, type-check, and verify.")
+            forms))
+    (nreverse forms)))
+
+(defun synth-update (project &key (apply t))
+  "One self-update tick."
+  (declare (ignore project apply))
+  nil)
+
 (defun generate-project-cli-file (&key (root *repo-root*) (load t))
   "Extract the project map and (re)generate CWD/.hactar.lisp as data,
 preserving the user region. When LOAD, load the result. Returns pathname."
@@ -1038,14 +1174,65 @@ preserving the user region. When LOAD, load the result. Returns pathname."
           (project-cli-root pcli) root
           (project-cli-stack pcli) stack)
     (setf *pcli-current-project* name)
-    (write-hactar-lisp (list `(defproject ,name :stack ,stack :root *repo-root*))
-                       file
-                       :merge-p nil)
-    (run-active-fusions pcli)
+    (let* ((routes (extract-routes root))
+           (models (extract-models root))
+           (harness-forms (generate-stack-harness-forms stack))
+           (all-forms (append (list `(defproject ,name :stack ,stack :root *repo-root*))
+                              (list `(defroutes ,@(mapcar (lambda (r)
+                                                            `(:file ,(route-entry-file r)
+                                                              :path ,(route-entry-path r)
+                                                              :name ,(route-entry-name r)
+                                                              :tags ,(route-entry-tags r)
+                                                              :component ,(route-entry-component r)
+                                                              :note ,(route-entry-note r)))
+                                                          routes)))
+                              (list `(defmodels ,@(mapcar (lambda (m)
+                                                            `(:name ,(model-entry-name m)
+                                                              :file ,(model-entry-file m)
+                                                              :fields ,(model-entry-fields m)
+                                                              :note ,(model-entry-note m)))
+                                                          models)))
+                              harness-forms)))
+      (write-hactar-lisp all-forms file :merge-p nil))
+    (synth-update pcli :apply t)
+    (run-doctor root)
     (when load (load-project-cli-file root))
     file))
 
-;;** Sub-commands: scan / init / project.update
+(defun run-doctor (&optional (root *repo-root*))
+  "Ensure .envrc exists and is correctly configured, and hactar/build/ is in .gitignore."
+  (unless root
+    (ensure-repo-root)
+    (setf root *repo-root*))
+  (let ((envrc-file (merge-pathnames ".envrc" root))
+        (gitignore-file (merge-pathnames ".gitignore" root)))
+    ;; 1. .envrc
+    (let ((envrc-content
+            (format nil "# .hactar — managed by Hactar~%PATH_add hactar/build      # `hactar` now resolves to ./hactar/build/hactar~%watch_file .hactar.lisp    # re-enter env when the CLI changes~%")))
+      (if (probe-file envrc-file)
+          (let ((existing (uiop:read-file-string envrc-file)))
+            (unless (search "hactar/build" existing)
+              (with-open-file (s envrc-file :direction :output :if-exists :append)
+                (format s "~&~A~%" envrc-content))
+              (format t "~&Appended Hactar config to .envrc~%")))
+          (progn
+            (with-open-file (s envrc-file :direction :output :if-exists :supersede :if-does-not-exist :create)
+              (write-string envrc-content s))
+            (format t "~&Created .envrc with Hactar config~%"))))
+    ;; 2. .gitignore
+    (let ((gitignore-entry "hactar/build/"))
+      (if (probe-file gitignore-file)
+          (let ((existing (uiop:read-file-string gitignore-file)))
+            (unless (search gitignore-entry existing)
+              (with-open-file (s gitignore-file :direction :output :if-exists :append)
+                (format s "~&~A~%" gitignore-entry))
+              (format t "~&Added hactar/build/ to .gitignore~%")))
+          (progn
+            (with-open-file (s gitignore-file :direction :output :if-exists :supersede :if-does-not-exist :create)
+              (format s "~A~%" gitignore-entry))
+            (format t "~&Created .gitignore with hactar/build/~%"))))))
+
+;;** Sub-commands: scan / init / project.update / doctor
 
 (define-sub-command scan (args)
   "Scan the current project and generate CWD/.hactar.lisp (project data map)."
@@ -1068,6 +1255,11 @@ preserving the user region. When LOAD, load the result. Returns pathname."
 CWD/.hactar.lisp, preserving the user region."
   (declare (ignore args))
   (generate-project-cli-file :load t))
+
+(define-sub-command doctor (args)
+  "Verify and fix project environment (writes .envrc and updates .gitignore)."
+  (declare (ignore args))
+  (run-doctor *repo-root*))
 
 ;;** Continuous diffusion-driven updates
 
@@ -1095,7 +1287,7 @@ CWD/.hactar.lisp, preserving the user region."
          (pcli (ensure-project-cli name)))
     (setf (project-cli-root pcli) root)
     (setf *pcli-current-project* name)
-    (run-active-fusions pcli)
+    (synth-update pcli :apply t)
     (load-project-cli-file root)
     (setf *project-cli-update-queue* '())))
 

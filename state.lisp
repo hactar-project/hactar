@@ -300,6 +300,12 @@ Generated using tree-sitter")
 ;;* Agent
 (defstate *agent-definitions* (make-hash-table :test 'equal)
                             "Hash table storing agent definitions keyed by name.")
+(defstate *agent-harnesses* (make-hash-table :test 'equal)
+                            "Hash table storing agent harness definitions.")
+(defstate *defined-skills* (make-hash-table :test 'equal)
+                            "Hash table storing defined skills.")
+(defstate *defined-sandboxes* (make-hash-table :test 'equal)
+                            "Hash table storing defined sandboxes.")
 (defstate *running-agents* (make-hash-table :test 'equal)
                          "Hash table storing active agent instances, keyed by a unique ID.")
 (defstate *agent-retry-limit* 10

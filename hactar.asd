@@ -1,5 +1,5 @@
-(asdf:defsystem #:hactar
-  :description "Hactar is an AI pair programmer."
+(asdf:defsystem #:hactar-core
+  :description "Hactar core engine and library."
   :author "K-2052"
   :license "MIT"
   :depends-on (#:cl-ppcre
@@ -155,8 +155,15 @@
 	       (:file "ruhe")
 	       (:file "slynk")
 	       (:file "wiki")
-	       (:file "project-cli")
-	       (:file "hactar"))
+	       (:file "project-cli")))
+
+(asdf:defsystem #:hactar
+  :description "Hactar is an AI pair programmer."
+  :author "K-2052"
+  :license "MIT"
+  :depends-on (#:hactar-core)
+  :serial t
+  :components ((:file "hactar"))
   :build-operation "program-op"
-  :build-pathname "hactar"
+  :build-pathname "hactar/build/hactar"
   :entry-point "hactar:main")

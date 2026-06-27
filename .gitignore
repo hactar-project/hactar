@@ -6,3 +6,4 @@ releases
 .tags
 debug-error.lisp
 .hactar/
+hactar/build/

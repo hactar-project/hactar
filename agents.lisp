@@ -20,31 +20,51 @@
   last-command-status
   (retry-count 0))
 
-(defmacro defagent (name args &body body)
-  "Define an agent that can be run to perform tasks.
-   The body should contain a docstring (optional) followed by keyword arguments:
-   :stack (optional list of strings)
-   :init (required form)
-   :run (optional form)
-   :stop-condition (optional form)
-   :cleanup (optional form)"
-  (let* ((docstring (when (stringp (first body)) (first body)))
-         (body-without-doc (if docstring (rest body) body))
-         (plist body-without-doc)
-         (agent-name-sym (intern (string-upcase (symbol-name name)) :hactar)))
-    `(progn
-       (setf (gethash ',agent-name-sym *agent-definitions*)
-             (make-agent-definition
-              :name ',agent-name-sym
-              :args ',args
-              :docstring ,docstring
-              :stack ',(getf plist :stack)
-              :init-form ',(getf plist :init)
-              :run-form ',(getf plist :run)
-              :stop-condition-form ',(getf plist :stop-condition)
-              :cleanup-form ',(getf plist :cleanup)
-              :package ,(package-name *package*)))
-       ',agent-name-sym)))
+(defmacro defagent (name &rest args)
+  "Define an agent.
+Supports two syntaxes:
+  1. (defagent name args &body body) - thread execution loop
+  2. (defagent name &key model tools skills sandbox instructions) - harness definition"
+  (if (and args (listp (car args)))
+      (let* ((args-list (car args))
+             (body (cdr args))
+             (docstring (when (stringp (first body)) (first body)))
+             (body-without-doc (if docstring (rest body) body))
+             (plist body-without-doc)
+             (agent-name-sym (intern (string-upcase (symbol-name name)) :hactar)))
+        `(progn
+           (setf (gethash ',agent-name-sym *agent-definitions*)
+                 (make-agent-definition
+                  :name ',agent-name-sym
+                  :args ',args-list
+                  :docstring ,docstring
+                  :stack ',(getf plist :stack)
+                  :init-form ',(getf plist :init)
+                  :run-form ',(getf plist :run)
+                  :stop-condition-form ',(getf plist :stop-condition)
+                  :cleanup-form ',(getf plist :cleanup)
+                  :package ,(package-name *package*)))
+           ',agent-name-sym))
+      ;; New format: (defagent name &key model tools skills sandbox instructions)
+      (let* ((model (getf args :model))
+             (tools (getf args :tools))
+             (skills (getf args :skills))
+             (sandbox (getf args :sandbox))
+             (instructions (getf args :instructions))
+             (agent-name-sym (intern (string-upcase (symbol-name name)) :hactar)))
+        `(progn
+           (setf (gethash ',agent-name-sym *agent-definitions*)
+                 (make-agent-definition
+                  :name ',agent-name-sym
+                  :args nil
+                  :docstring ,instructions
+                  :stack nil
+                  :init-form nil
+                  :run-form '(format t "Running agent ~A with model ~A~%" ',name ,model)
+                  :package ,(package-name *package*)))
+           (setf (gethash ',agent-name-sym *agent-harnesses*)
+                 (list :model ,model :tools ',tools :skills ',skills :sandbox ',sandbox :instructions ,instructions))
+           ',agent-name-sym))))
 
 (defagent cmd (command-string &optional user-prompt-path)
   "Runs a command, and if it fails, asks an LLM for a fix and retries up to 3 times."
