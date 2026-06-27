@@ -33,7 +33,9 @@ Three things make this real, and each is a section below:
    project's own binary.
 
 The good news: the spine for all three already exists in the codebase
-(=project-cli.lisp=, =lisp-form-parser.lisp=, =fusion.lisp=, =diffusion-complete=).
+(=project-cli.lisp=, =lisp-form-parser.lisp=, =diffusion-complete=). The one
+piece we *rebuild rather than reuse* is the synthesis pipeline: the existing
+=fusion.lisp=/=deffusion= macro is replaced by a handful of small functions.
 This refactor *promotes that spine to the center* and deletes everything that
 competes with it.
 
@@ -113,8 +115,10 @@ the **Surface** (see "API subset" below).
 | 8 | =project=   | the data map: =defproject/defroutes/defmodels= | project-cli.lisp    | keep; CENTER  |
 
 Two engine-internal services that power self-update (not user-facing verbs):
-- =diffusion= : =diffusion-complete= + =parse-diffusion-output= + the =deffusion=
-  pipeline (fern-extract → diff → diffuse → validate → emit).
+- =synth= : a *new, small* synthesis pipeline (see "Self-Update Agent") — plain
+  functions, not the old macro-heavy =deffusion=/=fusion= stack, which is
+  *deleted and rebuilt*. Wraps =diffusion-complete= + =parse-diffusion-output= +
+  the Surface validator.
 - =builder=  : =asdf:make= a project binary to =./hactar/build/hactar=.
 
 ** The one composition that defines a verb: =defaction=
@@ -136,17 +140,21 @@ route args. =:apply= ∈ {=:show=, =:search-replace=, =:create=, =:shell-confirm
 * Self-Generation (first run)
 
 Already 80% built: =generate-project-cli-file= (=project-cli.lisp:1027=) does
-detect-stack → extract routes/models → =write-hactar-lisp= → =run-active-fusions=
-→ =load=. The refactor extends it from *data-only* to *data + behavior*.
+detect-stack → extract routes/models → =write-hactar-lisp= → =load=. The refactor
+extends it from *data-only* to *data + behavior*, and replaces the
+=run-active-fusions= call with a single =synth-update= pass (the rebuilt
+pipeline; same one used by self-update).
 
 ** Pipeline
 1. =ensure-repo-root= + =pcli-detect-stack= (existing analyzers).
-2. Hard-coded extraction via =fern=: =extract-routes=, =extract-models=,
-   scripts/deps/envs → deterministic =defroutes=/=defmodels=/=defscripts=.
+2. Hard-coded extraction via plain =extract-*= functions (=extract-routes=,
+   =extract-models=, scripts/deps/envs) → deterministic
+   =defroutes=/=defmodels=/=defscripts=. (These absorb the old =:fern-extract=
+   stage logic, decoupled from any pipeline macro.)
 3. *Behavior synthesis* (new): from the detected stack, select =defmode=s and
-   emit a starter set of =defaction=s + =defprompt=s. This is a diffusion pass
-   constrained to the Surface (below), seeded by stack templates in
-   =starters.lisp=/=preset.lisp=.
+   emit a starter set of =defaction=s + =defprompt=s via one =synth-update= /
+   =diffuse-forms= call constrained to the Surface (below), seeded by stack
+   templates in =starters.lisp=/=preset.lisp=.
 4. =write-hactar-lisp= with preserved user region (existing).
 5. =builder=: =asdf:make= → =./hactar/build/hactar=; verify it loads
    (=check-string=/checker) before swapping in.
@@ -174,21 +182,67 @@ These are the "diff signal": evidence of verbs the user keeps doing by hand,
 docs they keep pulling, prompts they keep retyping — candidates to crystallize
 into =defaction=/=defprompt=/=defdoc= forms.
 
-** The loop (reuses =deffusion=, =fusion.lisp:11=)
+** The loop (a new, small synthesis pipeline — NOT =deffusion=)
+
+We *delete the existing =fusion.lisp=/=deffusion= machinery and rebuild it* as a
+handful of plain functions. The old =deffusion= is a heavy code-generating macro
+(=fusion.lisp:11-118=) that expands a five-keyword stage DSL
+(=:fern-extract= / =:diff-detect= / =:diffuse= / =:validate= / =:emit=) into a
+generated =run-fusion-NAME= function, with stage-variable plumbing, a fern
+dependency baked into extraction, and a stub =:diff-detect=. It is more
+machinery than the job needs and is hard for the agent (or a human) to reason
+about.
+
+Replace it with five ordinary functions wired by one tiny driver — no macro, no
+DSL, no registry:
+
+#+begin_src lisp
+(defun synth-update (project &key (apply t))
+  "One self-update tick. Returns the merged forms (or NIL if no change)."
+  (let* ((signal  (collect-signal project))                 ; recent turns+tools
+         (current (read-hactar-lisp (hactar-file project)))  ; existing forms
+         (candidates (when (signal-ready-p signal current)   ; debounce/threshold
+                       (diffuse-forms project signal current))))
+    (when candidates
+      (let ((valid (validate-forms candidates)))             ; closed Surface only
+        (when valid
+          (let ((merged (merge-hactar-forms current valid)))
+            (when apply (apply-update project merged))        ; write + reload + guard
+            merged))))))
+#+end_src
+
+The five helpers (each independently testable):
+1. =collect-signal= — window + redact recent chat/tool/edit events (from hooks).
+2. =diffuse-forms= — build the prompt (Surface spec + current file + signal),
+   call =diffusion-complete=, =parse-diffusion-output= → candidate forms.
+3. =validate-forms= — =validate-hactar-form= against the closed Surface +
+   =correct-hactar-form=; drop anything off-Surface.
+4. =merge-hactar-forms= — into the GENERATED region only (reused as-is from
+   =lisp-form-parser.lisp=; the user region stays untouched).
+5. =apply-update= — =write-hactar-lisp :merge-p t=, hot-=load=, and on
+   =check=/load failure roll back to last-known-good.
+
+What we *keep* from today (these are good, small, and already used):
+=diffusion-complete=, =parse-diffusion-output=, =read-hactar-lisp=,
+=merge-hactar-forms=, =write-hactar-lisp=, =validate-hactar-form=. What we
+*drop*: the =deffusion= macro, =*fusion-registry*=, the =fusion= struct,
+=run-active-fusions=, the stage-keyword DSL, and the =fusions/*= files. Hard-coded
+structural extraction (the old =:fern-extract= stage) moves to plain
+=extract-*= functions used during *generation* (Self-Generation), not the update
+loop — keeping the update loop pure signal→forms with no parser dependency.
+
 #+begin_src text
 collect-signal            ; recent turns + tool calls (windowed, redacted)
    │
-diff-detect               ; what's new vs current .hactar.lisp model
-   │  (triggered on every turn using a hook)
-diffuse                   ; diffusion-complete( surface-spec + current-file + signal )
+signal-ready-p            ; debounce / threshold vs current .hactar.lisp model
+   │  (driven by a hook on each turn)
+diffuse-forms             ; diffusion-complete( surface-spec + current-file + signal )
    │                        → candidate Hactar forms (parse-diffusion-output)
-validate                  ; validate-hactar-form against the closed Surface;
+validate-forms            ; validate-hactar-form against the closed Surface;
    │                        correct-hactar-form heuristics; reject anything else
-merge                     ; merge-hactar-forms into GENERATED region only
-   │                        (user region untouched; pcli-extract-user-region)
-apply + reload            ; write-hactar-lisp :merge-p t; load (hot) — or queue rebuild
+merge-hactar-forms        ; into GENERATED region only (user region untouched)
    │
-guard                     ; rollback on load/check failure; loop/oscillation guard
+apply-update              ; write-hactar-lisp :merge-p t; load (hot); rollback guard
 #+end_src
 
 ** Cadence & safety
@@ -287,9 +341,9 @@ The spine of the new architecture is promoted to the center; competitors deleted
 |---------------------------------------+---------+---------------------------------------------------------|
 | project-cli.lisp                      | CENTER  | =.hactar.lisp= = the app; extend to behavior forms      |
 | lisp-form-parser.lisp                 | CENTER  | the Surface validator + safe merge/write; extend schema |
-| fusion.lisp, fusions/*                | CENTER  | the self-update pipeline (=deffusion=)                  |
+| fusion.lisp, fusions/*                | REBUILD | DELETE the =deffusion= macro/registry; replace with the small =synth-*= functions |
 | llm-utils.lisp (=diffusion-complete=) | CENTER  | the diffusion client                                    |
-| fern.lisp                             | KEEP    | hard-coded extraction for generation                    |
+| fern.lisp                             | KEEP    | hard-coded extraction for generation (plain =extract-*=)|
 | llm.lisp, prompts.lisp, context.lisp  | KEEP    | kernel primitives 1–3                                   |
 | router.lisp                           | KEEP    | the one dispatcher; =defaction= compiles to routes      |
 | mode.lisp                             | EXTEND  | add =:actions=/=:response=; the module unit             |
@@ -327,16 +381,20 @@ Add =defaction= (route+prompt+apply). Extend =*hactar-form-schemas*= with
 
 ** Phase 3 — Self-generation of behavior
 Extend =generate-project-cli-file= to emit modes/actions/prompts (behavior
-synthesis), not just data. Validate generated files load + pass checks.
+synthesis), not just data. Replace =run-active-fusions= with a single
+=synth-update= pass. Validate generated files load + pass checks.
 
 ** Phase 4 — Builder + self-hosting
 =builder= target → =./hactar/build/hactar=. Generated =.envrc= + global launcher
 shim + =.gitignore= wiring. Verify =hactar <verb>= resolves to the project binary
 with and without direnv.
 
-** Phase 5 — Self-update agent
-Wire the watcher (hooks on history + tool calls) → =deffusion= loop → validate →
-merge into GENERATED region → hot-reload. Implement =:auto-update= ∈
+** Phase 5 — Rebuild the synthesis pipeline + self-update agent
+*Delete* =fusion.lisp= (the =deffusion= macro, =fusion= struct, =*fusion-registry*=,
+=run-active-fusions=) and the =fusions/*= files. Build the new =synth-*= functions
+(=collect-signal=, =diffuse-forms=, =validate-forms=, =apply-update=, driver
+=synth-update=). Wire the watcher (hooks on history + tool calls) → =synth-update=
+→ validate → merge into GENERATED region → hot-reload. Implement =:auto-update= ∈
 {=nil=,=:suggest=,=:auto=}, rollback, loop guard. Default is =:auto=.
 
 ** Phase 6 — Delete the competitors
@@ -344,7 +402,7 @@ Remove =dots=, =molds=, =litmode=, =monolith=, =org-mode=. Rewrite =*-mode.lisp=
 as =defmode= + prompt folders. Build the =:hactar= org interface.
 
 ** Phase 7 — Extract & document
-Split =codegen=/=fern=/=fusion= plug-in boundary; extract =ruhe=/=hyperfractal=.
+Split =codegen=/=fern= plug-in boundary; extract =ruhe=/=hyperfractal=.
 Rewrite docs around: "Hactar generates a CLI for your project, then keeps
 writing it."
 
