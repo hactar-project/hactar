@@ -39,6 +39,93 @@ piece we *rebuild rather than reuse* is the synthesis pipeline: the existing
 This refactor *promotes that spine to the center* and deletes everything that
 competes with it.
 
+* Inspiration: Flue — Hactar Generates the Harness, Not Just Verbs
+
+[[https://flueframework.com][Flue]] is a TypeScript framework where you *define an
+agent by composing a harness*: a model, a set of tools, a set of skills, a
+sandbox, and instructions — then run it anywhere. Its core form is data:
+
+#+begin_src typescript
+export default defineAgent(() => ({
+  model:   'anthropic/claude-sonnet-4-6',
+  tools:   [replyToIssue],          // typed functions the agent may call
+  skills:  [triage, verify],        // SKILL.md capability bundles
+  sandbox: local(),                 // virtual / local / remote container
+  instructions,                     // the agent's standing brief
+}));
+#+end_src
+
+The idea we steal: *the unit of generation is a composed harness, not a loose
+verb*. Today Hactar already has the pieces — =defagent= (=agents.lisp:23=),
+=defmode= with =defmode-command= scaffolds (=react-router.lisp:20-58=), tools
+(=tools.lisp=), skills (=skills-mode.lisp=), and sandboxes
+(=sandbox.shell.nix=) — but they are hand-written per stack. The reframing:
+
+#+begin_quote
+Hactar is a *library* for synthesizing a bespoke agent + harness for one project.
+=.hactar.lisp= is the generated harness — a Flue-style =defagent= composed from
+=tool=, =skill=, =sandbox=, =prompt=, and stack-specific =action= forms — and
+Hactar writes (most of) it for you, then keeps writing it.
+#+end_src
+
+So self-generation does not stop at =defroutes=/=defmodels=. From the detected
+stack it emits a *project-tailored harness*: the agents, the tools they may call,
+the skills they load, the sandbox they run in, and the =defaction= verbs that
+scaffold *that stack's* artifacts. A TypeScript + React Router repo gets
+TypeScript-aware tooling and verbs like =route.create= / =api.create=; a Rails
+repo gets =migration.create= / =controller.create=; etc. (worked example below).
+
+** Worked example — TypeScript + React Router
+
+On first run in a TS + react-router repo, Hactar detects the stack
+(=react-router.lisp:6-17=) and diffuses a generated region that *composes a
+harness specific to that project*:
+
+#+begin_src lisp
+;; ── BEGIN GENERATED (TypeScript + React Router) ──
+(defproject :stack ("typescript" "react" "react-router" "vite"))
+
+;; Tools: typed, sandboxed functions the agent may call (Flue `tools:`)
+(deftool tsc       :run "npx tsc --noEmit"           :doc "Type-check the project.")
+(deftool vitest    :run "npx vitest run {{args}}"    :doc "Run unit tests.")
+(deftool rr-routes :run "npx react-router routes"    :doc "List the route tree.")
+
+;; Skills: capability bundles loaded into context (Flue `skills:`)
+(defskill react-router :doc "react-router.org" :rules :react-router)
+
+;; Sandbox the harness runs in (Flue `sandbox:`)
+(defsandbox project :kind :local :allow ("npx" "node" "git"))
+
+;; Actions: stack-specific scaffolding verbs (route+prompt+apply)
+(defaction route.create
+  :doc    "Create a typed React Router route + loader/action."
+  :prompt "Create a React Router route {{name}} under src/routes using a typed
+           loader and action, then register it in src/routes.tsx. {{doc:react-router}}"
+  :apply  :create)
+
+(defaction api.create
+  :doc    "Create a typed API resource route (server loader/action)."
+  :prompt "Create an API resource route {{name}} with typed request/response
+           handlers for this {{stack}} project. {{doc:react-router}}"
+  :apply  :create)
+
+;; Agent: the composed harness (Flue `defineAgent`)
+(defagent dev
+  :model    "anthropic/claude-sonnet-4-6"
+  :tools    (tsc vitest rr-routes)
+  :skills   (react-router)
+  :sandbox  project
+  :instructions "Build React Router features end-to-end: scaffold the route,
+                 wire data loaders/actions, type-check, and verify with vitest.")
+;; ── END GENERATED ──
+#+end_src
+
+Running =hactar route.create Dashboard= dispatches the generated =defaction=;
+=hactar dev "add a settings page"= runs the composed agent with its TS-aware
+tools, react-router skill, and sandbox. The same harness can be run by =hactar=
+locally or invoked headless in CI — "define once, run anywhere," the Flue
+property, applied to per-project dev tooling.
+
 * The Two-Layer Architecture
 
 ** Layer 1 — The Engine (a library: =hactar-core=)
@@ -49,9 +136,10 @@ verbs of its own* beyond bootstrap (=init=, =update=, =build=, =doctor=).
 
 ** Layer 2 — The Project (=.hactar.lisp=: the application)
 A single per-repo file that =(in-package :hactar)= and is *pure composition of
-kernel primitives*: =defproject=, =defmodels=, =defroutes= (data) plus =defmode=,
-=defaction=, =defprompt=, =defdoc= (behavior). It has two regions, already
-established by the writer (=lisp-form-parser.lisp:207-222=):
+kernel primitives*: =defproject=, =defmodels=, =defroutes= (data); =defmode=,
+=defaction=, =defprompt=, =defdoc= (behavior); and the Flue-style *harness*
+forms =deftool=, =defskill=, =defsandbox=, =defagent= (a composed agent). It has
+two regions, already established by the writer (=lisp-form-parser.lisp:207-222=):
 
 - =;; BEGIN GENERATED= … =;; END GENERATED= — owned by the generator + the
   self-update agent; freely rewritten.
@@ -72,6 +160,7 @@ verbs. *That file is the CLI.*
    │ ./.hactar.lisp  (per-project application)    │
    │   defproject/defmodels/defroutes  (DATA)     │
    │   defmode/defaction/defprompt/defdoc (BEHAV) │
+   │   deftool/defskill/defsandbox/defagent (HARNESS) │
    │   ── BEGIN GENERATED … END GENERATED ──      │
    │   ── user region (preserved) ──              │
    └──────────────────────────────────────────────┘
@@ -113,6 +202,15 @@ the **Surface** (see "API subset" below).
 | 6 | =interface= | two-way file<->state (the org surface)         | interface.lisp      | keep; promote |
 | 7 | =knowledge= | =$hypertext= docs/snippets by URI: =defdoc=    | hypertext.lisp      | keep, rename  |
 | 8 | =project=   | the data map: =defproject/defroutes/defmodels= | project-cli.lisp    | keep; CENTER  |
+| 9 | =tool=      | typed fn the agent may call: =deftool=         | tools.lisp          | keep; promote |
+|10 | =skill=     | a capability bundle (SKILL.md): =defskill=     | skills-mode.lisp    | keep; promote |
+|11 | =sandbox=   | where the harness runs: =defsandbox=           | sandbox.shell.nix   | add form      |
+|12 | =agent=     | composed harness (model+tools+skills+sandbox+instructions): =defagent= | agents.lisp | keep; promote |
+
+Primitives 9–12 are the *harness layer* (the Flue inspiration): =defagent= is the
+=defineAgent= analog, composing =tool=/=skill=/=sandbox=/=prompt= into one runnable
+unit. Like the rest, they are emittable by the diffusion agent and live on the
+Surface.
 
 Two engine-internal services that power self-update (not user-facing verbs):
 - =synth= : a *new, small* synthesis pipeline (see "Self-Update Agent") — plain
@@ -151,10 +249,11 @@ pipeline; same one used by self-update).
    =extract-models=, scripts/deps/envs) → deterministic
    =defroutes=/=defmodels=/=defscripts=. (These absorb the old =:fern-extract=
    stage logic, decoupled from any pipeline macro.)
-3. *Behavior synthesis* (new): from the detected stack, select =defmode=s and
-   emit a starter set of =defaction=s + =defprompt=s via one =synth-update= /
-   =diffuse-forms= call constrained to the Surface (below), seeded by stack
-   templates in =starters.lisp=/=preset.lisp=.
+3. *Behavior + harness synthesis* (new): from the detected stack, select
+   =defmode=s and emit a starter set of =defaction=s + =defprompt=s *and the
+   project's harness* (=deftool=/=defskill=/=defsandbox=/=defagent=, the Flue
+   inspiration) via one =synth-update= / =diffuse-forms= call constrained to the
+   Surface (below), seeded by stack templates in =starters.lisp=/=preset.lisp=.
 4. =write-hactar-lisp= with preserved user region (existing).
 5. =builder=: =asdf:make= → =./hactar/build/hactar=; verify it loads
    (=check-string=/checker) before swapping in.
@@ -262,10 +361,12 @@ already modeled by =*hactar-form-schemas*= (=lisp-form-parser.lisp:3-13=) — a
 whitelist with required/optional keys per form, enforced by =validate-hactar-form=
 with =correct-hactar-form= heuristics. The refactor:
 
-1. *Extend the schema* from data-only to include behavior forms:
-   =defmode=, =defaction=, =defprompt=, =defdoc=, =defroute=. Each gets a
+1. *Extend the schema* from data-only to include behavior + harness forms:
+   =defmode=, =defaction=, =defprompt=, =defdoc=, =defroute=, and the harness
+   forms =deftool=, =defskill=, =defsandbox=, =defagent=. Each gets a
    required/optional key spec (e.g. =defaction= → required =(:doc)=, one of
-   =(:prompt :prompt-file)=, optional =(:apply :when)=).
+   =(:prompt :prompt-file)=, optional =(:apply :when)=; =defagent= → required
+   =(:model)=, optional =(:tools :skills :sandbox :instructions)=).
 2. *Generate the spec to feed the model* from the schema, reusing the existing
    spec machinery (=build-subcommand-group-spec=, =--spec-lisp=/=--spec= in
    =hactar.lisp:2417-2422=). The diffusion system prompt embeds:
@@ -350,6 +451,10 @@ The spine of the new architecture is promoted to the center; competitors deleted
 | interface.lisp                        | EXTEND  | =:hactar= org surface (human view of the model)         |
 | hypertext.lisp                        | RENAME  | =knowledge=/=defdoc=                                    |
 | hooks/history/session/tools           | KEEP    | the watch signal for self-update                        |
+| agents.lisp                           | PROMOTE | =defagent= = the composed harness (Flue =defineAgent=)  |
+| tools.lisp                            | PROMOTE | =deftool= = typed fns on the Surface; harness =:tools=  |
+| skills-mode.lisp                      | PROMOTE | =defskill= = capability bundles; harness =:skills=      |
+| sandbox.shell.nix / sandbox forms     | EXTEND  | =defsandbox= = where the harness runs; harness =:sandbox= |
 | build.lisp + Makefile                 | EXTEND  | =builder= → =./hactar/build/hactar=; emit =.envrc=      |
 | commands.lisp                         | SLIM    | =define-command= → thin wrapper over =defroute=         |
 | dots.lisp                             | DELETE  | → =defaction= data + prompt files                       |
@@ -375,14 +480,18 @@ Carve =hactar-core= out of =hactar.asd= (kernel + diffusion + builder). =.hactar
 becomes the application that composes it. Prove =hactar= still runs by loading a
 trivial generated file.
 
-** Phase 2 — =defaction= + extend the Surface schema
-Add =defaction= (route+prompt+apply). Extend =*hactar-form-schemas*= with
-=defaction/defmode/defprompt/defdoc=. Generate the Surface Spec from the schema.
+** Phase 2 — =defaction= + harness forms + extend the Surface schema
+Add =defaction= (route+prompt+apply) and the Flue-style harness forms
+=deftool=/=defskill=/=defsandbox=/=defagent= (composing model+tools+skills+
+sandbox+instructions). Extend =*hactar-form-schemas*= with
+=defaction/defmode/defprompt/defdoc= and =deftool/defskill/defsandbox/defagent=.
+Generate the Surface Spec from the schema.
 
-** Phase 3 — Self-generation of behavior
-Extend =generate-project-cli-file= to emit modes/actions/prompts (behavior
-synthesis), not just data. Replace =run-active-fusions= with a single
-=synth-update= pass. Validate generated files load + pass checks.
+** Phase 3 — Self-generation of behavior + harness
+Extend =generate-project-cli-file= to emit modes/actions/prompts *and the
+project-tailored harness* (tools/skills/sandbox/agent) — e.g. the TS +
+react-router worked example above — not just data. Replace =run-active-fusions=
+with a single =synth-update= pass. Validate generated files load + pass checks.
 
 ** Phase 4 — Builder + self-hosting
 =builder= target → =./hactar/build/hactar=. Generated =.envrc= + global launcher
