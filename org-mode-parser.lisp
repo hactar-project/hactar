@@ -43,7 +43,12 @@
            #:heading-all-tags
            #:heading-depth
            #:get-doc-setting
-           #:set-doc-setting))
+           #:set-doc-setting
+           #:filter-headlines
+           #:escape-for-org-s
+           #:upsert-files-section
+           #:upsert-docs-section
+           #:upsert-errors-section))
 
 (in-package :org-mode-parser)
 
@@ -661,3 +666,191 @@
       (if existing
           (setf (cdr existing) value)
           (push (cons key value) (document-settings doc))))))
+
+(defun filter-headlines (org-string tags-to-filter)
+  "Removes headline sections from org-string that contain ANY of the tags-to-filter (case-insensitive)."
+  (when (or (null org-string) (string= org-string "") (null tags-to-filter))
+    (return-from filter-headlines org-string))
+  (let* ((doc (parse-org-string org-string))
+         (filter-tags-lower (mapcar #'string-downcase tags-to-filter))
+         (to-remove '()))
+    (walk-tree
+     doc
+     (lambda (node)
+       (when (typep node 'org-heading)
+         (let ((headline-tags (mapcar #'string-downcase (heading-tags node))))
+           (when (intersection filter-tags-lower headline-tags :test #'string=)
+             (push node to-remove))))))
+    (dolist (node to-remove)
+      (when (node-parent node)
+        (remove-node node)))
+    (string-right-trim '(#\Newline) (org-to-string doc))))
+
+(defun escape-for-org-s (s)
+  "Escape S when a line starts with specific characters (stars, hashes, commas)"
+  (with-output-to-string (out)
+    (let ((lines (uiop:split-string s :separator '(#\Newline))))
+      (dolist (line lines)
+        (let ((escaped (cl-ppcre:regex-replace-all "^(\\*|\\#|\\#\\+|,\\*|,\\#\\+)" line ",\\1")))
+          (write-line escaped out))))))
+
+(defun upsert-files-section (org-string files-content-string &key (heading-title "Files") (level 1))
+  "Create or update the Files headline with src blocks content using the parser.
+   Returns the modified Org string."
+  (handler-case
+      (let* ((doc (parse-org-string (or org-string "")))
+             (files-heading
+               (find-node
+                doc
+                (lambda (node)
+                  (and (typep node 'org-heading)
+                       (string= (heading-title node) heading-title))))))
+        (unless files-heading
+          (setf files-heading (make-instance 'org-heading
+                                             :type :heading
+                                             :level level
+                                             :title heading-title))
+          (add-child doc files-heading))
+        ;; Remove existing children
+        (dolist (child (copy-list (node-children files-heading)))
+          (remove-node child))
+        ;; Add fresh paragraph with the src blocks content
+        (when (and files-content-string (not (string= files-content-string "")))
+          (add-child
+           files-heading
+           (make-instance 'org-paragraph
+                          :type :paragraph
+                          :content (string-right-trim '(#\Newline) files-content-string))))
+        (string-right-trim '(#\Newline) (org-to-string doc)))
+    (error ()
+      ;; Fallback: minimal document with Files heading
+      (with-output-to-string (s)
+        (format s "* ~A~%~A~%" heading-title (or files-content-string ""))))))
+
+(defun upsert-docs-section (org-string docs-plists &key (heading-title "Documentation") (level 1))
+  "Create or update the Documentation headline and replace its children with headings
+   for each doc in DOCS-PLISTS."
+  (handler-case
+      (let* ((doc (parse-org-string (or org-string "")))
+             (docs-heading
+               (find-node
+                doc
+                (lambda (node)
+                  (and (typep node 'org-heading)
+                       (string= (heading-title node) heading-title))))))
+        (unless docs-heading
+          (setf docs-heading (make-instance 'org-heading
+                                            :type :heading
+                                            :level level
+                                            :title heading-title))
+          (add-child doc docs-heading))
+        ;; Remove existing children
+        (dolist (child (copy-list (node-children docs-heading)))
+          (remove-node child))
+        ;; Add new children
+        (dolist (d docs-plists)
+          (let* ((title (or (cdr (assoc :title d)) (cdr (assoc :TITLE d)) "Untitled"))
+                 (source-id (or (cdr (assoc :SOURCE_ID d)) (cdr (assoc :source-id d)) (format nil "~A" (uuid:make-v4-uuid))))
+                 (raw (or (cdr (assoc :content d)) (cdr (assoc :CONTENT d)) "")))
+            (let ((h (make-instance 'org-heading
+                                    :type :heading
+                                    :level (1+ level)
+                                    :title title))
+                  (props (make-instance 'org-properties-drawer
+                                        :type :properties-drawer
+                                        :properties `((:SOURCE_ID . ,source-id))))
+                  (para (make-instance 'org-paragraph
+                                       :type :paragraph
+                                       :content (with-output-to-string (s)
+                                                  (format s "#+begin_src text~%~A#+end_src"
+                                                          (escape-for-org-s (string-right-trim '(#\Newline) raw)))))))
+              (add-child h props)
+              (add-child h para)
+              (add-child docs-heading h))))
+        (string-right-trim '(#\Newline) (org-to-string doc)))
+    (error ()
+      ;; Fallback: minimal section with titles only
+      (with-output-to-string (s)
+        (format s "* ~A~%" heading-title)
+        (dolist (d docs-plists)
+          (format s "** ~A~%:PROPERTIES:~%:SOURCE_ID: ~A~%:END:~%"
+                  (or (cdr (assoc :title d)) (cdr (assoc :TITLE d)) "Untitled")
+                  (or (cdr (assoc :SOURCE_ID d)) (cdr (assoc :source-id d)) "")))))))
+
+(defun upsert-errors-section (org-string errors-plists &key (heading-title "Errors") (level 1))
+  "Create or update the Errors headline and replace its children with headings
+   for each error in ERRORS-PLISTS."
+  (handler-case
+      (let* ((doc (parse-org-string (or org-string "")))
+             (errors-heading
+               (find-node
+                doc
+                (lambda (node)
+                  (and (typep node 'org-heading)
+                       (string= (heading-title node) heading-title))))))
+        (unless errors-heading
+          (setf errors-heading (make-instance 'org-heading
+                                              :type :heading
+                                              :level level
+                                              :title heading-title))
+          (add-child doc errors-heading))
+        ;; Remove existing children
+        (dolist (child (copy-list (node-children errors-heading)))
+          (remove-node child))
+        ;; Add new children
+        (dolist (err errors-plists)
+          (let* ((title (or (cdr (assoc :title err)) "Untitled Error"))
+                 (code (or (cdr (assoc :code err)) "unknown-code"))
+                 (msg (or (cdr (assoc :message err)) ""))
+                 (cause (or (cdr (assoc :cause err)) ""))
+                 (solution (or (cdr (assoc :solution err)) ""))
+                 (tags (cdr (assoc :tags err))))
+            (let ((h (make-instance 'org-heading
+                                    :type :heading
+                                    :level (1+ level)
+                                    :title title))
+                  (props (make-instance 'org-properties-drawer
+                                        :type :properties-drawer
+                                        :properties `((:CODE . ,code)
+                                                      ,@(when tags `((:TAGS . ,(format nil "~{~A~^ ~}" (coerce tags 'list))))))))
+                  (msg-block (make-instance 'org-src-block
+                                            :type :src-block
+                                            :language "error"
+                                            :content msg))
+                  (cause-h (make-instance 'org-heading
+                                          :type :heading
+                                          :level (+ level 2)
+                                          :title "Cause"))
+                  (cause-p (make-instance 'org-paragraph
+                                          :type :paragraph
+                                          :content cause))
+                  (sol-h (make-instance 'org-heading
+                                        :type :heading
+                                        :level (+ level 2)
+                                        :title "Solution"))
+                  (sol-p (make-instance 'org-paragraph
+                                        :type :paragraph
+                                        :content solution)))
+
+              (add-child h props)
+              (add-child h msg-block)
+
+              (add-child cause-h cause-p)
+              (add-child h cause-h)
+
+              (add-child sol-h sol-p)
+              (add-child h sol-h)
+
+              (add-child errors-heading h))))
+        (string-right-trim '(#\Newline) (org-to-string doc)))
+    (error ()
+      ;; Fallback
+      (with-output-to-string (s)
+        (format s "* ~A~%" heading-title)
+        (dolist (err errors-plists)
+          (format s "** ~A~%:PROPERTIES:~%:CODE: ~A~%:END:~%#+begin_src error~%~A~%#+end_src~%*** Cause~%~A~%*** Solution~%~A~%"
+                  (cdr (assoc :title err))
+                  (cdr (assoc :code err))
+                  (cdr (assoc :message err))
+                  (cdr (assoc :cause err))
+                  (cdr (assoc :solution err))))))))

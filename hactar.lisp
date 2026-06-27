@@ -13,12 +13,6 @@
   (when (and *tools-in-system-prompt* *tool-use-enabled*)
     (generate-all-tools-xml)))
 
-(defun get-litmode-context-section ()
-  "Generate the litmode context section for messages, if litmode is active."
-  (when (and (fboundp 'litmode-active-p)
-             (funcall 'litmode-active-p))
-    (funcall 'generate-litmode-context)))
-
 (defun get-mode-rules-section ()
   "Generate the rules section for the system prompt from active modes (Refactor Plan §7.6)."
   (get-active-mode-rules))
@@ -938,14 +932,6 @@
    FOR-LLM-API: If true, includes full history with tool calls/results. Otherwise, just text for context/history display."
   (declare (ignore images for-llm-api))
   (let ((api-messages '()))
-    (let ((litmode-ctx (get-litmode-context-section)))
-      (when (and litmode-ctx (> (length litmode-ctx) 0))
-        (push `((:role . "user")
-                (:content . ,(format nil "[Project Context from .hactar.org]~%~%~A" litmode-ctx)))
-              api-messages)
-        (push `((:role . "assistant")
-                (:content . "I've reviewed the project context from .hactar.org. I can see the headline index and active context. How can I help?"))
-              api-messages)))
     (dolist (msg *chat-history*)
       (let* ((role (cdr (assoc :role msg)))
             (content (cdr (assoc :content msg)))
@@ -2016,8 +2002,6 @@ CMD argument is ignored (kept for backward compatibility)."
       (lisp-rpc-flag
        (progn
          (load-chat-history)
-         (when lit-flag
-           (init-litmode))
          ;; Enter the blocking main loop (no REPL)
          (unwind-protect
               (lisp-rpc-main-loop)
@@ -2025,16 +2009,12 @@ CMD argument is ignored (kept for backward compatibility)."
       (tui-flag
        (progn
          (load-chat-history)
-         (when lit-flag
-           (init-litmode))
          (unwind-protect
               (run-tui)
            (global-cleanup))))
       (t
        (progn
          (load-chat-history)
-         (when lit-flag
-           (init-litmode))
 
          ;; rl:initialize is now called earlier, before variable-bind
          (rl:bind-keyseq "\\C-l"

@@ -346,31 +346,7 @@
         (let ((headings (org-mode-parser:collect-all-headings doc)))
           (is (> (length headings) 0)))))))
 
-(test to-org-output-works-with-litmode
-  "Test that generated org file works with litmode init."
-  (with-test-to-org-project
-    (add-test-file *test-to-org-root* "src/main.lisp" "(defun main () :ok)")
-    (commit-test-files *test-to-org-root*)
 
-    (let ((output-path (hactar::to-org :force t)))
-      (is-true output-path)
-      ;; Init litmode with the generated file
-      (let ((hactar::*litmode-active* nil)
-            (hactar::*litmode-path* nil)
-            (hactar::*litmode-content* nil)
-            (hactar::*litmode-parsed* nil)
-            (hactar::*litmode-db-path* nil)
-            (hactar::*active-scope* nil)
-            (hactar::*expanded-ids* '())
-            (hactar::*focused-id* nil)
-            (hactar::*headline-index-cache* nil)
-            (hactar::*agent-id* nil))
-        (clrhash hactar::*named-blocks*)
-        (hactar::init-litmode *test-to-org-root*)
-        (is-true hactar::*litmode-active*)
-        (is (>= (length hactar::*headline-index-cache*) 3))
-        ;; Cleanup litmode state
-        (setf hactar::*litmode-active* nil)))))
 
 (test to-org-with-scope
   "Test generating with a scope profile."

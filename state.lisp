@@ -375,8 +375,6 @@ Generated using tree-sitter")
 (defstate *context-expose-hooks-installed* nil
   "Whether context.expose hooks are installed.")
 
-(defstate *litmode-enabled* nil
-  "When T, literate single-file mode is active and provides context.")
 
 ;;* Sessions
 (defstate *sessions-dir* nil

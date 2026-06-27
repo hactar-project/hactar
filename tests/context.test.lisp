@@ -403,7 +403,6 @@
   (let ((hactar::*files* nil)
         (hactar::*current-model* nil)
         (hactar::*exposed-context-file* nil)
-        (hactar::*litmode-active* nil)
         (fired nil)
         (hactar::*context-file-added-hook*
           (make-instance 'hactar::hook-context-file-added)))
@@ -422,7 +421,6 @@
   "drop-file-from-context removes a file and fires the dropped hook."
   (let ((hactar::*files* (list "/tmp/a.lisp" "/tmp/b.lisp"))
         (hactar::*exposed-context-file* nil)
-        (hactar::*litmode-active* nil)
         (fired nil)
         (hactar::*context-file-dropped-hook*
           (make-instance 'hactar::hook-context-file-dropped)))

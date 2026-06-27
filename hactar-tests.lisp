@@ -39,7 +39,6 @@ Returns true iff all suites pass."
   (let* ((suites '(hactar-tests
                    errors-tests
                    org-mode-parser-tests
-                   org-mode-tests
                    markdown-tests
                    utils-tests
                    fzf-tests
@@ -75,7 +74,6 @@ Returns true iff all suites pass."
                    rules-tests
                    skills-tests
                    starters-tests
-                   mold-tests
                    proxy-tests
                    compiler-tests
                    json-target-tests
@@ -100,8 +98,6 @@ Returns true iff all suites pass."
 		   history-tests
                    mode-tests
                    gen-helpers-tests
-                   monolith-tests
-                   litmode-tests
                    hactar-mode-tests
                    project-cli-tests
                    fern-tests

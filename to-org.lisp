@@ -12,8 +12,7 @@
     "*.sqlite" "*.db" "*.sqlite3"
     ".git/*" "node_modules/*" "dist/*" "build/*" ".next/*" ".nuxt/*"
     "__pycache__/*" ".tox/*" ".venv/*" "venv/*" ".mypy_cache/*"
-    "vendor/*" "straight/*" ".bundle/*"
-    ".hactar.org" ".hactar.litmode.db" ".hactar.org.lock"
+    ".hactar.org"
     ".hactar.*.log" ".hactar.*.context.org"
     ".tags" "TAGS" "tags" ".DS_Store" "Thumbs.db")
   "Default list of glob patterns to ignore when collecting files for to-org.")
@@ -301,7 +300,7 @@
             (format s ":HACTAR_TOKENS: ~A~%" tokens)
             (format s ":END:~%")
             (format s "#+begin_src ~A :tangle ~A~%" (or lang "text") rel-path)
-            (write-string (org-mode:escape-for-org-s content) s)
+            (write-string (org-mode-parser:escape-for-org-s content) s)
             (unless (and (> (length content) 0)
                          (char= (char content (1- (length content))) #\Newline))
               (terpri s))
@@ -411,7 +410,7 @@ File content:
               (format s ":HACTAR_SUMMARY: ~A~%" summary))
             (format s ":END:~%")
             (format s "#+begin_src ~A :tangle ~A~%" (or lang "text") rel-path)
-            (write-string (org-mode:escape-for-org-s content) s)
+            (write-string (org-mode-parser:escape-for-org-s content) s)
             (unless (and (> (length content) 0)
                          (char= (char content (1- (length content))) #\Newline))
               (terpri s))
@@ -576,8 +575,7 @@ File content:
                 (format t "  Files: ~A | Tokens: ~A | Groups: ~A~%"
                         (length files)
                         (reduce #'+ files :key (lambda (f) (getf f :tokens)) :initial-value 0)
-                        (length file-groups))
-                (format t "  Run /litmode-init to activate literate mode.~%"))
+                        (length file-groups)))
 
               output-path)))))))
 

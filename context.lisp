@@ -35,9 +35,9 @@
            ((> content-len *guide-warn-chars*)
             (format t "~&Warning: Active guide file '~A' is large (~A > ~A chars). Including in prompt.~%"
                     (uiop:native-namestring *active-guide-file*) content-len *guide-warn-chars*)
-	    (org-mode:filter-headlines content *guide-exclude-tags*))
+	    (org-mode-parser:filter-headlines content *guide-exclude-tags*))
            (t
-	    (org-mode:filter-headlines content *guide-exclude-tags*))))
+	    (org-mode-parser:filter-headlines content *guide-exclude-tags*))))
       (error (e)
              (format t "~&Error reading or processing active guide file '~A': ~A~%" (uiop:native-namestring *active-guide-file*) e)
 	     nil))))
@@ -45,10 +45,7 @@
 (defun default-system-prompt ()
   "Generate the system prompt by combining templates, rules, context, and the active guide."
   (let* ((mustache:*escape-tokens* nil)
-         (prompt-key (if (and (fboundp 'litmode-active-p)
-                              (funcall 'litmode-active-p))
-                         'system.litmode
-                         'system.default))
+         (prompt-key 'system.default)
          (base-prompt (get-prompt prompt-key))
          (context (generate-context))
          (guide-content (get-active-guide-content))
@@ -64,7 +61,6 @@
     (mustache:render* base-prompt
                       `((:language . ,(language))
                         (:rules . ,rules-text)
-                        (:mold . ,(mold-context-string))
                         (:guide . ,(or guide-content ""))
                         (:context . ,context)
                         (:tools . ,(or tools-xml ""))
@@ -149,8 +145,7 @@
        (:author . ,*author*)
        (:docs-context . ,(docs-context-string))
        (:errors-context . ,(errors-context-string))
-       (:images-context . ,(images-context-string))
-       (:mold . ,(mold-context-string))))))
+       (:images-context . ,(images-context-string))))))
 
 (defun read-context-from-file ()
   "Read the entire context from the exposed context file. Returns the file content as string."
@@ -172,7 +167,6 @@
              (repo-map-string (if *repo-map* *repo-map* ""))
              (stack-string (format nil "~{~A~^, ~}" *stack*))
              ;; Estimate tokens used by non-file parts
-             (mold-string (mold-context-string))
              (base-tokens (estimate-tokens
                            (mustache:render* base-context-template
                                              `((:repo-map . ,repo-map-string)
@@ -183,8 +177,7 @@
                                                (:name . ,*name*)
                                                (:author . ,*author*)
                                                (:docs-context . ,docs-string)
-                                               (:errors-context . ,errors-string)
-                                               (:mold . ,mold-string)))))
+                                               (:errors-context . ,errors-string)))))
              (max-input-tokens (if *current-model* (model-config-max-input-tokens *current-model*) 32000))
              (remaining-tokens-for-files (- max-input-tokens base-tokens))
              (files-context-string "")
@@ -210,8 +203,7 @@
                             (:name . ,*name*)
                             (:author . ,*author*)
                             (:docs-context . ,docs-string)
-                            (:errors-context . ,errors-string)
-                            (:mold . ,mold-string))))))
+                            (:errors-context . ,errors-string))))))
 
 (defun add-file-to-context (file-path)
   "Add a file to the context.
@@ -224,58 +216,6 @@ When litmode is active, also upsert the file as an org src block under
       ;; Keep exposed context file in sync (non-litmode flow).
       (context-expose-upsert-files-section)
       (nhooks:run-hook *context-file-added-hook* file-path)))
-
-  ;; In litmode, reflect /add into .hactar.org under ** Files.
-  (when (and (fboundp 'litmode-active-p)
-             (funcall 'litmode-active-p)
-             (boundp '*litmode-parsed*)
-             (boundp '*litmode-path*))
-    (handler-case
-        (progn
-          ;; Ensure litmode document is loaded
-          (when (or (null (symbol-value '*litmode-parsed*))
-                    (null (symbol-value '*litmode-path*)))
-            (when (fboundp 'load-litmode-file) (funcall 'load-litmode-file t)))
-
-          (let* ((doc (symbol-value '*litmode-parsed*))
-                 (base-dir (uiop:pathname-directory-pathname (symbol-value '*litmode-path*)))
-                 (abs-path (pathname file-path))
-                 ;; Store relative path when possible (more portable in repo).
-                 (rel-path (handler-case
-                               (uiop:enough-pathname abs-path base-dir)
-                             (error () abs-path)))
-                 (rel-str (uiop:native-namestring rel-path))
-                 (content (get-file-content abs-path))
-                 (ext (pathname-type abs-path))
-                 (lang (or (ignore-errors (get-language-hint-from-extension ext)) ""))
-                 (files-heading (and doc
-                                     (when (fboundp 'find-heading-by-custom-id)
-                                       (funcall 'find-heading-by-custom-id doc "ctx-files")))))
-            (when (and files-heading content)
-              ;; Remove any existing paragraph that references this file path
-              ;; to avoid duplicates on repeated /add.
-              (let ((children-to-remove '()))
-                (dolist (child (org-mode-parser:node-children files-heading))
-                  (when (typep child 'org-mode-parser:org-paragraph)
-                    (let ((c (org-mode-parser:paragraph-content child)))
-                      (when (and c (search rel-str c))
-                        (push child children-to-remove)))))
-                (dolist (child children-to-remove)
-                  (org-mode-parser:remove-node child)))
-              ;; Add the src block with :tangle keyword
-              (org-mode-parser:add-child
-               files-heading
-               (make-instance 'org-mode-parser:org-paragraph
-                              :type :paragraph
-                              :content
-                              (format nil "#+begin_src ~A :tangle ~A~%~A~%#+end_src~%~%"
-                                      lang
-                                      rel-str
-                                      (org-mode:escape-for-org-s content))))
-              (when (fboundp 'save-litmode-file)
-                (funcall 'save-litmode-file doc)))))
-      (error (e)
-        (debug-log "Litmode: failed to upsert added file into .hactar.org:" e))))
 
   ;; Check potential token usage after adding
   (when *current-model*
@@ -313,42 +253,7 @@ When litmode is active, also removes the file's src block from .hactar.org."
     (setf *files* (remove file-path *files* :test #'string=))
     (when was-present
       (context-expose-upsert-files-section)
-      (nhooks:run-hook *context-file-dropped-hook* file-path)
-      ;; In litmode, remove the file from .hactar.org under ** Files
-      (when (and (fboundp 'litmode-active-p)
-                 (funcall 'litmode-active-p)
-                 (boundp '*litmode-parsed*)
-                 (boundp '*litmode-path*))
-        (handler-case
-            (progn
-              (when (or (null (symbol-value '*litmode-parsed*))
-                        (null (symbol-value '*litmode-path*)))
-                (when (fboundp 'load-litmode-file) (funcall 'load-litmode-file t)))
-
-              (let* ((doc (symbol-value '*litmode-parsed*))
-                     (base-dir (uiop:pathname-directory-pathname (symbol-value '*litmode-path*)))
-                     (abs-path (pathname file-path))
-                     (rel-path (handler-case
-                                   (uiop:enough-pathname abs-path base-dir)
-                                 (error () abs-path)))
-                     (rel-str (uiop:native-namestring rel-path))
-                     (files-heading (and doc
-                                         (when (fboundp 'find-heading-by-custom-id)
-                                           (funcall 'find-heading-by-custom-id doc "ctx-files")))))
-                (when files-heading
-                  ;; Remove paragraph children whose content references this file path
-                  (let ((children-to-remove '()))
-                    (dolist (child (org-mode-parser:node-children files-heading))
-                      (when (typep child 'org-mode-parser:org-paragraph)
-                        (let ((content (org-mode-parser:paragraph-content child)))
-                          (when (and content (search rel-str content))
-                            (push child children-to-remove)))))
-                    (dolist (child children-to-remove)
-                      (org-mode-parser:remove-node child)))
-                  (when (fboundp 'save-litmode-file)
-                    (funcall 'save-litmode-file doc)))))
-          (error (e)
-            (debug-log "Litmode: failed to remove dropped file from .hactar.org:" e)))))))
+      (nhooks:run-hook *context-file-dropped-hook* file-path))))
 
 (defun drop-image-from-context (image-path)
   "Remove an image from the context window."
@@ -896,7 +801,7 @@ Usage: /ls [--format=json]"
              (lang (or (ignore-errors (get-language-hint-from-extension extension)) ""))
              (rel (uiop:native-namestring (uiop:enough-pathname file *repo-root*))))
         (when content
-          (format s "#+begin_src ~A ~A~%~A~%#+end_src~%~%" lang rel (org-mode:escape-for-org-s content)))))))
+          (format s "#+begin_src ~A ~A~%~A~%#+end_src~%~%" lang rel (org-mode-parser:escape-for-org-s content)))))))
 
 (defun context-expose-generate-project-details ()
   "Generate the content for the Project Details section."
@@ -914,9 +819,9 @@ Usage: /ls [--format=json]"
            (file *exposed-context-file*)
            (existing (when (probe-file file)
                        (uiop:read-file-string file)))
-           (updated (org-mode:upsert-files-section (or existing "") details
-                                                    :heading-title "Project Details"
-                                                    :level 1)))
+           (updated (org-mode-parser:upsert-files-section (or existing "") details
+                                                     :heading-title "Project Details"
+                                                     :level 1)))
       (ensure-directories-exist file)
       (write-file-content file updated))))
 
@@ -927,7 +832,7 @@ Usage: /ls [--format=json]"
            (file *exposed-context-file*)
            (existing (when (probe-file file)
                        (uiop:read-file-string file)))
-           (updated (org-mode:upsert-files-section (or existing "") blocks)))
+           (updated (org-mode-parser:upsert-files-section (or existing "") blocks)))
       (ensure-directories-exist file)
       (write-file-content file updated))))
 
@@ -937,7 +842,7 @@ Usage: /ls [--format=json]"
     (let* ((file *exposed-context-file*)
            (existing (when (probe-file file)
                        (uiop:read-file-string file)))
-           (updated (org-mode:upsert-docs-section (or existing "") *docs-context*)))
+           (updated (org-mode-parser:upsert-docs-section (or existing "") *docs-context*)))
       (ensure-directories-exist file)
       (write-file-content file updated))))
 
@@ -947,7 +852,7 @@ Usage: /ls [--format=json]"
     (let* ((file *exposed-context-file*)
            (existing (when (probe-file file)
                        (uiop:read-file-string file)))
-           (updated (org-mode:upsert-errors-section (or existing "") *errors-context*)))
+           (updated (org-mode-parser:upsert-errors-section (or existing "") *errors-context*)))
       (ensure-directories-exist file)
       (write-file-content file updated))))
 

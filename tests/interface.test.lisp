@@ -339,7 +339,6 @@
            (hactar::*files* nil)
            (hactar::*current-model* nil)
            (hactar::*exposed-context-file* nil)
-           (hactar::*litmode-active* nil)
            (hactar::*context-file-added-hook*
              (make-instance 'hactar::hook-context-file-added))
            (hactar::*context-file-dropped-hook*

@@ -112,8 +112,10 @@
                                         sections)))))
 
 (defun interface-abs-path (iface)
-  "Absolute path of an interface's file under the instance dir."
-  (merge-pathnames (iface-path iface) (instance-dir)))
+  "Absolute path of an interface's file. resolves :hactar to the repo root."
+  (if (eq (iface-name iface) :hactar)
+      (merge-pathnames ".hactar.org" (or *repo-root* (uiop:getcwd)))
+      (merge-pathnames (iface-path iface) (instance-dir))))
 
 (defun %iface-note-self-write (iface hash)
   "Record HASH as content Hactar itself wrote, so the watcher can ignore the
@@ -479,44 +481,65 @@
   :render (lambda () (render-docs-list *docs-context*))
   :parse #'parse-docs-list)
 
-;;** Mold interface
-(defun render-active-mold-org ()
-  (if (and (boundp '*active-mold*) *active-mold*)
-      (mold-export-as-org *active-mold*)
-      ""))
+;;** Hactar Org interface
+(defun render-hactar-org ()
+  "Read forms from .hactar.lisp and render them into a beautiful, human-editable .hactar.org file."
+  (let* ((pcli-path (project-cli-pathname))
+         (forms (when (and pcli-path (probe-file pcli-path))
+                  (read-hactar-lisp pcli-path))))
+    (with-output-to-string (s)
+      (format s "#+TITLE: Hactar Project CLI~%~%")
+      (format s "* Project Definition~%")
+      (format s "This section contains the project definition and metadata.~%~%")
+      (let ((proj (find 'defproject forms :key #'car)))
+        (when proj
+          (format s "#+begin_src lisp~%~S~%#+end_src~%~%" proj)))
+      
+      (format s "* Models~%")
+      (format s "Define your project models and schemas here.~%~%")
+      (let ((models (find 'defmodels forms :key #'car)))
+        (when models
+          (format s "#+begin_src lisp~%~S~%#+end_src~%~%" models)))
 
-(defun parse-mold-org (text)
-  "Re-parse the Rules section of a mold org doc into *active-rules* for the mold."
-  (when (and (boundp '*active-mold*) *active-mold*)
-    (let ((in-rules nil)
-          (rules '()))
-      (dolist (line (str:lines text))
-        (let ((l (string-trim '(#\Space #\Tab #\Return) line)))
-          (cond
-            ((and (str:starts-with? "* " l)
-                  (string-equal (string-trim '(#\Space) (subseq l 2)) "Rules"))
-             (setf in-rules t))
-            ((str:starts-with? "* " l) (setf in-rules nil))
-            ((and in-rules (str:starts-with? "- " l))
-             (push (subseq l 2) rules)))))
-      (setf rules (nreverse rules))
-      ;; Replace existing generic rule keys for this mold.
-      (let ((prefix (format nil "mold/~A/rule/" (mold-definition-name *active-mold*)))
-            (to-remove '()))
-        (maphash (lambda (k v)
-                   (declare (ignore v))
-                   (when (str:starts-with-p prefix k) (push k to-remove)))
-                 *active-rules*)
-        (dolist (k to-remove) (remhash k *active-rules*)))
-      (dolist (r rules)
-        (let ((rule-text (cl-ppcre:regex-replace "^\\[[^\\]]+\\]\\s*" r "")))
-          (setf (gethash (format nil "mold/~A/rule/~A"
-                                 (mold-definition-name *active-mold*)
-                                 (sxhash rule-text))
-                         *active-rules*)
-                rule-text))))))
+      (format s "* Routes~%")
+      (format s "Define your project API/page routes here.~%~%")
+      (let ((routes (find 'defroutes forms :key #'car)))
+        (when routes
+          (format s "#+begin_src lisp~%~S~%#+end_src~%~%" routes)))
 
-(definterface :mold "mold.org"
+      (format s "* Behavior~%")
+      (format s "Custom actions and modes that define the CLI's verbs.~%~%")
+      (dolist (form forms)
+        (when (member (car form) '(defaction defmode defprompt defdoc))
+          (format s "#+begin_src lisp~%~S~%#+end_src~%~%" form)))
+
+      (format s "* Harness~%")
+      (format s "AI agents, tools, skills, and sandboxes that collaborate on tasks.~%~%")
+      (dolist (form forms)
+        (when (member (car form) '(defagent deftool defskill defsandbox))
+          (format s "#+begin_src lisp~%~S~%#+end_src~%~%" form))))))
+
+(defun parse-hactar-org (text)
+  "Parse .hactar.org content, extract all lisp src blocks, parse them as Hactar forms, and write them to .hactar.lisp."
+  (let* ((doc (org-mode-parser:parse-org-string text))
+         (lisp-forms '()))
+    (org-mode-parser:walk-tree
+     doc
+     (lambda (node)
+       (when (and (typep node 'org-mode-parser:org-src-block)
+                  (string-equal (org-mode-parser:src-block-language node) "lisp"))
+         (let ((content (org-mode-parser:src-block-content node)))
+           (with-input-from-string (stream content)
+             (loop for form = (read stream nil :eof)
+                   until (eq form :eof)
+                   do (push form lisp-forms)))))))
+    (setf lisp-forms (nreverse lisp-forms))
+    (let ((pcli-path (project-cli-pathname)))
+      (when pcli-path
+        (write-hactar-lisp lisp-forms pcli-path :merge-p t)
+        (load-project-cli-file)))))
+
+(definterface :hactar ".hactar.org"
   :format :text
-  :render #'render-active-mold-org
-  :parse #'parse-mold-org)
+  :render #'render-hactar-org
+  :parse #'parse-hactar-org)
