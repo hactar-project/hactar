@@ -93,11 +93,14 @@
                                   (as-var (getf stage-args :as)))
                               `(let ((raw-text ,forms-expr))
                                  (when raw-text
-                                   (let ((parsed (parse-diffusion-output raw-text)))
+                                   (let ((parsed (parse-diffusion-output raw-text))
+                                         (sch ,schema))
                                      (setf ,as-var
                                            (remove-if-not
                                             (lambda (f)
-                                              (eq (car f) ,schema))
+                                              (if (listp sch)
+                                                  (member (car f) sch)
+                                                  (eq (car f) sch)))
                                             parsed)))))))
                            (:emit
                             (let ((forms-expr (getf stage-args :forms))

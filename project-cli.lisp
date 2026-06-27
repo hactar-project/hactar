@@ -30,6 +30,7 @@
             defcomponents
             defdeps
             defimports
+            defenvs
             register-project-cli
             define-project-command
             generate-project-cli-file
@@ -300,6 +301,11 @@ symbols; ROOT is an evaluated form (e.g. *repo-root*)."
 
 (defmacro defimports (&rest entries)
   `(setf (gethash *pcli-current-project* *project-imports*) ',entries))
+
+(defvar *project-envs* (make-hash-table :test 'equal))
+
+(defmacro defenvs (&rest entries)
+  `(setf (gethash *pcli-current-project* *project-envs*) ',entries))
 
 
 ;;** Query / mutation API (over the in-memory model)

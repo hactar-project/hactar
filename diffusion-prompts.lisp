@@ -59,3 +59,19 @@ Schema:
 ~A
 
 Generate ONLY (defmodels ...) forms.")
+
+(defprompt diffusion-redwood-sdk template
+  "Template for extracting Redwood SDK project structure (worker, routes, components, middleware, env)"
+  :template "Analyze the following Redwood SDK project files and generate:
+1. (defroutes ...) describing URL paths, handler components, line ranges, and any middleware or tags.
+2. (defmodules ...) describing the worker, middleware modules, exports, and imports. Mark the worker with :type \"worker\" and middleware with :type \"middleware\".
+3. (defcomponents ...) describing the page and UI components, including their properties/state if detectable.
+4. (defenvs ...) describing any environment variables, databases, KV bindings, or other wrangler bindings.
+
+Files:
+~{~A~%~}
+
+Source contents:
+~{~A~%---~%~}
+
+Generate ONLY valid Common Lisp forms (~{~A~^, ~}). Output nothing else.")

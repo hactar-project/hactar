@@ -85,6 +85,7 @@
 	   #:read-hactar-lisp
 	   #:merge-hactar-forms
 	   #:validate-hactar-form
+	   #:defenvs
 	   ;; Diffusion LLM
 	   #:diffusion-complete))
 

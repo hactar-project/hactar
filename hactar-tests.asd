@@ -78,5 +78,6 @@
 	       (:file "tests/hactar-mode")
                (:file "tests/project-cli.test")
                (:file "tests/fern.test")
+               (:file "tests/redwood-mode.test")
                (:file "hactar-tests"))
   :perform (asdf:test-op (op c) (uiop:symbol-call :hactar-tests '#:run-tests)))

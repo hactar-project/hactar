@@ -128,6 +128,7 @@
 	       (:file "js-mode")
 	       (:file "hypertext")
 	       (:file "react-mode")
+	       (:file "redwood-mode")
 	       (:file "react-router")
 	       (:file "hactar-mode")
 	       (:file "stripe-mode")

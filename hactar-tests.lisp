@@ -104,6 +104,7 @@ Returns true iff all suites pass."
                    litmode-tests
                    hactar-mode-tests
                    project-cli-tests
-                   fern-tests))
+                   fern-tests
+                   redwood-mode-tests))
          (results (mapcar #'%run-suite suites)))
     (%colorize-test-results suites results)))

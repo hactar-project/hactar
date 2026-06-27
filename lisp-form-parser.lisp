@@ -8,7 +8,8 @@
     (defscripts   . (:elements (:required (:script :command) :optional (:description))))
     (defcomponents . (:elements (:required (:component :file) :optional (:props :state :children))))
     (defdeps      . (:elements (:required (:dep :version) :optional (:type :registry))))
-    (defimports   . (:elements (:required (:file :imports) :optional ()))))
+    (defimports   . (:elements (:required (:file :imports) :optional ())))
+    (defenvs      . (:elements (:required (:name :value) :optional (:type :file :line-start :line-end :note)))))
   "Validation schema for Hactar Lisp forms.")
 
 (defun validate-plist (plist schema)
@@ -150,7 +151,7 @@
     (when project-form
       (push project-form merged-forms))
     ;; For all other form operators:
-    (dolist (op '(defroutes defmodels defmodules defscripts defcomponents defdeps defimports))
+    (dolist (op '(defroutes defmodels defmodules defscripts defcomponents defdeps defimports defenvs))
       (let ((exist-form (find op existing :key #'car))
             (new-form (find op new :key #'car)))
         (cond
@@ -164,6 +165,7 @@
                              (defcomponents :component)
                              (defdeps :dep)
                              (defimports :file)
+                             (defenvs :name)
                              (t nil))))
              (if key-attr
                  (let ((merged-elements '()))
@@ -195,7 +197,8 @@
                     (defcomponents . 4)
                     (defscripts . 5)
                     (defdeps . 6)
-                    (defimports . 7))))
+                    (defimports . 7)
+                    (defenvs . 8))))
     (sort (copy-list forms)
           (lambda (a b)
             (< (or (cdr (assoc (car a) priority)) 99)
@@ -229,6 +232,7 @@
                           (defcomponents "components")
                           (defdeps "deps")
                           (defimports "imports")
+                          (defenvs "envs")
                           (t (string-downcase (string op))))))
               (push tag written-tags)
               (cond
