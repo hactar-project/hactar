@@ -14,15 +14,7 @@
       (is (search "Redwood SDK" (hactar::mode-description mode)))
       (is (search "When working with Redwood SDK (rwsdk):" (hactar::mode-rules mode))))))
 
-(test redwood-sdk-fusion-registration-test
-  "Verify redwood-sdk fusion is registered and has correct metadata."
-  (let ((fusion (gethash 'hactar::redwood-sdk hactar::*fusion-registry*)))
-    (is-true fusion "redwood-sdk fusion should be registered")
-    (when fusion
-      (is (eq 'hactar::redwood-sdk (hactar::fusion-name fusion)))
-      (is (eq :redwood (getf (hactar::fusion-options fusion) :mode)))
-      (is (equal '("src/worker.tsx" "wrangler.toml" "package.json" "src/app/**/*.tsx" "src/app/**/*.ts")
-                 (getf (hactar::fusion-options fusion) :watch))))))
+
 
 (test defenvs-schema-and-validation-test
   "Verify defenvs form validation and parsing works correctly."

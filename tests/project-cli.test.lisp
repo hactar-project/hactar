@@ -284,3 +284,22 @@ generated regions (no file-watcher churn)."
       (is (= 3 (length merged)))
       (let ((act (find 'defaction merged :key #'car)))
         (is (string= "New doc" (getf (cddr act) :doc)))))))
+
+(test synthesis-pipeline-test
+  "Verify collect-signal, signal-ready-p, validate-forms, and synth-update."
+  (let ((hactar::*project-cli-update-queue* '("src/app/pages/Home.tsx"))
+        (pcli (hactar::ensure-project-cli "synthesis-test")))
+    (setf (hactar::project-cli-stack pcli) '("vitest"))
+    (setf (hactar::project-cli-routes pcli) nil)
+    (setf (hactar::project-cli-models pcli) nil)
+    
+    (let ((sig (hactar::collect-signal "synthesis-test")))
+      (is (string= "synthesis-test" (getf sig :project)))
+      (is (equal '("vitest") (getf sig :stack)))
+      (is-true (hactar::signal-ready-p sig nil)))
+
+    (let* ((forms '((defaction my-action :doc "Doc" :prompt "Prompt" :apply :create)
+                    (invalid-operator-form foo)))
+           (validated (hactar::validate-forms forms)))
+      (is (= 1 (length validated)))
+      (is (eq 'defaction (car (first validated)))))))
