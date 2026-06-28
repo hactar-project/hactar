@@ -29,14 +29,9 @@
   (format t "  Current session: ~A~%" (or *current-session-name* "(none)"))
   (format t "  Session auto-save: ~A~%" (if *auto-save-session* "Enabled" "Disabled"))
   (format t "  System Prompt: ~A~%" (system-prompt))
-  (format t " Dot System Prompt ~A~%" (dot-system-prompt))
   (format t "  Repository root: ~A~%" (if *repo-root* (namestring *repo-root*) "Not set"))
   (format t "  Proxy auto-start: ~A~%" (if *proxy-auto-start* "Enabled" "Disabled"))
   (format t "  Proxy upstream: ~A~%" (or *proxy-upstream-url* "(default)")))
-
-(defun dump-dot-system-prompt ()
-  (format t "Dot System Prompt:~%")
-  (format t "  ~A~%" (dot-system-prompt)))
 
 (defun dump-current-system-prompt ()
   (format t "Current System Prompt:~%")

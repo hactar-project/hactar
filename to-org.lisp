@@ -23,6 +23,12 @@
 (defvar *to-org-max-tokens* 10000
   "Maximum estimated token count for a single file. Files exceeding this are skipped.")
 
+(defun estimate-tokens-str (text)
+  "Rough token estimate: ~4 chars per token."
+  (if (and text (> (length text) 0))
+      (ceiling (length text) 4)
+      0))
+
 ;;* files
 (defun to-org-ignore-patterns ()
   "Return the combined list of ignore patterns."
@@ -102,7 +108,7 @@
               (t
                (handler-case
                    (let* ((content (uiop:read-file-string full-path :external-format :utf-8))
-                          (tokens (hactar::estimate-tokens-str content))
+                          (tokens (estimate-tokens-str content))
                           (ext (pathname-type full-path))
                           (lang (get-language-hint-from-extension ext)))
                      (if (and max-tokens (> tokens max-tokens))

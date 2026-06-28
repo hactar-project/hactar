@@ -102,19 +102,6 @@
 	       (:file "copilot")
 	       (:file "oauth")
 	       (:file "proxy")
-	       ;; compiler
-	       (:file "vfs")
-	       (:file "compiler")
-	       (:file "checker")
-	       (:file "javascript-target")
-	       (:file "typescript-target")
-	       (:file "worker-target")
-	       (:file "json-target")
-	       (:file "toml-target")
-	       (:file "css-target")
-	       (:file "redwood-target")
-	       (:file "lsp")
-	       (:file "convert")
 	       ;; modes
 	       (:file "npm")
 	       (:file "sh-mode")
@@ -141,8 +128,6 @@
 	       (:file "lisp-rpc")
 	       (:file "lisp-rpc-api")
 	       (:file "session")
-	       (:file "hyperfractal")
-	       (:file "ruhe")
 	       (:file "slynk")
 	       (:file "wiki")
 	       (:file "project-cli")))
@@ -151,7 +136,7 @@
   :description "Hactar is an AI pair programmer."
   :author "K-2052"
   :license "MIT"
-  :depends-on (#:hactar-core)
+  :depends-on (#:hactar-core #:hactar-codegen #:ruhe #:hyperfractal)
   :serial t
   :components ((:file "hactar"))
   :build-operation "program-op"

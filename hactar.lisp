@@ -707,12 +707,11 @@
           (format t "~&Warning: Error loading history file: ~A~%" e))))))
 
 ;;* LLM interaction
-(defun get-llm-response (prompt &key (stream t) custom-system-prompt (add-to-history t) dot-command-p is-continuation model)
+(defun get-llm-response (prompt &key (stream t) custom-system-prompt (add-to-history t) is-continuation model)
   "Get a response from the current LLM, handling streaming and history compression.
    :stream - If T, stream the response to stdout.
    :custom-system-prompt - A string to override the default system prompt.
    :add-to-history - If T, add the prompt and response to the chat history.
-   :dot-command-p - If T, use the special dot-command system prompt.
    :model - The model to use for this request, overriding *current-model*."
   (declare (ignore is-continuation))
   (let ((*current-model* (cond
@@ -735,7 +734,6 @@
                 (provider-type (intern (string-upcase provider-name) :keyword))
                 (system-prompt (cond
                                  (custom-system-prompt custom-system-prompt)
-                                 (dot-command-p (dot-system-prompt))
                                  (t (system-prompt))))
                 (full-response-text (make-string-output-stream))
                 (reader-instance nil)
