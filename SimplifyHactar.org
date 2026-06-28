@@ -1,69 +1,485 @@
-* Instructions
+#+TITLE: Simplifying Hactar
+#+AUTHOR: Hactar
+#+STARTUP: overview
 
-Analyze the codebase and outline a dramatically simplified version of Hactar. Imagine you are building Hactar from scratch over again throwing out all the exisitng debt.
+* Thesis
+
+Hactar should be rebuilt around one idea:
+
+#+begin_quote
+Hactar is a tiny engine that generates, loads, and safely updates one
+project-local program: =.hactar.lisp=.
+#+end_quote
+
+Everything else is an adapter around that idea. The terminal UI, ACP, editor
+mode, generated project CLI, modes, tools, skills, prompts, docs, and agents all
+register into the same small surface. The current codebase has the right
+ingredients, but they compete with each other: slash commands, subcommands,
+web routes, project commands, ACP commands, modes, generated forms, and format
+handlers each have their own registry or special case.
+
+The simplified version throws out those parallel paths. There is one project
+file, one command router, one event log, one context builder, one generated
+region system, and one harness model.
+
+* Design goals
+
+1. *One source of truth*: =.hactar.lisp= is the project application. Loading it
+   defines the project map, actions, tools, skills, docs, rules, modes, and
+   agents.
+2. *One route table*: every command, slash command, project verb, protocol
+   method, and editor action becomes a route with metadata and handlers.
+3. *One protocol-independent result type*: commands return structured results;
+   terminal, editor, ACP, JSON, org, and markdown are renderers.
+4. *One small generated surface*: the diffusion model may only emit approved
+   forms such as =defproject=, =defaction=, =deftool=, =defagent=, and
+   =with-diffusion=.
+5. *One bidirectional state interface*: files are the durable UI. The org,
+   context, history, files, ACP, and MCP interfaces are specialized instances of
+   the same file/state interface.
+6. *No hidden framework*: Hactar should be understandable as a Common Lisp
+   library plus a generated =.hactar.lisp= file.
+
+* Current debt to remove
+
+The existing codebase suggests the following simplifications.
+
+| Current shape | Simplification |
+|---------------+----------------|
+| =commands.lisp=, =router.lisp=, =web.lisp=, =project-cli.lisp=, ACP command tables | Replace with one route registry and adapters. |
+| Slash commands and subcommands as separate systems | Commands are routes; prefix syntax is parsing only. |
+| Format handlers attached separately to commands | Commands return values; renderers choose text/json/org/markdown. |
+| Modes dynamically register/unregister global commands | Modes are explicit bundles imported by =.hactar.lisp=. |
+| Old threaded =defagent= and new harness =defagent= coexist | Keep only the harness form: model + tools + skills + sandbox + instructions. |
+| =.hactar.toml= plus =.hactar.lisp= plus many globals | =.hactar.lisp= owns behavior; env/TOML only provide local secrets and machine config. |
+| Generated regions are comments plus ad hoc parsing | Generated ownership is expressed with macros and explicit region forms. |
+| Many built-in stack commands ship globally | Stack behavior moves into modes that =.hactar.lisp= imports. |
+
+* New architecture
+
+** Layer 1: Engine
+
+The installed engine is small and mostly project-agnostic.
+
+| Module | Responsibility |
+|--------+----------------|
+| =state= | Typed mutable runtime state, event log, session identity. |
+| =surface= | Approved DSL forms and validators for generated code. |
+| =route= | One command/capability registry, parser, dispatcher, and metadata model. |
+| =render= | Text/json/org/markdown renderers for route results. |
+| =llm= | Model registry, completions, streaming, embeddings if needed. |
+| =context= | Build prompt context from files, docs, rules, history, and project map. |
+| =project= | Read/write/load =.hactar.lisp=; deterministic project extraction. |
+| =synth= | Diffusion calls, generated region updates, validation, reload. |
+| =interface= | Bidirectional file/state interfaces and watchers. |
+| =harness= | Tools, skills, sandboxes, agents, and permission checks. |
+| =protocols= | Thin adapters: terminal, editor, ACP, MCP. |
+
+Everything else is either a mode or generated project code.
+
+** Layer 2: Project program
+
+Each repo gets a single =.hactar.lisp= file. This file is not config; it is the
+project's dev-tooling program.
+
+#+begin_src lisp
+;;; -*- mode: lisp; package: hactar -*-
+(in-package :hactar)
+
+(defproject "my-app"
+  :stack (redwood react typescript)
+  :root *repo-root*)
+
+(with-generated (:id :project-map)
+  (defroutes
+    (:path "/" :file "src/app/pages/Home.tsx" :name home))
+  (defmodels
+    (:name user :file "prisma/schema.prisma:1-20" :fields (id email))))
+
+(with-mode redwood-mode)
+
+(deftool test
+  :run "npm test -- {{args}}"
+  :doc "Run the project test suite.")
+
+(defsandbox project
+  :kind :local
+  :allow ("git" "npm" "node"))
+
+(defagent dev
+  :model "anthropic/claude-sonnet-4-6"
+  :tools (test)
+  :skills (redwood)
+  :sandbox project
+  :instructions "Build and verify project changes end-to-end.")
+
+(defaction route.create
+  :doc "Create a route for this project's stack."
+  :prompt "Create route {{name}} for {{stack}}. {{doc:redwood-routing}}"
+  :apply :search-replace)
+
+;; User code below is preserved.
+#+end_src
+
+** Layer 3: Adapters
+
+Adapters do not own behavior. They parse input, call the route dispatcher, and
+render the result.
+
+| Adapter | Example | What it does |
+|---------+---------+--------------|
+| Terminal | =hactar route.create Login= | Parse argv, dispatch route, print renderer output. |
+| Shell/REPL | =/route.create Login= | Same route, slash prefix only affects parsing. |
+| Editor | =hactar --in-editor= | Uses files and compact structured output. |
+| ACP | =hactar --acp= | Maps ACP methods to routes and route results to JSON-RPC. |
+| MCP | =with-mcp= | Exposes selected routes/tools through MCP. |
 
 * Commands
-List commands here
 
-+ =hactar init= produce the .hactar.lisp using a diffusion model
+The engine only ships bootstrap and diagnostic commands. Project verbs come from
+=.hactar.lisp= and its modes.
+
+** Engine commands
+
+| Command | Purpose |
+|---------+---------|
+| =hactar init= | Create =.hactar.lisp= for the current repo using deterministic extraction plus diffusion. |
+| =hactar update= | Rescan the repo and rewrite generated regions. |
+| =hactar doctor= | Explain model config, project file health, permissions, and protocol readiness. |
+| =hactar build= | Build the project-local Hactar binary. |
+| =hactar repl= | Start the interactive terminal shell. |
+| =hactar version= | Print version and engine path. |
+
+** Project commands
+
+Project commands are just =defaction= or =defroute= forms loaded from
+=.hactar.lisp=.
+
+Examples:
+
+#+begin_src sh
+hactar routes.list
+hactar routes.list --format org
+hactar route.create Login
+hactar schema User
+hactar dev "add account settings"
+#+end_src
+
+The old =hactar <project> <command>= namespace becomes unnecessary because the
+current repo already selects the project. If multi-project work is needed later,
+add =--project <name>= as a parser feature, not a separate command system.
+
 * Flags
-List flags here
 
-Core ones we will need:
+Keep the global flag surface small.
 
-+ --acp
-+ --in-editor
-+ --auto-update
-  + automatically update the .hactar.lisp using a diffusion model
+| Flag | Purpose |
+|------+---------|
+| =--model <name>= | Select the model for this invocation/session. |
+| =--acp= | Run the ACP JSON-RPC adapter over stdio. |
+| =--in-editor= | Use compact editor-safe output and file interfaces. |
+| =--auto-update= | Let the diffusion updater rewrite generated regions after validated events. |
+| =--format <text/json/org/markdown>= | Select renderer for route results. |
+| =--no-color= | Disable terminal styling. |
+| =--debug= | Emit diagnostic logs. |
+
+All other flags should be command-local and defined on the route/action itself.
+
 * Modes
-** hactar-mode
-** redwood-mode
-* API
-** Main Surface
-This code is what ends up in our .hactar.lisp file.
 
-+ definterface
-  + this is how the agent exposes interaction
-  + hactar itself provides core interfaces
-  + defpipe-interface
-    + two way plain file syncin
-  + deflit-interface
-    + a two
-  + deffiles-interface
-  + defacp-interface
-  + defmcp-interface
-+ defskill
-+ defrule
-+ defaction
-+ defagent
-+ defsandbox
-+ defmode
-+ defdoc
-+ deftool
-  + defines a tool for use by llm     
-+ with-mcp
-  + specify mcp tools that get loaded automatically
-+ defprompt
-+ with-diffusion
-  + wraps code is generated and updated by an LLM
-** Libraries
-*** tui
-+ build tui interfaces using charms
-*** llm
-Handle all the llm calls
-*** router
-Handles dispatching commands and strings to commands. Parsing flags and 
-* Details
-+ don't use comments to keep track of generated locations use macros instead like with-llm or with-diffusion
-  + keywords in those macros 
-+ with prefixed macros are the way skills, rules, modes etc are loaded in a hard coded way
-  + e.g
+Modes become explicit importable bundles. A mode contains docs, rules, prompts,
+actions, tools, and extractors. It does not mutate global command tables unless a
+project imports it.
 
-    #+begin_src lisp
-      (defagent dev
-      	  :model "anthropic/claude-sonnet-4-6"
-      	  (with-modes :redwood
-      		      ;; body of agent
-      		      ))
-    #+end_src
-+ =(dev  )= (calls agent name dev)
+#+begin_src lisp
+(defmode redwood-mode
+  :docs (redwood-routing redwood-forms)
+  :rules (redwood-server-functions redwood-router)
+  :tools (typecheck test)
+  :actions (route.create model.create api.create)
+  :extractors (redwood-routes prisma-models))
+#+end_src
+
+** MVP modes
+
+*** =hactar-mode=
+
+The mode for working on Hactar itself.
+
+- Recognizes Common Lisp, ASDF, Makefile, and Hactar's own DSL forms.
+- Provides actions for adding a command, action, interface, tool, test, and mode.
+- Provides docs for route/result/surface conventions.
+- Uses =make test=, =make build=, and =make dev= as tools.
+
+*** =redwood-mode=
+
+The first application-stack mode.
+
+- Detects RedwoodSDK, React, TypeScript, Vite, Prisma, and Cloudflare.
+- Extracts routes, Prisma models, scripts, and components.
+- Provides =route.create=, =api.create=, =model.create=, =schema=, and
+  =routes.list= actions.
+- Ships stack rules and docs as fast local context, not as prompts hard-coded in
+  unrelated command bodies.
+
+* Public API surface
+
+This is the complete surface the generator may emit. Anything not on this list
+is engine-internal.
+
+** Project data
+
+#+begin_src lisp
+(defproject name &key stack root modes)
+(defroutes &rest route-plists)
+(defmodels &rest model-plists)
+(defcomponents &rest component-plists)
+(defscripts &rest script-plists)
+(defdeps &rest dependency-plists)
+(defenvs &rest env-plists)
+#+end_src
+
+** Commands and actions
+
+#+begin_src lisp
+(defroute name lambda-list &key doc args result permissions)
+(defaction name &key doc prompt apply tools skills when)
+#+end_src
+
+=defroute= is deterministic Lisp. =defaction= is LLM-backed behavior with an
+explicit apply strategy such as =:show=, =:search-replace=, =:create=, or
+=:patch=.
+
+** Context and knowledge
+
+#+begin_src lisp
+(defdoc name &key uri text file tags)
+(defprompt name args &body template)
+(defrule name &key doc when body)
+(with-context (&key files docs rules history project) &body body)
+#+end_src
+
+** Interfaces
+
+Interfaces are two-way bindings between state and a file/protocol surface.
+
+#+begin_src lisp
+(definterface name path &key format render parse watch)
+(defpipe-interface name &key path render parse)
+(deflit-interface name &key path sections)
+(deffiles-interface name &key include exclude)
+(defacp-interface name &key capabilities)
+(defmcp-interface name &key tools resources prompts)
+#+end_src
+
+=defpipe-interface= is the plain file sync interface. =deflit-interface= is the
+literate org interface. =deffiles-interface= owns the selected project files.
+=defacp-interface= and =defmcp-interface= are protocol adapters over the same
+route/tool registry.
+
+** Harness
+
+#+begin_src lisp
+(deftool name &key doc run fn permissions result)
+(defskill name &key doc rules docs prompts)
+(defsandbox name &key kind allow deny env)
+(defagent name &key model tools skills sandbox instructions)
+(with-mcp (&rest specs) &body body)
+#+end_src
+
+Tools are typed, permissioned capabilities. Skills are context bundles. Sandboxes
+are execution policies. Agents are composed harnesses.
+
+** Generated ownership
+
+Do not track generated code with comments alone. Use explicit forms.
+
+#+begin_src lisp
+(with-generated (:id :routes :owner :diffusion)
+  ...)
+
+(with-diffusion (:id :actions :model "fast")
+  ...)
+#+end_src
+
+The reader/writer can still print friendly comments, but ownership is semantic:
+the updater rewrites a form by ID, validates the replacement, and preserves user
+forms outside generated blocks.
+
+* Initialization lifecycle
+
+** =hactar init=
+
+1. Detect repo root and stack.
+2. Run deterministic extractors for files, routes, models, scripts, deps, docs,
+   and tests.
+3. Ask the diffusion model only for semantic structure that extractors cannot
+   know: likely actions, project-specific prompts, agent instructions, and mode
+   selection.
+4. Write =.hactar.lisp=.
+5. Validate by loading the file in a clean image.
+6. Build =./hactar/build/hactar= when requested or when installing a local shim.
+
+** Normal run
+
+1. Load engine.
+2. Locate repo and =.hactar.lisp=.
+3. Load project file.
+4. Parse argv or protocol message.
+5. Dispatch route.
+6. Render result for terminal/editor/ACP/MCP.
+7. Append an event to the session log.
+
+** Auto-update
+
+When =--auto-update= is enabled:
+
+1. Batch session events: commands, file changes, failed validations, user
+   corrections, new files, and repeated manual edits.
+2. Build a small update prompt from the event log plus current =.hactar.lisp=.
+3. Ask the diffusion model for replacements to generated blocks only.
+4. Parse and validate emitted forms against the public surface.
+5. Load the candidate in isolation.
+6. Apply it atomically.
+7. Reload routes and interfaces.
+
+If validation fails, keep the old file and write a visible diagnostic event. No
+silent fallbacks.
+
+* Result model
+
+Commands should not print as their primary behavior. They return a result.
+
+#+begin_src lisp
+(defstruct result
+  status          ; :ok, :error, :needs-confirmation
+  message         ; short human text
+  data            ; structured value
+  artifacts       ; files/patches/commands/links
+  renderers)      ; optional route-specific render functions
+#+end_src
+
+Examples:
+
+- Terminal renders =message= plus useful artifacts.
+- JSON returns =data=.
+- Org renders a literate document.
+- ACP maps =status= and =data= to JSON-RPC results/errors.
+
+This removes command-specific =:acp= lambdas, separate format handlers, and
+protocol-specific command implementations.
+
+* Target code layout
+
+The simplified tree should be boring.
+
+#+begin_src text
+hactar.asd
+packages.lisp
+src/
+  state.lisp
+  result.lisp
+  route.lisp
+  render.lisp
+  llm.lisp
+  context.lisp
+  project.lisp
+  surface.lisp
+  synth.lisp
+  interface.lisp
+  harness.lisp
+  permissions.lisp
+  cli.lisp
+  protocols/
+    acp.lisp
+    mcp.lisp
+    editor.lisp
+  modes/
+    hactar.lisp
+    redwood.lisp
+tests/
+#+end_src
+
+Legacy files can be kept temporarily as compatibility shims, but the new system
+should not call through old parallel registries.
+
+* Implementation plan
+
+** Phase 1: Freeze the surface
+
+- [ ] Write the public surface validator.
+- [ ] Define the result type and renderer protocol.
+- [ ] Decide the exact signatures for =defroute=, =defaction=, =deftool=,
+  =defagent=, =definterface=, and =with-generated=.
+- [ ] Add tests proving generated forms can be parsed, validated, loaded, and
+  round-tripped.
+
+** Phase 2: Replace command dispatch
+
+- [ ] Implement one route registry.
+- [ ] Port a tiny set of engine commands: =init=, =update=, =doctor=, =build=,
+  =repl=, =version=.
+- [ ] Make slash input, argv input, editor input, and ACP input call the same
+  dispatcher.
+- [ ] Remove protocol-specific command bodies after parity exists.
+
+** Phase 3: Center =.hactar.lisp=
+
+- [ ] Make project load mandatory for normal repo operation.
+- [ ] Generate a minimal =.hactar.lisp= from deterministic extraction.
+- [ ] Preserve user code and rewrite only =with-generated= blocks.
+- [ ] Move project command definitions out of engine code and into generated
+  forms/modes.
+
+** Phase 4: Simplify modes
+
+- [ ] Rebuild =hactar-mode= as a real mode for this repo.
+- [ ] Rebuild =redwood-mode= as the first external stack mode.
+- [ ] Delete dynamic global mode command registration once imported modes use
+  route registration through =.hactar.lisp=.
+
+** Phase 5: Rebuild agents as harnesses
+
+- [ ] Delete the old threaded agent syntax.
+- [ ] Keep one =defagent= shape: model, tools, skills, sandbox, instructions.
+- [ ] Make agent execution produce normal route results and events.
+- [ ] Route tool permissions through the same permission resolver everywhere.
+
+** Phase 6: Add safe diffusion updates
+
+- [ ] Implement candidate generation for one block ID at a time.
+- [ ] Validate generated forms before writing.
+- [ ] Load candidates in isolation before hot reload.
+- [ ] Add =--auto-update= only after failed updates are visible and harmless.
+
+** Phase 7: Prune
+
+- [ ] Delete old registries and compatibility shims.
+- [ ] Collapse duplicate config paths.
+- [ ] Remove built-in stack commands that now live in modes.
+- [ ] Cut dependencies that only supported deleted surfaces.
+- [ ] Keep tests for the new invariants instead of preserving legacy behavior.
+
+* MVP
+
+The first useful simplified Hactar is intentionally small:
+
+1. =hactar init= writes a readable =.hactar.lisp=.
+2. =hactar routes.list= works in a Redwood project.
+3. =hactar route.create Name= runs through one route/result path.
+4. =hactar --acp= exposes the same route table to ACP.
+5. =hactar --in-editor= uses the same route table and file interfaces.
+6. =hactar --auto-update= can update one generated block, validate it, and reload.
+
+Anything beyond that should be implemented as a mode, tool, skill, action, or
+agent in =.hactar.lisp= rather than as another engine subsystem.
+
+* Success criteria
+
+- A new contributor can understand the core by reading fewer than a dozen files.
+- There is exactly one command registry.
+- ACP/editor/terminal behavior differs only in rendering and transport.
+- =.hactar.lisp= is sufficient to explain what Hactar can do in a repo.
+- Generated updates are validate-before-write and never silently lose user code.
+- The default Hactar build has fewer global commands, fewer global variables, and
+  fewer mandatory dependencies.
