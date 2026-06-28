@@ -1,6 +1,6 @@
 * Instructions
 
-Analyze the codebase and outline a dramatically simplified version of Hactar. Imagine you are building Hactar from scratch over again throwing out all the exisitng cruft.
+Analyze the codebase and outline a dramatically simplified version of Hactar. Imagine you are building Hactar from scratch over again throwing out all the exisitng debt.
 
 * Commands
 List commands here
