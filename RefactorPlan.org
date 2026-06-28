@@ -192,20 +192,20 @@ serve **two audiences**: a human hand-editing =.hactar.lisp=, and the diffusion
 agent emitting forms. The set of forms the agent may emit is exactly this set —
 the **Surface** (see "API subset" below).
 
-| # | Primitive   | One job                                        | Today's home        | Status        |
-|---+-------------+------------------------------------------------+---------------------+---------------|
-| 1 | =llm=       | talk to a model: =complete=/=ask=/=diffuse=    | llm.lisp, llm-utils | keep          |
-| 2 | =prompt=    | named, templated text: =defprompt=             | prompts.lisp        | keep, extend  |
-| 3 | =context=   | assemble prompt context (files/docs/rules)     | context.lisp        | keep, slim    |
-| 4 | =route=     | input string -> handler: =defroute=/=defflag=  | router.lisp         | keep; unify   |
-| 5 | =mode=      | the *module*: when+rules+prompts+actions       | mode.lisp           | keep; promote |
-| 6 | =interface= | two-way file<->state (the org surface)         | interface.lisp      | keep; promote |
-| 7 | =knowledge= | =$hypertext= docs/snippets by URI: =defdoc=    | hypertext.lisp      | keep, rename  |
-| 8 | =project=   | the data map: =defproject/defroutes/defmodels= | project-cli.lisp    | keep; CENTER  |
-| 9 | =tool=      | typed fn the agent may call: =deftool=         | tools.lisp          | keep; promote |
-|10 | =skill=     | a capability bundle (SKILL.md): =defskill=     | skills-mode.lisp    | keep; promote |
-|11 | =sandbox=   | where the harness runs: =defsandbox=           | sandbox.shell.nix   | add form      |
-|12 | =agent=     | composed harness (model+tools+skills+sandbox+instructions): =defagent= | agents.lisp | keep; promote |
+|  # | Primitive   | One job                                                                | Today's home        | Status        |
+|----+-------------+------------------------------------------------------------------------+---------------------+---------------|
+|  1 | =llm=       | talk to a model: =complete=/=ask=/=diffuse=                            | llm.lisp, llm-utils | keep          |
+|  2 | =prompt=    | named, templated text: =defprompt=                                     | prompts.lisp        | keep, extend  |
+|  3 | =context=   | assemble prompt context (files/docs/rules)                             | context.lisp        | keep, slim    |
+|  4 | =route=     | input string -> handler: =defroute=/=defflag=                          | router.lisp         | keep; unify   |
+|  5 | =mode=      | the *module*: when+rules+prompts+actions                               | mode.lisp           | keep; promote |
+|  6 | =interface= | two-way file<->state (the org surface)                                 | interface.lisp      | keep; promote |
+|  7 | =knowledge= | =$hypertext= docs/snippets by URI: =defdoc=                            | hypertext.lisp      | keep, rename  |
+|  8 | =project=   | the data map: =defproject/defroutes/defmodels=                         | project-cli.lisp    | keep; CENTER  |
+|  9 | =tool=      | typed fn the agent may call: =deftool=                                 | tools.lisp          | keep; promote |
+| 10 | =skill=     | a capability bundle (SKILL.md): =defskill=                             | skills-mode.lisp    | keep; promote |
+| 11 | =sandbox=   | where the harness runs: =defsandbox=                                   | sandbox.shell.nix   | add form      |
+| 12 | =agent=     | composed harness (model+tools+skills+sandbox+instructions): =defagent= | agents.lisp         | keep; promote |
 
 Primitives 9–12 are the *harness layer* (the Flue inspiration): =defagent= is the
 =defineAgent= analog, composing =tool=/=skill=/=sandbox=/=prompt= into one runnable
@@ -438,33 +438,33 @@ the prior plan and still apply.)
 
 The spine of the new architecture is promoted to the center; competitors deleted.
 
-| File(s)                               | Fate    | Becomes / Notes                                         |
-|---------------------------------------+---------+---------------------------------------------------------|
-| project-cli.lisp                      | CENTER  | =.hactar.lisp= = the app; extend to behavior forms      |
-| lisp-form-parser.lisp                 | CENTER  | the Surface validator + safe merge/write; extend schema |
+| File(s)                               | Fate    | Becomes / Notes                                                                   |
+|---------------------------------------+---------+-----------------------------------------------------------------------------------|
+| project-cli.lisp                      | CENTER  | =.hactar.lisp= = the app; extend to behavior forms                                |
+| lisp-form-parser.lisp                 | CENTER  | the Surface validator + safe merge/write; extend schema                           |
 | fusion.lisp, fusions/*                | REBUILD | DELETE the =deffusion= macro/registry; replace with the small =synth-*= functions |
-| llm-utils.lisp (=diffusion-complete=) | CENTER  | the diffusion client                                    |
-| fern.lisp                             | KEEP    | hard-coded extraction for generation (plain =extract-*=)|
-| llm.lisp, prompts.lisp, context.lisp  | KEEP    | kernel primitives 1–3                                   |
-| router.lisp                           | KEEP    | the one dispatcher; =defaction= compiles to routes      |
-| mode.lisp                             | EXTEND  | add =:actions=/=:response=; the module unit             |
-| interface.lisp                        | EXTEND  | =:hactar= org surface (human view of the model)         |
-| hypertext.lisp                        | RENAME  | =knowledge=/=defdoc=                                    |
-| hooks/history/session/tools           | KEEP    | the watch signal for self-update                        |
-| agents.lisp                           | PROMOTE | =defagent= = the composed harness (Flue =defineAgent=)  |
-| tools.lisp                            | PROMOTE | =deftool= = typed fns on the Surface; harness =:tools=  |
-| skills-mode.lisp                      | PROMOTE | =defskill= = capability bundles; harness =:skills=      |
-| sandbox.shell.nix / sandbox forms     | EXTEND  | =defsandbox= = where the harness runs; harness =:sandbox= |
-| build.lisp + Makefile                 | EXTEND  | =builder= → =./hactar/build/hactar=; emit =.envrc=      |
-| commands.lisp                         | SLIM    | =define-command= → thin wrapper over =defroute=         |
-| dots.lisp                             | DELETE  | → =defaction= data + prompt files                       |
-| molds.lisp                            | DELETE  | → =defproject/defmodels= + mode rules + =defaction=     |
-| litmode.lisp, hactar-monolith.lisp    | DELETE  | → =:hactar= org interface + =knowledge=                 |
-| org-mode.lisp                         | DELETE  | one parser only (=org-mode-parser.lisp=)                |
-| code-value.lisp                       | SLIM    | semantic object for =:apply= staging                    |
-| compiler/vfs/checker/*-target.lisp    | PLUGIN  | optional =hactar-codegen= (deterministic emit)          |
-| ruhe.lisp, hyperfractal.lisp          | EXTRACT | separate systems                                        |
-| hactar.asd                            | SPLIT   | =hactar-core= (engine/library) vs project app           |
+| llm-utils.lisp (=diffusion-complete=) | CENTER  | the diffusion client                                                              |
+| fern.lisp                             | KEEP    | hard-coded extraction for generation (plain =extract-*=)                          |
+| llm.lisp, prompts.lisp, context.lisp  | KEEP    | kernel primitives 1–3                                                             |
+| router.lisp                           | KEEP    | the one dispatcher; =defaction= compiles to routes                                |
+| mode.lisp                             | EXTEND  | add =:actions=/=:response=; the module unit                                       |
+| interface.lisp                        | EXTEND  | =:hactar= org surface (human view of the model)                                   |
+| hypertext.lisp                        | RENAME  | =knowledge=/=defdoc=                                                              |
+| hooks/history/session/tools           | KEEP    | the watch signal for self-update                                                  |
+| agents.lisp                           | PROMOTE | =defagent= = the composed harness (Flue =defineAgent=)                            |
+| tools.lisp                            | PROMOTE | =deftool= = typed fns on the Surface; harness =:tools=                            |
+| skills-mode.lisp                      | PROMOTE | =defskill= = capability bundles; harness =:skills=                                |
+| sandbox.shell.nix / sandbox forms     | EXTEND  | =defsandbox= = where the harness runs; harness =:sandbox=                         |
+| build.lisp + Makefile                 | EXTEND  | =builder= → =./hactar/build/hactar=; emit =.envrc=                                |
+| commands.lisp                         | SLIM    | =define-command= → thin wrapper over =defroute=                                   |
+| dots.lisp                             | DELETE  | → =defaction= data + prompt files                                                 |
+| molds.lisp                            | DELETE  | → =defproject/defmodels= + mode rules + =defaction=                               |
+| litmode.lisp, hactar-monolith.lisp    | DELETE  | → =:hactar= org interface + =knowledge=                                           |
+| org-mode.lisp                         | DELETE  | one parser only (=org-mode-parser.lisp=)                                          |
+| code-value.lisp                       | SLIM    | semantic object for =:apply= staging                                              |
+| compiler/vfs/checker/*-target.lisp    | PLUGIN  | optional =hactar-codegen= (deterministic emit)                                    |
+| ruhe.lisp, hyperfractal.lisp          | EXTRACT | separate systems                                                                  |
+| hactar.asd                            | SPLIT   | =hactar-core= (engine/library) vs project app                                     |
 
 * Phased Migration
 

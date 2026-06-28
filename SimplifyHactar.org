@@ -1,0 +1,69 @@
+* Instructions
+
+Analyze the codebase and outline a dramatically simplified version of Hactar. Imagine you are building Hactar from scratch over again throwing out all the exisitng cruft.
+
+* Commands
+List commands here
+
++ =hactar init= produce the .hactar.lisp using a diffusion model
+* Flags
+List flags here
+
+Core ones we will need:
+
++ --acp
++ --in-editor
++ --auto-update
+  + automatically update the .hactar.lisp using a diffusion model
+* Modes
+** hactar-mode
+** redwood-mode
+* API
+** Main Surface
+This code is what ends up in our .hactar.lisp file.
+
++ definterface
+  + this is how the agent exposes interaction
+  + hactar itself provides core interfaces
+  + defpipe-interface
+    + two way plain file syncin
+  + deflit-interface
+    + a two
+  + deffiles-interface
+  + defacp-interface
+  + defmcp-interface
++ defskill
++ defrule
++ defaction
++ defagent
++ defsandbox
++ defmode
++ defdoc
++ deftool
+  + defines a tool for use by llm     
++ with-mcp
+  + specify mcp tools that get loaded automatically
++ defprompt
++ with-diffusion
+  + wraps code is generated and updated by an LLM
+** Libraries
+*** tui
++ build tui interfaces using charms
+*** llm
+Handle all the llm calls
+*** router
+Handles dispatching commands and strings to commands. Parsing flags and 
+* Details
++ don't use comments to keep track of generated locations use macros instead like with-llm or with-diffusion
+  + keywords in those macros 
++ with prefixed macros are the way skills, rules, modes etc are loaded in a hard coded way
+  + e.g
+
+    #+begin_src lisp
+      (defagent dev
+      	  :model "anthropic/claude-sonnet-4-6"
+      	  (with-modes :redwood
+      		      ;; body of agent
+      		      ))
+    #+end_src
++ =(dev  )= (calls agent name dev)
