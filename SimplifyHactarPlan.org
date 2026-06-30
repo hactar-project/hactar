@@ -44,16 +44,16 @@ region system, and one harness model.
 
 The existing codebase suggests the following simplifications.
 
-| Current shape | Simplification |
-|---------------+----------------|
-| =commands.lisp=, =router.lisp=, =web.lisp=, =project-cli.lisp=, ACP command tables | Replace with one route registry and adapters. |
-| Slash commands and subcommands as separate systems | Commands are routes; prefix syntax is parsing only. |
-| Format handlers attached separately to commands | Commands return values; renderers choose text/json/org/markdown. |
-| Modes dynamically register/unregister global commands | Modes are explicit bundles imported by =.hactar.lisp=. |
-| Old threaded =defagent= and new harness =defagent= coexist | Keep only the harness form: model + tools + skills + sandbox + instructions. |
-| =.hactar.toml= plus =.hactar.lisp= plus many globals | =.hactar.lisp= owns behavior; env/TOML only provide local secrets and machine config. |
-| Generated regions are comments plus ad hoc parsing | Generated ownership is expressed with macros and explicit region forms. |
-| Many built-in stack commands ship globally | Stack behavior moves into modes that =.hactar.lisp= imports. |
+| Current shape                                                                      | Simplification                                                                        |
+|------------------------------------------------------------------------------------+---------------------------------------------------------------------------------------|
+| =commands.lisp=, =router.lisp=, =web.lisp=, =project-cli.lisp=, ACP command tables | Replace with one route registry and adapters.                                         |
+| Slash commands and subcommands as separate systems                                 | Commands are routes; prefix syntax is parsing only.                                   |
+| Format handlers attached separately to commands                                    | Commands return values; renderers choose text/json/org/markdown.                      |
+| Modes dynamically register/unregister global commands                              | Modes are explicit bundles imported by =.hactar.lisp=.                                |
+| Old threaded =defagent= and new harness =defagent= coexist                         | Keep only the harness form: model + tools + skills + sandbox + instructions.          |
+| =.hactar.toml= plus =.hactar.lisp= plus many globals                               | =.hactar.lisp= owns behavior; env/TOML only provide local secrets and machine config. |
+| Generated regions are comments plus ad hoc parsing                                 | Generated ownership is expressed with macros and explicit region forms.               |
+| Many built-in stack commands ship globally                                         | Stack behavior moves into modes that =.hactar.lisp= imports.                          |
 
 * New architecture
 
@@ -61,19 +61,19 @@ The existing codebase suggests the following simplifications.
 
 The installed engine is small and mostly project-agnostic.
 
-| Module | Responsibility |
-|--------+----------------|
-| =state= | Typed mutable runtime state, event log, session identity. |
-| =surface= | Approved DSL forms and validators for generated code. |
-| =route= | One command/capability registry, parser, dispatcher, and metadata model. |
-| =render= | Text/json/org/markdown renderers for route results. |
-| =llm= | Model registry, completions, streaming, embeddings if needed. |
-| =context= | Build prompt context from files, docs, rules, history, and project map. |
-| =project= | Read/write/load =.hactar.lisp=; deterministic project extraction. |
-| =synth= | Diffusion calls, generated region updates, validation, reload. |
-| =interface= | Bidirectional file/state interfaces and watchers. |
-| =harness= | Tools, skills, sandboxes, agents, and permission checks. |
-| =protocols= | Thin adapters: terminal, editor, ACP, MCP. |
+| Module      | Responsibility                                                           |
+|-------------+--------------------------------------------------------------------------|
+| =state=     | Typed mutable runtime state, event log, session identity.                |
+| =surface=   | Approved DSL forms and validators for generated code.                    |
+| =route=     | One command/capability registry, parser, dispatcher, and metadata model. |
+| =render=    | Text/json/org/markdown renderers for route results.                      |
+| =llm=       | Model registry, completions, streaming, embeddings if needed.            |
+| =context=   | Build prompt context from files, docs, rules, history, and project map.  |
+| =project=   | Read/write/load =.hactar.lisp=; deterministic project extraction.        |
+| =synth=     | Diffusion calls, generated region updates, validation, reload.           |
+| =interface= | Bidirectional file/state interfaces and watchers.                        |
+| =harness=   | Tools, skills, sandboxes, agents, and permission checks.                 |
+| =protocols= | Thin adapters: terminal, editor, ACP, MCP.                               |
 
 Everything else is either a mode or generated project code.
 
@@ -126,13 +126,13 @@ project's dev-tooling program.
 Adapters do not own behavior. They parse input, call the route dispatcher, and
 render the result.
 
-| Adapter | Example | What it does |
-|---------+---------+--------------|
-| Terminal | =hactar route.create Login= | Parse argv, dispatch route, print renderer output. |
-| Shell/REPL | =/route.create Login= | Same route, slash prefix only affects parsing. |
-| Editor | =hactar --in-editor= | Uses files and compact structured output. |
-| ACP | =hactar --acp= | Maps ACP methods to routes and route results to JSON-RPC. |
-| MCP | =with-mcp= | Exposes selected routes/tools through MCP. |
+| Adapter    | Example                     | What it does                                              |
+|------------+-----------------------------+-----------------------------------------------------------|
+| Terminal   | =hactar route.create Login= | Parse argv, dispatch route, print renderer output.        |
+| Shell/REPL | =/route.create Login=       | Same route, slash prefix only affects parsing.            |
+| Editor     | =hactar --in-editor=        | Uses files and compact structured output.                 |
+| ACP        | =hactar --acp=              | Maps ACP methods to routes and route results to JSON-RPC. |
+| MCP        | =with-mcp=                  | Exposes selected routes/tools through MCP.                |
 
 * Commands
 
@@ -141,14 +141,14 @@ The engine only ships bootstrap and diagnostic commands. Project verbs come from
 
 ** Engine commands
 
-| Command | Purpose |
-|---------+---------|
-| =hactar init= | Create =.hactar.lisp= for the current repo using deterministic extraction plus diffusion. |
-| =hactar update= | Rescan the repo and rewrite generated regions. |
-| =hactar doctor= | Explain model config, project file health, permissions, and protocol readiness. |
-| =hactar build= | Build the project-local Hactar binary. |
-| =hactar repl= | Start the interactive terminal shell. |
-| =hactar version= | Print version and engine path. |
+| Command          | Purpose                                                                                   |
+|------------------+-------------------------------------------------------------------------------------------|
+| =hactar init=    | Create =.hactar.lisp= for the current repo using deterministic extraction plus diffusion. |
+| =hactar update=  | Rescan the repo and rewrite generated regions.                                            |
+| =hactar doctor=  | Explain model config, project file health, permissions, and protocol readiness.           |
+| =hactar build=   | Build the project-local Hactar binary.                                                    |
+| =hactar repl=    | Start the interactive terminal shell.                                                     |
+| =hactar version= | Print version and engine path.                                                            |
 
 ** Project commands
 
@@ -173,15 +173,15 @@ add =--project <name>= as a parser feature, not a separate command system.
 
 Keep the global flag surface small.
 
-| Flag | Purpose |
-|------+---------|
-| =--model <name>= | Select the model for this invocation/session. |
-| =--acp= | Run the ACP JSON-RPC adapter over stdio. |
-| =--in-editor= | Use compact editor-safe output and file interfaces. |
-| =--auto-update= | Let the diffusion updater rewrite generated regions after validated events. |
-| =--format <text/json/org/markdown>= | Select renderer for route results. |
-| =--no-color= | Disable terminal styling. |
-| =--debug= | Emit diagnostic logs. |
+| Flag                                | Purpose                                                                     |
+|-------------------------------------+-----------------------------------------------------------------------------|
+| =--model <name>=                    | Select the model for this invocation/session.                               |
+| =--acp=                             | Run the ACP JSON-RPC adapter over stdio.                                    |
+| =--in-editor=                       | Use compact editor-safe output and file interfaces.                         |
+| =--auto-update=                     | Let the diffusion updater rewrite generated regions after validated events. |
+| =--format <text/json/org/markdown>= | Select renderer for route results.                                          |
+| =--no-color=                        | Disable terminal styling.                                                   |
+| =--debug=                           | Emit diagnostic logs.                                                       |
 
 All other flags should be command-local and defined on the route/action itself.
 
@@ -407,11 +407,11 @@ should not call through old parallel registries.
 
 ** Phase 1: Freeze the surface
 
-- [ ] Write the public surface validator.
-- [ ] Define the result type and renderer protocol.
-- [ ] Decide the exact signatures for =defroute=, =defaction=, =deftool=,
+- [X] Write the public surface validator.
+- [X] Define the result type and renderer protocol.
+- [X] Decide the exact signatures for =defroute=, =defaction=, =deftool=,
   =defagent=, =definterface=, and =with-generated=.
-- [ ] Add tests proving generated forms can be parsed, validated, loaded, and
+- [X] Add tests proving generated forms can be parsed, validated, loaded, and
   round-tripped.
 
 ** Phase 2: Replace command dispatch

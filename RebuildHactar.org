@@ -1,0 +1,900 @@
+#+title: Rebuild Hactar From Scratch
+#+author: k
+#+startup: overview
+
+* North Star
+
+Hactar is not a tool you point at a project. *Hactar becomes the project.*
+
+On first run inside a repository, the generic engine detects the project,
+extracts a map of its stack and shape, and writes a project-local application to
+=.hactar.lisp=. From that point forward, running =hactar= means running the
+project's own generated and editable CLI. The global engine recedes into a
+library.
+
+The rebuild should treat the current codebase as reference material only. The
+target is a clean implementation whose central product is the generated harness:
+=.hactar.lisp=, a human-readable DSL program that composes project tools, skills,
+prompts, actions, sandboxes, and agents.
+
+#+begin_quote
+Hactar is a DSL for building dev tooling from LLMs. =.hactar.lisp= is a program
+written in that DSL, and Hactar writes most of it for you, then keeps writing it.
+#+end_quote
+
+* Product Invariants
+
+1. Hactar solves repeatable problems by extending itself, not by emitting
+   throwaway bash or Python scripts.
+2. The generated =.hactar.lisp= is the application for one repository.
+3. The engine defines no project-specific verbs beyond bootstrap, build, doctor,
+   and update machinery.
+4. Project behavior lives in readable DSL forms.
+5. User-written regions are preserved; generated regions are machine-owned.
+6. Self-update is enabled by default but is always validated before reload.
+7. All mutable engine state is declared from one file, =state.lisp=.
+8. Build, test, run, and development entry points go through the Makefile.
+9. The project-local binary always lands at =./hactar/build/hactar=.
+10. A generated =.envrc= and launcher shim make =hactar= resolve to the
+    project-local binary when inside that repository.
+
+* Architecture
+
+** Layer 1: =hactar-core=
+
+=hactar-core= is the reusable engine library. It owns the kernel, DSL registry,
+bootstrapper, self-generation pipeline, self-update pipeline, dispatcher,
+builder, validation, persistence, and interfaces.
+
+It should provide only these generic commands:
+
+- =hactar.init= / first-run bootstrap
+- =hactar.build=
+- =hactar.doctor=
+- =hactar.update=
+- =hactar.version=
+- =hactar.help=
+
+Every stack-specific verb is generated into =.hactar.lisp=.
+
+** Layer 2: =.hactar.lisp=
+
+=.hactar.lisp= is the per-project application. Loading it registers the project
+model and its commands. It is both user editable and machine editable.
+
+Canonical shape:
+
+#+begin_src lisp
+(in-package :hactar-user)
+
+(generated :updated-at "<timestamp>"
+  (defproject :stack ("typescript" "react" "react-router" "vite"))
+
+  (deftool tsc :run "npx tsc --noEmit" :doc "Type-check the project.")
+  (deftool vitest :run "npx vitest run {{args}}" :doc "Run unit tests.")
+  (deftool rr-routes :run "npx react-router routes" :doc "List the route tree.")
+
+  (defskill react-router :doc "react-router.org" :rules :react-router)
+
+  (defsandbox project :kind :local :allow ("npx" "node" "git"))
+
+  (defaction route.create
+    :doc "Create a typed React Router route + loader/action."
+    :prompt "Create a React Router route {{name}} under src/routes using a typed loader and action, then register it in src/routes.tsx. {{doc:react-router}}"
+    :apply :create)
+
+  (defagent dev
+    :model "anthropic/claude-sonnet-4-6"
+    :tools (tsc vitest rr-routes)
+    :skills (react-router)
+    :sandbox project
+    :instructions "Build React Router features end-to-end: scaffold the route, wire data loaders/actions, type-check, and verify with vitest."))
+
+;; User-owned forms below are preserved.
+#+end_src
+
+** Lifecycle
+
+#+begin_src text
+first run             every run              during a session
+---------             ---------              ----------------
+detect stack          load .hactar.lisp      record chat/tool events
+extract project map   dispatch command       run self-update hook
+generate harness      run action/agent       diffuse edits
+write .hactar.lisp                           validate closed API
+build binary                                 rewrite generated region
+write .envrc                                 hot-reload or rebuild
+install shim
+#+end_src
+
+* Target Repository Layout
+
+Move almost all implementation code under =src/= and split reusable libraries
+into their own ASDF systems.
+
+#+begin_src text
+.
+|-- Makefile
+|-- hactar.asd
+|-- hactar-llm.asd
+|-- hactar-org.asd
+|-- hactar-md.asd
+|-- hactar-fzf.asd
+|-- src/
+|   |-- packages.lisp
+|   |-- state.lisp
+|   |-- core/
+|   |   |-- result.lisp
+|   |   |-- surface.lisp
+|   |   |-- hooks.lisp
+|   |   |-- modes.lisp
+|   |   |-- commands.lisp
+|   |   |-- routes.lisp
+|   |   |-- project.lisp
+|   |   |-- bootstrap.lisp
+|   |   |-- builder.lisp
+|   |   |-- generated-file.lisp
+|   |   |-- self-update.lisp
+|   |   |-- validate.lisp
+|   |   `-- dispatcher.lisp
+|   |-- interfaces/
+|   |   |-- files-dir.lisp
+|   |   |-- org-interface.lisp
+|   |   `-- shell.lisp
+|   |-- dsl/
+|   |   |-- defhook.lisp
+|   |   |-- defmode.lisp
+|   |   |-- defagent.lisp
+|   |   |-- definterface.lisp
+|   |   |-- defcommand.lisp
+|   |   |-- defrule.lisp
+|   |   |-- defskill.lisp
+|   |   |-- defprompt.lisp
+|   |   |-- defaction.lisp
+|   |   |-- deftool.lisp
+|   |   |-- defroute.lisp
+|   |   |-- defhypertext.lisp
+|   |   `-- defdoc.lisp
+|   |-- stack/
+|   |   |-- detect.lisp
+|   |   |-- extract.lisp
+|   |   |-- typescript-react-router.lisp
+|   |   |-- rails.lisp
+|   |   `-- common.lisp
+|   |-- llm/
+|   |-- org/
+|   |-- md/
+|   |-- fzf/
+|   `-- main.lisp
+`-- tests/
+#+end_src
+
+* ASDF Systems
+
+** =hactar-core=
+
+The engine and DSL. Depends on the split libraries where needed.
+
+Responsibilities:
+
+- Surface DSL definitions and registries.
+- Project detection and extraction.
+- =.hactar.lisp= read/write/preserve generated/user regions.
+- CLI dispatch and route parsing.
+- Self-update hooks and diffusion loop.
+- Interface protocol and built-in interfaces.
+- Builder and doctor.
+
+** =hactar=
+
+The executable. Thin entry point that loads =hactar-core=, ensures repository
+context, bootstraps when needed, then dispatches.
+
+Build path:
+
+#+begin_src text
+./hactar/build/hactar
+#+end_src
+
+** =hactar-llm=
+
+LLM provider wrapper library.
+
+Responsibilities:
+
+- Model registry.
+- Provider clients.
+- Streaming and non-streaming completions.
+- Diffusion completion API.
+- Tool-call message normalization.
+- Token/cost helpers.
+
+** =hactar-org=
+
+Org-mode parsing and rendering.
+
+Responsibilities:
+
+- Parse org documents.
+- Render editable context files.
+- Extract source blocks.
+- Round-trip =.hactar.org= to =.hactar.lisp=.
+
+** =hactar-md=
+
+Markdown parsing and rendering.
+
+Responsibilities:
+
+- Parse markdown.
+- Render terminal-friendly output.
+- Extract fenced blocks and references.
+
+** =hactar-fzf=
+
+Fuzzy selection and filtering.
+
+Responsibilities:
+
+- Pure fuzzy ranking.
+- Terminal selector integration.
+- Non-interactive selection API for agents/tests.
+
+* DSL Surface
+
+The DSL is the closed API that humans write and the self-update agent is allowed
+to emit. Every form must validate before it can be loaded.
+
+** =defhook=
+
+Emacs-inspired hooks.
+
+#+begin_src lisp
+(defhook turn.after
+  :args (turn events)
+  :doc "Runs after a user/agent turn has completed.")
+#+end_src
+
+** =defmode=
+
+Modes divide code by capability or stack. A mode can register rules, commands,
+prompts, tools, and activation conditions.
+
+#+begin_src lisp
+(defmode react-router
+  :when (:stack "react-router")
+  :rules (react-router-routing typed-loaders)
+  :skills (react-router)
+  :commands (route.create api.create))
+#+end_src
+
+** =defagent=
+
+The composed harness, inspired by Flue's =defineAgent=.
+
+#+begin_src lisp
+(defagent dev
+  :model "anthropic/claude-sonnet-4-6"
+  :tools (tsc vitest rr-routes)
+  :skills (react-router)
+  :sandbox project
+  :instructions "Build project features end-to-end.")
+#+end_src
+
+** =definterface=
+
+Bidirectional views over Hactar state and context.
+
+#+begin_src lisp
+(definterface org-interface
+  :path ".hactar/context.org"
+  :format :org
+  :render render-context-org
+  :parse parse-context-org)
+#+end_src
+
+** =defcommand=
+
+Registers a CLI command. Core commands are minimal; project commands should
+usually be generated through =defaction= or =defagent=.
+
+#+begin_src lisp
+(defcommand hactar.doctor
+  :doc "Repair project-local Hactar wiring."
+  :handler doctor-project)
+#+end_src
+
+** =defrule=
+
+Named guidance that can be attached to modes, skills, prompts, or agents.
+
+#+begin_src lisp
+(defrule typed-loaders
+  :doc "React Router loaders and actions must expose typed data boundaries."
+  :body "Prefer typed loader/action helpers and verify with tsc.")
+#+end_src
+
+** =defskill=
+
+Capability bundles loaded into agent context.
+
+#+begin_src lisp
+(defskill react-router
+  :doc "React Router project conventions."
+  :docs ("react-router.org")
+  :rules (typed-loaders))
+#+end_src
+
+** =defprompt=
+
+Named templated prompts.
+
+#+begin_src lisp
+(defprompt create-route (name)
+  "Create route {{name}} using {{doc:react-router}} and this project map: {{stack}}.")
+#+end_src
+
+** =defaction=
+
+Project verbs. An action binds prompt, tools, skills, and an apply strategy.
+
+#+begin_src lisp
+(defaction route.create
+  :doc "Create a typed route."
+  :prompt create-route
+  :tools (tsc vitest)
+  :skills (react-router)
+  :apply :create)
+#+end_src
+
+** =deftool=
+
+Typed and sandboxed callable functions.
+
+#+begin_src lisp
+(deftool tsc
+  :run "npx tsc --noEmit"
+  :doc "Type-check the project."
+  :permissions (:read :exec))
+#+end_src
+
+** =defroute=
+
+Transforms command strings into normalized route data.
+
+#+begin_src lisp
+(defroute routes.create
+  :pattern "/routes.create --name={name} --path={path}"
+  :result (:cmd "routes.route" :name name :path path))
+#+end_src
+
+Required example:
+
+#+begin_src text
+/routes.create --name=login --path=login
+#+end_src
+
+normalizes to:
+
+#+begin_src lisp
+(:cmd "routes.route"
+ :name "login"
+ :path "/login")
+#+end_src
+
+** =defhypertext= and =defdoc=
+
+=defhypertext= is the underlying document graph. =defdoc= is the friendly DSL
+layer on top.
+
+#+begin_src lisp
+(defhypertext react-router-docs
+  :uri "react-router.org"
+  :content "...indexed docs...")
+
+(defdoc react-router
+  :uri "react-router.org"
+  :tags (:react :routing))
+#+end_src
+
+** =generated=
+
+The machine-owned region wrapper.
+
+#+begin_src lisp
+(generated :updated-at "<2026-06-30 Tue 14:15>"
+  ...)
+#+end_src
+
+Rules:
+
+- The self-update agent may replace any form inside =generated=.
+- User forms outside =generated= are preserved.
+- The validator rejects forms outside the closed DSL surface unless they are in a
+  user-owned region and explicitly loaded under a trusted package.
+- The writer preserves comments and reasonable formatting where possible.
+
+* Core Data Model
+
+All mutable engine state is declared in =src/state.lisp= using a single state
+declaration macro. Other files may read or mutate state, but may not introduce
+new global mutable variables directly.
+
+Initial state groups:
+
+- process and CLI state
+- repository metadata
+- project map
+- command registry
+- route registry
+- hook registry
+- mode registry
+- tool registry
+- skill registry
+- sandbox registry
+- agent registry
+- prompt registry
+- doc/hypertext registry
+- interface registry
+- chat history
+- tool-call history
+- self-update ledger
+- validation/build results
+
+* Bootstrap Pipeline
+
+** Detect
+
+Given a repository root:
+
+1. Identify language and package managers.
+2. Identify frameworks.
+3. Identify test, lint, typecheck, and build commands.
+4. Identify routing/data/model conventions.
+5. Produce a normalized stack descriptor.
+
+** Extract
+
+Build a compact project map:
+
+- files of interest
+- routes
+- models/schemas
+- scripts
+- dependencies
+- docs
+- conventions inferred from tests/config
+- likely commands
+
+** Generate
+
+Generate a complete =.hactar.lisp=:
+
+1. =defproject=
+2. project map forms
+3. generated tools
+4. generated skills
+5. generated sandbox
+6. generated prompts
+7. generated stack-specific actions
+8. generated =defagent= harness
+
+Generation should prefer deterministic rules first, then LLM/diffusion for the
+project-specific harness text.
+
+** Validate
+
+Before writing or loading:
+
+- Parse all forms.
+- Check every generated form against the DSL surface.
+- Ensure referenced tools/skills/sandboxes exist.
+- Ensure action and agent names resolve through the dispatcher.
+- Ensure generated commands do not shadow core commands unless explicitly
+  marked as overrides.
+
+** Write
+
+Create =.hactar.lisp= with one =generated= form plus an empty user region.
+
+** Build
+
+Run the Makefile build target. The resulting binary must be:
+
+#+begin_src text
+./hactar/build/hactar
+#+end_src
+
+** Wire
+
+Create or patch =.envrc=:
+
+#+begin_src sh
+PATH_add hactar/build
+watch_file .hactar.lisp
+#+end_src
+
+Install a global shim that delegates to the nearest project-local
+=hactar/build/hactar= when present, otherwise falls back to the generic engine.
+
+* Runtime Dispatch
+
+Startup algorithm:
+
+1. Find repository root.
+2. If no =.hactar.lisp= exists, bootstrap.
+3. Load =.hactar.lisp= into =hactar-user=.
+4. Register generated and user-defined commands.
+5. Parse CLI input through =defroute= routes and the command dispatcher.
+6. Run actions, tools, or agents.
+7. Record chat, tool calls, command results, validations, and file changes.
+8. Trigger self-update hooks unless disabled.
+
+* Self-Update Pipeline
+
+Self-update is implemented as hooks around turns and tool calls.
+
+Primary hook:
+
+#+begin_src lisp
+(defhook turn.after
+  :args (turn activity)
+  :doc "Update the project harness after each completed turn.")
+#+end_src
+
+Default behavior:
+
+1. Collect recent chat messages, tool calls, command outcomes, file edits, build
+   failures, and successful fixes.
+2. Summarize them into a self-update ledger.
+3. Ask the diffusion model for edits to the generated region.
+4. Allow the diffusion model to emit any DSL-valid Lisp code.
+5. Parse and validate the result.
+6. Merge with the current generated region.
+7. Write =.hactar.lisp= atomically.
+8. Hot-reload if only registry-level forms changed.
+9. Rebuild if macros/package/build-affecting forms changed.
+10. Roll back on parse, validation, load, or build failure.
+
+The self-update agent is not allowed to silently ignore validation failures. It
+must record the failure in state and expose it through =hactar.update.status=.
+
+* Interfaces
+
+** =files.dir=
+
+A file interface for context management.
+
+Responsibilities:
+
+- Add/drop files by editing a directory-like manifest.
+- Preserve ordering and annotations.
+- Render selected files and docs for agent context.
+- Synchronize with state hooks.
+
+** =org-interface=
+
+Expose context, docs, project map, generated harness, and update status as an
+editable org-mode file.
+
+Responsibilities:
+
+- Render =.hactar.org= or =.hactar/context.org=.
+- Parse edited org source blocks back into DSL forms.
+- Preserve generated/user ownership boundaries.
+- Support literate workflows.
+
+** =shell=
+
+Full POSIX-compatible shell integration.
+
+Responsibilities:
+
+- Run shell commands through sandbox policy.
+- Capture stdout, stderr, exit status, cwd, and environment.
+- Feed command activity into self-update.
+- Support interactive session state without bypassing Hactar's tool registry.
+
+* Stack Generation
+
+Stack generators should produce harnesses, not loose commands.
+
+Each stack module returns:
+
+- detection predicates
+- extraction functions
+- default tools
+- default skills
+- default docs
+- sandbox policy
+- actions
+- agent instructions
+- validation commands
+
+** TypeScript + React Router
+
+Generated forms include:
+
+- =deftool tsc=
+- =deftool vitest=
+- =deftool rr-routes=
+- =defskill react-router=
+- =defsandbox project=
+- =defaction route.create=
+- =defaction api.create=
+- =defagent dev=
+
+** Rails
+
+Generated forms include:
+
+- =deftool rails-test=
+- =deftool rails-routes=
+- =deftool rails-db-migrate=
+- =defskill rails=
+- =defaction migration.create=
+- =defaction model.create=
+- =defaction controller.create=
+- =defagent dev=
+
+** Generic fallback
+
+If stack detection is weak, generate a conservative harness:
+
+- shell/git tools only
+- repo-map skill
+- no destructive write actions
+- =defagent dev= with inspect-first instructions
+- prompt the user to refine =.hactar.lisp=
+
+* Reference-Only Map From Current Code
+
+Use these files as source material, not as implementation to preserve wholesale.
+
+| Area | Current reference |
+|------+-------------------|
+| Makefile build/test/run/dev entry points | =Makefile= |
+| ASDF build path | =hactar.asd=, =build.lisp= |
+| State registry | =state.lisp= |
+| Surface validator sketch | =src/surface.lisp= |
+| Project CLI generation | =project-cli.lisp= |
+| Routes and flags | =router.lisp= |
+| Modes | =mode.lisp=, =modes/*.lisp= |
+| Hooks | =hooks.lisp= |
+| Interfaces and org rendering | =interface.lisp= |
+| LLM wrapper | =llm.lisp=, =llm-utils.lisp= |
+| Org parsing | =org-mode-parser.lisp= |
+| Markdown rendering | =markdown.lisp=, =md-render.lisp= |
+| Fuzzy selection | =fzf.lisp= |
+| Tools | =tools.lisp= |
+| Agents | =agents.lisp= |
+| Tests | =tests/*.lisp= |
+
+* Rebuild Phases
+
+** Phase 0: Freeze the Contract
+
+Deliverables:
+
+- This plan.
+- A concise DSL specification.
+- Golden examples for =.hactar.lisp=.
+- Acceptance tests for bootstrap, dispatch, self-update validation, and rebuild.
+
+Exit criteria:
+
+- Tests describe the new architecture instead of current behavior accidents.
+- Existing code paths to keep as reference are listed.
+
+** Phase 1: Create the Greenfield Skeleton
+
+Deliverables:
+
+- New =src/= layout.
+- New package definitions.
+- New ASDF systems: =hactar-core=, =hactar=, =hactar-llm=, =hactar-org=,
+  =hactar-md=, =hactar-fzf=.
+- Thin executable entry point.
+- Makefile still owns build/test/run/dev.
+
+Exit criteria:
+
+- =make build= creates =./hactar/build/hactar=.
+- =make test= loads the new systems.
+
+** Phase 2: Implement State, Results, Hooks, and Registries
+
+Deliverables:
+
+- =src/state.lisp= as the only global mutable state declaration file.
+- Result type for commands, tools, agents, and validation.
+- Hook system with =defhook=.
+- Registries for commands, routes, modes, tools, skills, sandboxes, agents,
+  prompts, docs, and interfaces.
+
+Exit criteria:
+
+- A test can define hooks and prove execution order/error behavior.
+- No new mutable globals are declared outside =state.lisp=.
+
+** Phase 3: Implement the DSL Surface
+
+Deliverables:
+
+- Macros for =defmode=, =defagent=, =definterface=, =defcommand=, =defrule=,
+  =defskill=, =defprompt=, =defaction=, =deftool=, =defroute=,
+  =defhypertext=, =defdoc=, and =generated=.
+- Closed API validator.
+- Pretty printer/writer for =.hactar.lisp=.
+
+Exit criteria:
+
+- Golden DSL files parse, validate, write, reload, and preserve user regions.
+- Invalid generated forms fail closed with useful diagnostics.
+
+** Phase 4: Implement Dispatch and Shell-Safe Execution
+
+Deliverables:
+
+- Route parser for command strings.
+- Command dispatcher.
+- Action runner.
+- Tool runner with sandbox policy.
+- Agent runner that composes model, tools, skills, sandbox, and instructions.
+
+Exit criteria:
+
+- =hactar route.create Dashboard= can dispatch through a generated action.
+- =hactar dev "add a settings page"= can dispatch through a generated agent.
+- Shell commands run only through registered tools and sandbox policy.
+
+** Phase 5: Implement Project Detection and Extraction
+
+Deliverables:
+
+- Stack detector.
+- Extractors for routes, models/schemas, scripts, dependencies, docs, and test
+  commands.
+- Initial TypeScript + React Router generator.
+- Initial Rails generator.
+- Generic fallback generator.
+
+Exit criteria:
+
+- A fixture TypeScript + React Router repo generates the worked-example
+  harness.
+- A fixture Rails repo generates Rails-specific actions.
+- Unknown repos generate a safe fallback harness.
+
+** Phase 6: Implement Bootstrap and Self-Hosting
+
+Deliverables:
+
+- First-run behavior when no =.hactar.lisp= exists.
+- Atomic =.hactar.lisp= write.
+- Build to =./hactar/build/hactar=.
+- =.envrc= writer.
+- Launcher shim behavior.
+- =hactar.doctor= repair command.
+
+Exit criteria:
+
+- In a fresh repo, one =hactar= run generates, builds, wires, and runs the
+  project-local CLI.
+- Subsequent =hactar= calls resolve to the project binary.
+
+** Phase 7: Implement Self-Update
+
+Deliverables:
+
+- Turn/tool-call activity ledger.
+- =--auto-update= flag, default on.
+- Diffusion prompt and client call.
+- Generated-region merge.
+- Validation/load/build rollback.
+- Update status command.
+
+Exit criteria:
+
+- A test activity log can cause a new =defaction= to appear in =generated=.
+- Invalid Lisp is rejected and rolled back.
+- User forms outside =generated= are preserved byte-for-byte where possible.
+
+** Phase 8: Implement Interfaces
+
+Deliverables:
+
+- =files.dir= interface.
+- =org-interface=.
+- POSIX shell integration.
+- Hook synchronization between state and interface files.
+
+Exit criteria:
+
+- Editing the org interface updates context and DSL forms.
+- Shell command results feed the self-update ledger.
+- Interface round trips are covered by tests.
+
+** Phase 9: Split Libraries
+
+Deliverables:
+
+- =hactar-llm= extracted and tested.
+- =hactar-org= extracted and tested.
+- =hactar-md= extracted and tested.
+- =hactar-fzf= extracted and tested.
+
+Exit criteria:
+
+- =hactar-core= depends on these libraries rather than embedding their
+  implementation.
+- Each split library can load independently.
+
+** Phase 10: Replace Old Code
+
+Deliverables:
+
+- Remove or archive superseded top-level implementation files.
+- Keep compatibility shims only where required for migration.
+- Update README and docs to describe the new model.
+- Ensure tests target the new architecture.
+
+Exit criteria:
+
+- The repo no longer depends on the old top-level implementation layout.
+- Users can understand Hactar by reading =.hactar.lisp= plus the DSL reference.
+
+* Test Plan
+
+Use the Makefile for all validation.
+
+Required test groups:
+
+- DSL validation tests.
+- Generated file round-trip tests.
+- Dispatch route tests.
+- Hook execution tests.
+- Mode activation tests.
+- Tool sandbox tests.
+- Agent harness composition tests.
+- Project detection fixture tests.
+- Bootstrap fixture tests.
+- Self-update merge/rollback tests.
+- Interface round-trip tests.
+- Library split load tests.
+
+Acceptance commands:
+
+#+begin_src sh
+make build
+make test
+#+end_src
+
+* Safety Rules
+
+1. The self-update agent may only modify =generated= unless explicitly running a
+   trusted migration.
+2. Generated forms must pass the closed DSL validator before loading.
+3. Writes to =.hactar.lisp= are atomic.
+4. Failed validation, load, or build rolls back to the previous file.
+5. Shell execution is only available through =deftool= and sandbox policy.
+6. Core commands cannot be shadowed accidentally.
+7. No broad silent fallbacks: failures are recorded in state and surfaced.
+
+* Definition of Done
+
+The rebuild is complete when:
+
+1. A fresh repository with no =.hactar.lisp= can run =hactar= once and receive a
+   project-specific =.hactar.lisp= plus =./hactar/build/hactar=.
+2. Running =hactar= again executes the project-local binary.
+3. The generated file contains a composed harness: tools, skills, sandbox,
+   actions, and agent.
+4. The self-update hook can safely rewrite =generated= and reload/rebuild.
+5. User-owned forms are preserved.
+6. TypeScript + React Router and Rails fixtures produce stack-specific verbs.
+7. All mutable state declarations are centralized in =src/state.lisp=.
+8. Core implementation lives under =src/=.
+9. =hactar-llm=, =hactar-org=, =hactar-md=, and =hactar-fzf= are separate
+   systems.
+10. =make build= and =make test= pass.

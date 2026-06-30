@@ -44,6 +44,8 @@
 	       #:cmark)
   :serial t
   :components ((:file "packages")
+               (:file "src/result")
+               (:file "src/surface")
 	       ;; core extras
 	       (:file "hooks")
 	       ;; state

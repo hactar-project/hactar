@@ -87,7 +87,43 @@
 	   #:validate-hactar-form
 	   #:defenvs
 	   ;; Diffusion LLM
-	   #:diffusion-complete))
+	   #:diffusion-complete
+           ;; Simplify Hactar Phase 1 API
+           #:result
+           #:make-result
+           #:result-p
+           #:result-status
+           #:result-message
+           #:result-data
+           #:result-artifacts
+           #:result-renderers
+           #:render-result
+           #:validate-public-surface
+           #:defproject
+           #:defroutes
+           #:defmodels
+           #:defcomponents
+           #:defscripts
+           #:defdeps
+           #:defroute
+           #:defaction
+           #:defdoc
+           #:defprompt
+           #:defrule
+           #:with-context
+           #:definterface
+           #:defpipe-interface
+           #:deflit-interface
+           #:deffiles-interface
+           #:defacp-interface
+           #:defmcp-interface
+           #:deftool
+           #:defskill
+           #:defsandbox
+           #:defagent
+           #:with-mcp
+           #:with-generated
+           #:with-diffusion))
 
 (in-package :hactar)
 (defpackage :nhooks
