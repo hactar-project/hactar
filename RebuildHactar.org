@@ -801,6 +801,617 @@ Use these files as source material, not as implementation to preserve wholesale.
 | Agents                                   | =agents.lisp=                     |
 | Tests                                    | =tests/*.lisp=                    |
 
+* Implementation Guide (Worked Code)
+
+This section gives a junior engineer concrete, idiomatic starting points. The
+code follows existing repository conventions: =(in-package ...)= per file,
+hash-table registries, =defstruct= definitions, and macros that parse =:key=
+plists. Treat these as skeletons to flesh out, not finished modules.
+
+** Packages and ASDF wiring
+
+=src/packages.lisp= defines two packages: =hactar= (the engine internals) and
+=hactar-user= (what =.hactar.lisp= runs in). The DSL surface symbols are exported
+from =hactar= and =:use=-d by =hactar-user=.
+
+#+begin_src lisp
+;;; src/packages.lisp
+(defpackage #:hactar
+  (:use #:cl)
+  (:export ;; DSL surface — the closed API humans and the agent may emit
+           #:defproject #:defmodels #:defroutes
+           #:defhook #:defmode #:defagent #:definterface #:defcommand
+           #:defrule #:defskill #:defprompt #:defaction #:deftool
+           #:defroute #:defhypertext #:defdoc #:defsandbox #:generated
+           ;; engine entry points
+           #:main #:bootstrap #:dispatch #:self-update))
+
+;; .hactar.lisp runs here; it sees the DSL without package prefixes.
+(defpackage #:hactar-user
+  (:use #:cl #:hactar))
+#+end_src
+
+#+begin_src lisp
+;;; hactar-core.asd
+(asdf:defsystem #:hactar-core
+  :description "Hactar engine + DSL (the library)."
+  :depends-on (#:hactar-llm #:hactar-org #:hactar-md #:hactar-fzf
+               #:cl-ppcre #:alexandria #:uiop #:str #:serapeum)
+  :serial t
+  :pathname "src/"
+  :components
+  ((:file "packages")
+   (:file "state")
+   (:module "core"
+    :components ((:file "result") (:file "hooks") (:file "validate")
+                 (:file "generated-file") (:file "routes")
+                 (:file "commands") (:file "modes") (:file "project")
+                 (:file "dispatcher") (:file "builder")
+                 (:file "bootstrap") (:file "self-update")))
+   (:module "dsl"
+    :components ((:file "deftool") (:file "defskill") (:file "defsandbox")
+                 (:file "defagent") (:file "defaction") (:file "defprompt")
+                 (:file "defrule") (:file "defdoc") (:file "defhypertext")
+                 (:file "defroute") (:file "defmode") (:file "defcommand")
+                 (:file "defhook") (:file "definterface")))
+   (:module "interfaces"
+    :components ((:file "files-dir") (:file "org-interface") (:file "shell")))
+   (:module "modes"
+    :components ((:file "detect") (:file "extract") (:file "common")
+                 (:file "typescript-react-router-mode") (:file "rails-mode")))))
+
+;;; hactar.asd — the executable
+(asdf:defsystem #:hactar
+  :depends-on (#:hactar-core)
+  :serial t
+  :components ((:file "src/main"))
+  :build-operation "program-op"
+  :build-pathname "hactar/build/hactar"
+  :entry-point "hactar:main")
+#+end_src
+
+** State and registries (=src/state.lisp=)
+
+Reuse the existing =defstate= pattern (=defvar= plus registration for the
+=/state= surface). Every registry is a single =defstate=.
+
+#+begin_src lisp
+;;; src/state.lisp
+(in-package :hactar)
+
+(defvar *state-registry* (make-hash-table :test 'equal))
+
+(defmacro defstate (name &optional value doc)
+  "Like defvar, but registered for introspection and reset."
+  `(progn
+     (defvar ,name ,value ,doc)
+     (setf (gethash (string-downcase (symbol-name ',name)) *state-registry*)
+           (list :name ',name :doc ,doc :initial ,value))
+     ',name))
+
+(defstate *repo-root* nil "Absolute path to the repository root.")
+(defstate *stack*     '()  "Detected stack as a list of strings.")
+
+;; One hash table per registry; key is a downcased name string.
+(defstate *tools*      (make-hash-table :test 'equal) "name -> tool-def")
+(defstate *skills*     (make-hash-table :test 'equal) "name -> skill-def")
+(defstate *sandboxes*  (make-hash-table :test 'equal) "name -> sandbox-def")
+(defstate *agents*     (make-hash-table :test 'equal) "name -> agent-def")
+(defstate *actions*    (make-hash-table :test 'equal) "name -> action-def")
+(defstate *prompts*    (make-hash-table :test 'equal) "name -> prompt-def")
+(defstate *routes*     (make-hash-table :test 'equal) "name -> route-def")
+(defstate *commands*   (make-hash-table :test 'equal) "name -> command-def")
+(defstate *modes*      (make-hash-table :test 'equal) "name -> mode-def")
+(defstate *hooks*      (make-hash-table :test 'equal) "name -> list of handlers")
+
+(defstate *update-ledger* '() "Recent activity feeding self-update.")
+
+(defun reset-user-registries ()
+  "Clear everything a reload of .hactar.lisp re-populates."
+  (dolist (reg (list *tools* *skills* *sandboxes* *agents* *actions*
+                     *prompts* *routes* *modes*))
+    (clrhash reg)))
+#+end_src
+
+** Hooks (=src/core/hooks.lisp= and =dsl/defhook.lisp=)
+
+#+begin_src lisp
+;;; src/dsl/defhook.lisp
+(in-package :hactar)
+
+(defstruct hook name args doc (handlers '()))
+
+(defmacro defhook (name &key args doc)
+  "Declare a named hook. Handlers are attached later with ADD-HANDLER."
+  (let ((key (string-downcase (symbol-name name))))
+    `(setf (gethash ,key *hooks*)
+           (make-hook :name ',name :args ',args :doc ,doc))))
+
+(defun add-handler (hook-name fn)
+  (let* ((key (string-downcase (symbol-name hook-name)))
+         (hook (gethash key *hooks*)))
+    (unless hook (error "Unknown hook ~A" hook-name))
+    ;; newest first, like nhooks
+    (push fn (hook-handlers hook))))
+
+(defun run-hook (hook-name &rest args)
+  "Run all handlers; collect their results. Errors are isolated per-handler."
+  (let ((hook (gethash (string-downcase (symbol-name hook-name)) *hooks*)))
+    (when hook
+      (loop for fn in (hook-handlers hook)
+            collect (handler-case (apply fn args)
+                      (error (e)
+                        (warn "hook ~A handler failed: ~A" hook-name e)
+                        nil))))))
+
+(defhook turn.after :args (turn activity)
+  :doc "Runs after a completed user/agent turn.")
+#+end_src
+
+** =deftool= and the sandboxed runner
+
+#+begin_src lisp
+;;; src/dsl/deftool.lisp
+(in-package :hactar)
+
+(defstruct tool-def name doc run fn sandbox (permissions '(:exec)))
+
+(defmacro deftool (name &key run doc fn sandbox permissions)
+  "Register a tool. Either :run (a shell template) or :fn (a function)."
+  (let ((key (string-downcase (symbol-name name))))
+    `(setf (gethash ,key *tools*)
+           (make-tool-def :name ,key :doc ,doc :run ,run
+                          :fn ,(when fn `(function ,fn))
+                          :sandbox ',sandbox
+                          :permissions ',(or permissions '(:exec))))))
+
+(defun run-tool (name &key (args ""))
+  "Run a registered tool under its sandbox policy. Returns a RESULT."
+  (let ((tool (gethash (string-downcase (string name)) *tools*)))
+    (unless tool
+      (return-from run-tool
+        (make-result :status :error :message (format nil "No such tool: ~A" name))))
+    (cond
+      ((tool-def-fn tool) (funcall (tool-def-fn tool) args))
+      ((tool-def-run tool)
+       (let ((cmd (cl-ppcre:regex-replace-all "\\{\\{args\\}\\}"
+                                              (tool-def-run tool) args)))
+         (sandbox-check (tool-def-sandbox tool) cmd) ; signals on violation
+         (multiple-value-bind (out err code)
+             (uiop:run-program cmd :output :string :error-output :string
+                                   :ignore-error-status t)
+           (make-result :status (if (zerop code) :ok :error)
+                        :message (if (zerop code) out err)
+                        :data (list :exit-code code :stdout out :stderr err)))))
+      (t (make-result :status :error :message "Tool has neither :run nor :fn")))))
+#+end_src
+
+** =defsandbox= and policy enforcement
+
+#+begin_src lisp
+;;; src/dsl/defsandbox.lisp
+(in-package :hactar)
+
+(defstruct sandbox-def name kind (allow '()) (deny '()) cwd)
+
+(defmacro defsandbox (name &key (kind :local) allow deny cwd)
+  (let ((key (string-downcase (symbol-name name))))
+    `(setf (gethash ,key *sandboxes*)
+           (make-sandbox-def :name ,key :kind ,kind
+                             :allow ',allow :deny ',deny :cwd ,cwd))))
+
+(defun sandbox-check (sandbox-name cmd)
+  "Signal an error if CMD violates the named sandbox's allow/deny lists."
+  (when sandbox-name
+    (let* ((sb (gethash (string-downcase (string sandbox-name)) *sandboxes*))
+           (bin (first (str:split " " (str:trim cmd)))))
+      (when sb
+        (when (find-if (lambda (d) (search d cmd)) (sandbox-def-deny sb))
+          (error "Sandbox ~A denies: ~A" sandbox-name cmd))
+        (when (and (sandbox-def-allow sb)
+                   (not (member bin (sandbox-def-allow sb) :test #'string=)))
+          (error "Sandbox ~A does not allow binary: ~A" sandbox-name bin))))))
+#+end_src
+
+** =defaction= and the action runner
+
+#+begin_src lisp
+;;; src/dsl/defaction.lisp
+(in-package :hactar)
+
+(defstruct action-def name doc prompt tools skills (apply :create) when)
+
+(defmacro defaction (name &key doc prompt tools skills (apply :create) when)
+  (let ((key (string-downcase (symbol-name name))))
+    `(setf (gethash ,key *actions*)
+           (make-action-def :name ,key :doc ,doc :prompt ,prompt
+                            :tools ',tools :skills ',skills
+                            :apply ,apply :when ,when))))
+
+(defun run-action (name params)
+  "Render the action prompt, call the LLM, and apply the result (:create etc.)."
+  (let ((action (gethash (string-downcase (string name)) *actions*)))
+    (unless action
+      (return-from run-action
+        (make-result :status :error :message (format nil "No action: ~A" name))))
+    (let* ((prompt (render-prompt (action-def-prompt action) params))
+           (answer (ask prompt)))            ; from hactar-llm
+      (apply-strategy (action-def-apply action) answer params))))
+#+end_src
+
+** =defprompt= and template rendering
+
+Use mustache-style =\{\{var\}\}= plus =\{\{doc:NAME\}\}= and =\{\{stack\}\}=
+expansions, matching the worked example.
+
+#+begin_src lisp
+;;; src/dsl/defprompt.lisp
+(in-package :hactar)
+
+(defstruct prompt-def name args template)
+
+(defmacro defprompt (name args template)
+  (let ((key (string-downcase (symbol-name name))))
+    `(setf (gethash ,key *prompts*)
+           (make-prompt-def :name ,key :args ',args :template ,template))))
+
+(defun render-prompt (prompt params)
+  "PROMPT is a prompt name (symbol) or a literal template string."
+  (let ((tmpl (if (and (symbolp prompt) (gethash (string-downcase (string prompt)) *prompts*))
+                  (prompt-def-template (gethash (string-downcase (string prompt)) *prompts*))
+                  (princ-to-string prompt))))
+    (labels ((expand (s)
+               ;; {{stack}} -> space-joined stack
+               (setf s (cl-ppcre:regex-replace-all "\\{\\{stack\\}\\}" s
+                        (format nil "~{~A~^ ~}" *stack*)))
+               ;; {{doc:NAME}} -> doc body
+               (setf s (cl-ppcre:regex-replace-all "\\{\\{doc:([^}]+)\\}\\}" s
+                        (lambda (m &rest _) (declare (ignore _)) (lookup-doc m))))
+               ;; {{name}} etc. from PARAMS plist
+               (loop for (k v) on params by #'cddr
+                     do (setf s (cl-ppcre:regex-replace-all
+                                 (format nil "\\{\\{~A\\}\\}" (string-downcase (string k)))
+                                 s (princ-to-string v))))
+               s))
+      (expand tmpl))))
+#+end_src
+
+** =defagent= and the harness runner
+
+#+begin_src lisp
+;;; src/dsl/defagent.lisp
+(in-package :hactar)
+
+(defstruct agent-def name model tools skills sandbox instructions)
+
+(defmacro defagent (name &key model tools skills sandbox instructions)
+  (let ((key (string-downcase (symbol-name name))))
+    `(setf (gethash ,key *agents*)
+           (make-agent-def :name ,key :model ,model
+                           :tools ',tools :skills ',skills
+                           :sandbox ',sandbox :instructions ,instructions))))
+
+(defun run-agent (name user-request)
+  "Compose model + tools + skills + sandbox + instructions and run a turn."
+  (let ((agent (gethash (string-downcase (string name)) *agents*)))
+    (unless agent
+      (return-from run-agent
+        (make-result :status :error :message (format nil "No agent: ~A" name))))
+    (let* ((system (compose-system-prompt agent))  ; instructions + skills + tool list
+           (tools  (mapcar (lambda (tn) (gethash (string-downcase (string tn)) *tools*))
+                           (agent-def-tools agent)))
+           (answer (llm-chat (agent-def-model agent) system user-request tools)))
+      (make-result :status :ok :message answer))))
+#+end_src
+
+** =defroute=, parsing and normalization
+
+#+begin_src lisp
+;;; src/dsl/defroute.lisp
+(in-package :hactar)
+
+(defstruct route-def name pattern coerce result-template)
+
+(defmacro defroute (name &key pattern coerce result)
+  (let ((key (string-downcase (symbol-name name))))
+    `(setf (gethash ,key *routes*)
+           (make-route-def :name ,key :pattern ,pattern
+                           :coerce ',coerce :result-template ',result))))
+
+(defun ensure-leading-slash (s)
+  (if (and (plusp (length s)) (char= (char s 0) #\/)) s (concatenate 'string "/" s)))
+
+(defun parse-route (input)
+  "Match INPUT against routes, parse --flag=value pairs, apply :coerce,
+   and build the normalized result plist."
+  (loop for route being the hash-values of *routes*
+        for params = (match-route-pattern (route-def-pattern route) input)
+        when params
+          do (return (apply-coercions route params))))
+
+;; /routes.create --name=login --path=login
+;;   => (:cmd "routes.route" :name "login" :path "/login")
+#+end_src
+
+** =generated=, reading, writing, and region preservation
+
+=generated= is dual-natured: at *load time* it is a macro that simply evaluates
+its body; at *write time* the file is treated textually so the writer can replace
+exactly the generated region and keep user forms intact. Reuse the existing
+=read-hactar-lisp= / =write-hactar-lisp= / =merge-hactar-forms= helpers as
+reference.
+
+#+begin_src lisp
+;;; src/core/generated-file.lisp
+(in-package :hactar)
+
+(defmacro generated (&rest body)
+  "Load-time: evaluate the generated forms. The first arg may be
+   :updated-at <string>, which is ignored at load time."
+  (when (eq (first body) :updated-at) (setf body (cddr body)))
+  `(progn ,@body))
+
+(defun load-hactar-file (path)
+  "Validate, then load .hactar.lisp into a fresh hactar-user environment."
+  (let ((forms (read-forms path)))            ; *read-eval* bound to nil inside
+    (multiple-value-bind (ok errors) (validate-forms forms)
+      (unless ok (error "Invalid .hactar.lisp: ~{~A~^; ~}" errors)))
+    (reset-user-registries)
+    (let ((*package* (find-package :hactar-user)))
+      (dolist (form forms) (eval form)))))
+
+(defun write-hactar-file (path generated-forms)
+  "Replace only the (generated ...) region; preserve everything else."
+  (let* ((old (when (probe-file path) (uiop:read-file-string path)))
+         (user-region (extract-user-region old))   ; everything outside generated
+         (block (render-generated-block generated-forms)))
+    (atomic-write path                              ; write temp + rename
+      (format nil "(in-package :hactar-user)~%~%~A~%~%~A~%" block user-region))))
+#+end_src
+
+** Validation (closed surface)
+
+Reuse the schema approach already present (=*hactar-form-schemas*=). The validator
+runs on textual forms *before* evaluation.
+
+#+begin_src lisp
+;;; src/core/validate.lisp
+(in-package :hactar)
+
+(defparameter *surface*
+  '(defproject defmodels defroutes
+    defhook defmode defagent definterface defcommand defrule
+    defskill defprompt defaction deftool defroute defhypertext defdoc
+    defsandbox generated))
+
+(defun validate-forms (forms)
+  "Return (values ok-p list-of-errors). Every top-level operator must be on
+   the surface; generated forms are recursively checked."
+  (let ((errors '()))
+    (dolist (form forms)
+      (cond
+        ((not (consp form)) (push (format nil "Not a form: ~S" form) errors))
+        ((eq (car form) 'generated)
+         (multiple-value-bind (ok errs) (validate-forms (strip-updated-at (cdr form)))
+           (declare (ignore ok)) (setf errors (append errs errors))))
+        ((not (member (car form) *surface*))
+         (push (format nil "~A is not on the Hactar surface" (car form)) errors))))
+    (values (null errors) (nreverse errors))))
+#+end_src
+
+** Bootstrap pipeline (=src/core/bootstrap.lisp=)
+
+#+begin_src lisp
+;;; src/core/bootstrap.lisp
+(in-package :hactar)
+
+(defun bootstrap (&optional (root (find-repo-root)))
+  "First run: detect -> extract -> generate -> validate -> write -> build -> wire."
+  (setf *repo-root* root)
+  (let* ((stack   (detect-stack root))           ; modes/detect.lisp
+         (map     (extract-project-map root stack)) ; modes/extract.lisp
+         (forms   (generate-harness stack map))) ; deterministic + diffusion
+    (multiple-value-bind (ok errs) (validate-forms forms)
+      (unless ok (error "Generated harness invalid: ~{~A~^; ~}" errs)))
+    (write-hactar-file (hactar-file-path root) forms)
+    (load-hactar-file (hactar-file-path root))
+    (build-project-binary root)                  ; builder.lisp -> hactar/build/hactar
+    (doctor root)                                 ; .envrc + .gitignore + shim
+    (hactar-file-path root)))
+
+(defun generate-harness (stack map)
+  "Compose generated forms: deterministic stack forms first, then optional
+   diffusion for project-specific prose."
+  (append
+   (list `(defproject :stack ,stack))
+   (project-map-forms map)
+   (stack-harness-forms stack)                   ; per-mode tools/skills/sandbox/actions/agent
+   (list `(generated :updated-at ,(now-timestamp)))))
+#+end_src
+
+** Doctor: =.envrc=, =.gitignore=, launcher shim
+
+#+begin_src lisp
+;;; src/core/builder.lisp  (doctor portion)
+(in-package :hactar)
+
+(defun doctor (root)
+  (ensure-line (merge-pathnames ".envrc" root)
+               "PATH_add hactar/build")
+  (ensure-line (merge-pathnames ".envrc" root)
+               "watch_file .hactar.lisp")
+  (ensure-line (merge-pathnames ".gitignore" root)
+               "hactar/build/")
+  (install-shim))                ; ~/.local/bin/hactar -> nearest project binary
+
+(defun ensure-line (file line)
+  "Append LINE to FILE unless already present. Creates FILE if needed."
+  (let ((content (if (probe-file file) (uiop:read-file-string file) "")))
+    (unless (search line content)
+      (with-open-file (s file :direction :output
+                              :if-exists :append :if-does-not-exist :create)
+        (format s "~&~A~%" line)))))
+#+end_src
+
+** Dispatcher and =main= (=src/main.lisp=)
+
+#+begin_src lisp
+;;; src/main.lisp
+(in-package :hactar)
+
+(defun main ()
+  (let* ((argv (uiop:command-line-arguments))
+         (root (find-repo-root)))
+    (setf *repo-root* root)
+    (unless (probe-file (hactar-file-path root))
+      (bootstrap root))
+    (load-hactar-file (hactar-file-path root))
+    (let ((result (dispatch argv)))
+      (format t "~A" (render-result result :text))
+      (when *auto-update* (run-hook 'turn.after argv result))
+      (uiop:quit (if (eq (result-status result) :error) 1 0)))))
+
+(defun dispatch (argv)
+  "Resolve ARGV to an action, agent, tool, or command and run it."
+  (let* ((verb (first argv))
+         (rest (rest argv))
+         (key  (and verb (string-downcase verb))))
+    (cond
+      ((null verb)                       (run-default-repl))
+      ((gethash key *actions*)           (run-action key (args->plist rest)))
+      ((gethash key *agents*)            (run-agent  key (format nil "~{~A~^ ~}" rest)))
+      ((gethash key *tools*)             (run-tool   key :args (format nil "~{~A~^ ~}" rest)))
+      ((gethash key *commands*)          (run-command key rest))
+      ((parse-route (format nil "~{~A~^ ~}" argv)) (dispatch-route argv))
+      (t (make-result :status :error :message (format nil "Unknown verb: ~A" verb))))))
+#+end_src
+
+** Self-update loop with debounce (=src/core/self-update.lisp=)
+
+#+begin_src lisp
+;;; src/core/self-update.lisp
+(in-package :hactar)
+
+(defstate *auto-update* t "Whether self-update runs after each turn.")
+(defvar *last-update-at* 0)
+(defvar *update-debounce-seconds* 5)
+
+(add-handler 'turn.after
+  (lambda (turn activity)
+    (declare (ignore turn))
+    (push activity *update-ledger*)
+    (when (and *auto-update*
+               (> (- (get-universal-time) *last-update-at*) *update-debounce-seconds*))
+      (run-self-update))))
+
+(defun run-self-update ()
+  "Diffuse edits into the generated region, validate, and reload or roll back."
+  (setf *last-update-at* (get-universal-time))
+  (let* ((path     (hactar-file-path *repo-root*))
+         (backup   (uiop:read-file-string path))
+         (current  (current-generated-region path))
+         (raw      (diffusion-complete (build-update-prompt current *update-ledger*)))
+         (forms    (parse-diffusion-output raw)))    ; reuse existing helper
+    (multiple-value-bind (ok errs) (validate-forms forms)
+      (cond
+        ((not ok) (record-update-failure errs))      ; surfaced via hactar.update.status
+        (t (handler-case
+               (progn
+                 (write-hactar-file path forms)
+                 (load-hactar-file path)              ; hot-reload
+                 (record-update-success))
+             (error (e)
+               (atomic-write path backup)            ; roll back
+               (record-update-failure (list (princ-to-string e))))))))))
+#+end_src
+
+** A stack mode (=src/modes/typescript-react-router-mode.lisp=)
+
+Each stack module exposes a detector and a function returning generated forms.
+
+#+begin_src lisp
+;;; src/modes/typescript-react-router-mode.lisp
+(in-package :hactar)
+
+(defun react-router-p (root)
+  (let ((pkg (merge-pathnames "package.json" root)))
+    (and (probe-file pkg)
+         (search "react-router" (uiop:read-file-string pkg)))))
+
+(defun react-router-harness-forms ()
+  "The worked-example harness as data."
+  '((deftool tsc       :run "npx tsc --noEmit"        :doc "Type-check the project.")
+    (deftool vitest    :run "npx vitest run {{args}}" :doc "Run unit tests.")
+    (deftool rr-routes :run "npx react-router routes" :doc "List the route tree.")
+    (defskill react-router :doc "react-router.org" :rules :react-router)
+    (defsandbox project :kind :local :allow ("npx" "node" "git"))
+    (defaction route.create
+      :doc    "Create a typed React Router route + loader/action."
+      :prompt "Create a React Router route {{name}} under src/routes using a typed
+               loader and action, then register it in src/routes.tsx. {{doc:react-router}}"
+      :apply  :create)
+    (defaction api.create
+      :doc    "Create a typed API resource route (server loader/action)."
+      :prompt "Create an API resource route {{name}} with typed request/response
+               handlers for this {{stack}} project. {{doc:react-router}}"
+      :apply  :create)
+    (defagent dev
+      :model "anthropic/claude-sonnet-4-6"
+      :tools (tsc vitest rr-routes)
+      :skills (react-router)
+      :sandbox project
+      :instructions "Build React Router features end-to-end: scaffold the route,
+                     wire data loaders/actions, type-check, and verify with vitest.")))
+
+;; Register so generate-harness can find it by predicate.
+(register-stack-mode :name "react-router"
+                     :detect #'react-router-p
+                     :forms  #'react-router-harness-forms)
+#+end_src
+
+** Test skeletons (fiveam, network-free)
+
+#+begin_src lisp
+;;; tests/dsl.test.lisp
+(in-package :hactar-tests)
+
+(def-suite hactar-dsl :description "DSL surface + validation")
+(in-suite hactar-dsl)
+
+(test rejects-out-of-surface-forms
+  (multiple-value-bind (ok errs)
+      (hactar::validate-forms '((defproject :stack ("ts"))
+                                (defun sneaky () 42)))   ; not on surface
+    (is (null ok))
+    (is (find-if (lambda (e) (search "surface" e)) errs))))
+
+(test deftool-registers-and-runs
+  (eval '(hactar:deftool echo :fn (lambda (a) (hactar::make-result :status :ok :message a))
+                              :doc "echo"))
+  (let ((r (hactar::run-tool "echo" :args "hi")))
+    (is (eq :ok (hactar::result-status r)))
+    (is (string= "hi" (hactar::result-message r)))))
+
+(test route-normalizes-path
+  (eval '(hactar:defroute routes.create
+           :pattern "/routes.create --name={name} --path={path}"
+           :coerce  ((:path hactar::ensure-leading-slash))
+           :result  (:cmd "routes.route" :name name :path path)))
+  (is (equal '(:cmd "routes.route" :name "login" :path "/login")
+             (hactar::parse-route "/routes.create --name=login --path=login"))))
+#+end_src
+
+#+begin_src lisp
+;;; tests/self-update.test.lisp — uses the deterministic mock diffusion client
+(test self-update-rolls-back-on-invalid-output
+  (let ((hactar::*mock-diffusion-output* "(defun nope ())")) ; out of surface
+    (hactar::with-temp-project (root)
+      (let ((before (uiop:read-file-string (hactar::hactar-file-path root))))
+        (hactar::run-self-update)
+        (is (string= before (uiop:read-file-string (hactar::hactar-file-path root))))
+        (is (hactar::last-update-failed-p))))))
+#+end_src
+
 * Rebuild Phases
 
 ** Migration and Coexistence Strategy
@@ -850,6 +1461,9 @@ Exit criteria:
 
 ** Phase 2: Implement State, Results, Hooks, and Registries
 
+Code map: see "State and registries", "Hooks", and the existing
+=src/result.lisp= in the Implementation Guide.
+
 Deliverables:
 
 - =src/state.lisp= as the only global mutable state declaration file.
@@ -865,6 +1479,9 @@ Exit criteria:
 
 ** Phase 3: Implement the DSL Surface
 
+Code map: see =deftool=, =defsandbox=, =defaction=, =defprompt=, =defagent=,
+=defroute=, =generated=, and "Validation" in the Implementation Guide.
+
 Deliverables:
 
 - Macros for =defmode=, =defagent=, =definterface=, =defcommand=, =defrule=,
@@ -879,6 +1496,9 @@ Exit criteria:
 - Invalid generated forms fail closed with useful diagnostics.
 
 ** Phase 4: Implement Dispatch and Shell-Safe Execution
+
+Code map: see "Dispatcher and =main=", "=deftool= and the sandboxed runner", and
+the action/agent runners in the Implementation Guide.
 
 Deliverables:
 
@@ -898,6 +1518,9 @@ Note: Phase 4 exit criteria should use hand-written fixture =.hactar.lisp= files
 for testing, not generated ones — generation doesn't exist until Phase 5/6.
 
 ** Phase 5: Implement Project Detection and Extraction
+
+Code map: see "A stack mode" in the Implementation Guide for the detector +
+=*-harness-forms= pattern each mode follows.
 
 Deliverables:
 
@@ -923,6 +1546,9 @@ Exit criteria:
 
 ** Phase 6: Implement Bootstrap and Self-Hosting
 
+Code map: see "Bootstrap pipeline", "Doctor", and "=generated=, reading, writing"
+in the Implementation Guide.
+
 Deliverables:
 
 - First-run behavior when no =.hactar.lisp= exists.
@@ -939,6 +1565,9 @@ Exit criteria:
 - Subsequent =hactar= calls resolve to the project binary.
 
 ** Phase 7: Implement Self-Update
+
+Code map: see "Self-update loop with debounce" and the self-update test skeleton
+in the Implementation Guide.
 
 Deliverables:
 
