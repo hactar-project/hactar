@@ -106,6 +106,38 @@ write .envrc                                 hot-reload or rebuild
 install shim
 #+end_src
 
+** Binary, Loading, and Rebuild Model
+
+This is the most important implementation decision and must be settled before
+Phase 6. The engine ships as a single precompiled binary (via Roswell, Nix, or a
+release tarball). A project does not require the user to have a Lisp toolchain.
+
+Resolve the apparent tension between "build binary" and "ship a binary" as
+follows:
+
+- =.hactar.lisp= is *data plus DSL forms loaded at runtime*, not statically
+  linked into a binary. The project-local =./hactar/build/hactar= is, by default,
+  the engine binary (or a thin shim to it) that loads =.hactar.lisp= from the
+  repository root on startup.
+- "Build binary" in bootstrap means: ensure =./hactar/build/hactar= exists and
+  points at a runnable Hactar. On a toolchain-equipped machine this may be an
+  ahead-of-time =asdf:make= image that bakes in =.hactar.lisp= for fast startup;
+  on a binary-only install it is a copy or symlink of the engine binary that
+  loads =.hactar.lisp= at runtime. Both paths must produce identical dispatch
+  behavior.
+- *Hot-reload* re-reads and re-evaluates =.hactar.lisp= into the running image.
+  It is sufficient for registry-level forms: =deftool=, =defskill=, =defsandbox=,
+  =defagent=, =defaction=, =defprompt=, =defrule=, =defdoc=, =defroute=,
+  =defmode=, =defhook=, and the project map forms. The vast majority of
+  self-update edits are registry-level and never require a rebuild.
+- *Rebuild* (re-running =asdf:make=) is only needed when a form changes something
+  the image cannot patch at runtime — new package definitions, new macros, or
+  changes to the engine itself. The self-update agent must classify each diff and
+  choose reload vs rebuild; when unsure, reload and defer rebuild to an explicit
+  =hactar.build=.
+- Whether AOT-baked or runtime-loaded, a missing or stale binary is repaired by
+  =hactar.doctor=.
+
 * Target Repository Layout
 
 Move almost all implementation code under =src/= and split reusable libraries
@@ -241,6 +273,29 @@ Responsibilities:
 - Pure fuzzy ranking.
 - Terminal selector integration.
 - Non-interactive selection API for agents/tests.
+
+* Packaging and Symbol Strategy
+
+=.hactar.lisp= begins with =(in-package :hactar-user)=. The =hactar-user= package
+is created by =hactar-core= and =:use=-s the closed DSL surface so that every
+emittable form (=defproject=, =deftool=, =defskill=, =defsandbox=, =defagent=,
+=defaction=, =defprompt=, =defrule=, =defdoc=, =defhypertext=, =defroute=,
+=defmode=, =defcommand=, =defhook=, =definterface=, and =generated=) resolves
+without package prefixes. This keeps the generated file readable and keeps the
+human and the diffusion agent writing the same vocabulary.
+
+Rules:
+
+- =hactar-core= exports exactly the DSL surface (and nothing else) into a package
+  designed for =:use= by =hactar-user=.
+- =hactar-user= is reset (its registries cleared, and ideally the package
+  recreated) before each load of =.hactar.lisp= so reloads are idempotent and
+  stale definitions do not linger.
+- The validator runs against the textual forms *before* they are read into
+  =hactar-user=, so a malformed or out-of-surface form never reaches the
+  evaluator in a privileged package.
+- Load =.hactar.lisp= with =*read-eval*= bound to =nil= so untrusted regions
+  cannot execute reader-time code.
 
 * DSL Surface
 
@@ -385,12 +440,15 @@ Typed and sandboxed callable functions.
 
 ** =defroute=
 
-Transforms command strings into normalized route data.
+Transforms command strings into normalized route data. =defroute= owns parsing
+(=--flag=value= into named parameters) and *normalization* (coercing parameter
+values into canonical form before dispatch).
 
 #+begin_src lisp
 (defroute routes.create
   :pattern "/routes.create --name={name} --path={path}"
-  :result (:cmd "routes.route" :name name :path path))
+  :coerce  ((:path ensure-leading-slash))
+  :result  (:cmd "routes.route" :name name :path path))
 #+end_src
 
 Required example:
@@ -406,6 +464,10 @@ normalizes to:
  :name "login"
  :path "/login")
 #+end_src
+
+Note the transform: =--path=login= becomes =:path "/login"=. The leading slash is
+added by the =:coerce= rule, not by the caller. =defroute= must make such
+normalizations explicit and testable rather than implicit in handler code.
 
 ** =defhypertext= and =defdoc=
 
@@ -441,9 +503,22 @@ Rules:
 
 * Core Data Model
 
-All mutable engine state is declared in =src/state.lisp= using a single state
-declaration macro. Other files may read or mutate state, but may not introduce
-new global mutable variables directly.
+All mutable =hactar-core= state is declared in =src/state.lisp= using a single
+state declaration macro (the =defstate= pattern: like =defvar= but registered for
+introspection, reset, and the =/state= command). Other =hactar-core= files may
+read or mutate state, but may not introduce new global mutable variables
+directly.
+
+Scope of the rule:
+
+- The single-file rule applies to =hactar-core=. Each split library
+  (=hactar-llm=, =hactar-org=, =hactar-md=, =hactar-fzf=) owns its own internal
+  state and must not declare globals into =hactar-core='s =state.lisp=.
+- Cross-cutting state that =hactar-core= needs from a library (e.g. the current
+  model) is mirrored or referenced through a core =defstate= variable, so the
+  =/state= surface stays complete.
+- Every =defstate= variable should carry a doc string and, where meaningful, a
+  type and examples, so state is self-describing for the editor/org interfaces.
 
 Initial state groups:
 
@@ -585,6 +660,36 @@ Default behavior:
 The self-update agent is not allowed to silently ignore validation failures. It
 must record the failure in state and expose it through =hactar.update.status=.
 
+** Diffusion Model
+
+"Diffusion" here means a fast, low-latency edit model that rewrites the generated
+region as a whole rather than a slow chat completion that emits a diff
+token-by-token. The contract:
+
+- Input: the current generated region plus a compact activity ledger.
+- Output: a complete replacement generated region (DSL forms only).
+- The engine never trusts the output blindly; it always parses, validates against
+  the closed surface, and diffs before applying.
+- The diffusion client lives in =hactar-llm= alongside =complete= and =ask=, but
+  may target a different (cheaper/faster) model than the project's =defagent=
+  model. It is configurable via =HACTAR_DIFFUSION_MODEL=.
+- A deterministic, network-free mock diffusion client must exist for tests so the
+  self-update pipeline can be exercised without API access.
+
+** Cadence and Performance
+
+Running diffuse + validate + reload on literally every turn can be slow and
+costly. The pipeline must therefore:
+
+- Debounce: coalesce rapid activity and run at most one update per quiescent
+  window (configurable; default a few seconds after the last event).
+- Run off the critical path: perform diffusion asynchronously so it never blocks
+  the user's command from returning.
+- Skip no-op updates: if the ledger has not changed materially since the last
+  successful update, do nothing.
+- Be cancellable: a newer turn supersedes an in-flight update.
+- Respect =--auto-update=off= and an explicit =hactar.update= manual trigger.
+
 * Interfaces
 
 ** =files.dir=
@@ -697,6 +802,21 @@ Use these files as source material, not as implementation to preserve wholesale.
 | Tests                                    | =tests/*.lisp=                    |
 
 * Rebuild Phases
+
+** Migration and Coexistence Strategy
+
+This is a from-scratch rebuild inside a live repository, so the new and old trees
+must coexist until cutover without leaving =main= unbuildable.
+
+- Do the rebuild on a dedicated branch; keep =main= shippable throughout.
+- Introduce the new systems under new ASDF names (=hactar-core= as the engine)
+  while the legacy top-level files remain loadable, so =make build= never breaks
+  mid-rebuild.
+- Gate the executable's =:depends-on= so the binary can be flipped from the old
+  graph to =hactar-core= in a single, revertible commit.
+- Old files are only deleted in Phase 10, after the new path passes =make build=
+  and =make test= and the self-hosting acceptance test.
+- Each phase must end with a green =make build= and =make test=.
 
 ** Phase 0: Freeze the Contract
 
@@ -894,24 +1014,24 @@ Phase 10 can remove old code.
 | Subsystem                    | Files                                | Size   | Proposed Disposition |
 |------------------------------+--------------------------------------+--------+----------------------|
 | Terminal UI                  | =tui.lisp=, =tui-theme.lisp=         | ~135KB | Rebuilt as a mode in =src/modes/tui-mode.lisp=           |
-| Agent Communication Protocol | =acp.lisp=                           | 71KB   |                                                          |
-| Session management           | =session.lisp=                       | 36KB   |                                                          |
-| Context management           | =context.lisp=                       | 49KB   |                                                          |
-| Permissions                  | =permissions.lisp=                   | 21KB   |                                                          |
-| OAuth                        | =oauth.lisp=                         | 28KB   |                                                          |
-| Configuration                | =config.lisp=                        | 18KB   |                                                          |
-| Presets                      | =preset.lisp=                        | 32KB   |                                                          |
-| MCP protocol                 | =mcp.lisp=                           | 10KB   |                                                          |
-| File watchers                | =watchers.lisp=                      | 30KB   |                                                          |
-| LSP integration              | =lsp.lisp=                           | 15KB   |                                                          |
-| HTTP API                     | =api-http.lisp=, =api-complete.lisp= | 17KB   |                                                          |
+| Agent Communication Protocol | =acp.lisp=                           | 71KB   | Migrate: rebuild as =defacp-interface= over the dispatcher |
+| Session management           | =session.lisp=                       | 36KB   | Migrate: fold into =hactar-core= state + persistence |
+| Context management           | =context.lisp=                       | 49KB   | Migrate: rebuild as =files.dir= interface + context assembly |
+| Permissions                  | =permissions.lisp=                   | 21KB   | Migrate: fold into =defsandbox= policy and tool permissions |
+| OAuth                        | =oauth.lisp=                         | 28KB   | Migrate: move provider auth into =hactar-llm= |
+| Configuration                | =config.lisp=                        | 18KB   | Migrate: fold config loading into =hactar-core= (into =state.lisp= vars) |
+| Presets                      | =preset.lisp=                        | 32KB   | Migrate: rebuild as starter/template generators in stack modes |
+| MCP protocol                 | =mcp.lisp=                           | 10KB   | Migrate: expose MCP servers as =deftool= sources via =with-mcp= |
+| File watchers                | =watchers.lisp=                      | 30KB   | Migrate: fold into =hactar-core= (drives self-update + interface sync) |
+| LSP integration              | =lsp.lisp=                           | 15KB   | Defer: optional; archive until an editor/LSP phase |
+| HTTP API                     | =api-http.lisp=, =api-complete.lisp= | 17KB   | Defer: optional; archive until a server/endpoint phase |
 | Core commands                | =commands.lisp=                      | 32KB   | Merged into hactar-core under =src/core/commands.lisp=   |
-| Error handling               | =errors.lisp=                        | 10KB   |                                                          |
-| Agent shell mode             | =agentshell-mode.lisp=               | 47KB   |                                                          |
-| Code-as-Value                | =code-value.lisp=                    | 47KB   |                                                          |
-| Lisp RPC                     | =lisp-rpc*.lisp=                     | 42KB   |                                                          |
-| Proxy                        | =proxy.lisp=                         | 23KB   |                                                          |
-| Wiki/knowledge base          | =wiki.lisp=                          | 17KB   |                                                          |
+| Error handling               | =errors.lisp=                        | 10KB   | Migrate: fold into =hactar-core= result/error model (=result.lisp=) |
+| Agent shell mode             | =agentshell-mode.lisp=               | 47KB   | Migrate: rebuild on =src/interfaces/shell.lisp= |
+| Code-as-Value                | =code-value.lisp=                    | 47KB   | Defer: re-evaluate need; archive unless required by actions |
+| Lisp RPC                     | =lisp-rpc*.lisp=                     | 42KB   | Defer: editor integration; archive until editor phase |
+| Proxy                        | =proxy.lisp=                         | 23KB   | Defer: archive unless required for provider routing |
+| Wiki/knowledge base          | =wiki.lisp=                          | 17KB   | Migrate: rebuild on =defhypertext=/=defdoc= + route fallback |
 | Hydra                        | =hydra.lisp=                         | 14KB   | Rebuilt as a mode in =src/modes/hydra-mode.lisp=         |
 
 Additionally, the following ASDF systems need explicit disposition:
@@ -942,6 +1062,14 @@ Required test groups:
 - Self-update merge/rollback tests.
 - Interface round-trip tests.
 - Library split load tests.
+- =defroute= parse/normalization tests (including the =--path=login= => =/login=
+  coercion).
+- Reload idempotency tests (loading =.hactar.lisp= twice yields one registry).
+
+All LLM- and diffusion-dependent tests must run against deterministic,
+network-free mock clients so =make test= never requires API keys or network
+access. Self-hosting/bootstrap tests run against fixture repositories under
+=tests/fixtures/=.
 
 Acceptance commands:
 
@@ -970,11 +1098,14 @@ The rebuild is complete when:
 2. Running =hactar= again executes the project-local binary.
 3. The generated file contains a composed harness: tools, skills, sandbox,
    actions, and agent.
-4. The self-update hook can safely rewrite =generated= and reload/rebuild.
-5. User-owned forms are preserved.
+4. The self-update hook can safely rewrite =generated=, reload/rebuild, and roll
+   back on parse/validation/load/build failure.
+5. User-owned forms outside =generated= are preserved.
 6. TypeScript + React Router and Rails fixtures produce stack-specific verbs.
-7. All mutable state declarations are centralized in =src/state.lisp=.
+7. All mutable =hactar-core= state declarations are centralized in
+   =src/state.lisp=.
 8. Core implementation lives under =src/=.
 9. =hactar-llm=, =hactar-org=, =hactar-md=, and =hactar-fzf= are separate
    systems.
-10. =make build= and =make test= pass.
+10. The =org-interface=, =files.dir=, and =shell= interfaces round-trip correctly.
+11. =make build= and =make test= pass with no network or API access required.
