@@ -90,7 +90,7 @@ Canonical shape:
     :sandbox project
     :instructions "Build React Router features end-to-end: scaffold the route, wire data loaders/actions, type-check, and verify with vitest."))
 
-;; User-owned forms below are preserved.
+;; User-owned forms below this line are preserved across updates.
 #+end_src
 
 ** Lifecycle
@@ -115,6 +115,7 @@ into their own ASDF systems.
 #+begin_src text
 .
 |-- Makefile
+|-- hactar-core.asd
 |-- hactar.asd
 |-- hactar-llm.asd
 |-- hactar-org.asd
@@ -244,6 +245,29 @@ Responsibilities:
 
 The DSL is the closed API that humans write and the self-update agent is allowed
 to emit. Every form must validate before it can be loaded.
+
+** =defproject=
+
+Declares the project identity and stack. Exactly one per =.hactar.lisp=.
+
+#+begin_src lisp
+(defproject :name "my-app"
+  :stack ("typescript" "react" "react-router" "vite")
+  :root "/home/user/my-app")
+#+end_src
+
+** =defsandbox=
+
+Execution policy for tools and shell commands. Restricts which binaries a tool
+may invoke and what file paths it may touch.
+
+#+begin_src lisp
+(defsandbox project
+  :kind :local
+  :allow ("npx" "node" "git")
+  :deny ("rm -rf /")
+  :cwd :project-root)
+#+end_src
 
 ** =defhook=
 
@@ -436,6 +460,7 @@ Initial state groups:
 - prompt registry
 - doc/hypertext registry
 - interface registry
+- LLM provider and model state
 - chat history
 - tool-call history
 - self-update ledger
@@ -651,24 +676,24 @@ If stack detection is weak, generate a conservative harness:
 
 Use these files as source material, not as implementation to preserve wholesale.
 
-| Area | Current reference |
-|------+-------------------|
-| Makefile build/test/run/dev entry points | =Makefile= |
-| ASDF build path | =hactar.asd=, =build.lisp= |
-| State registry | =state.lisp= |
-| Surface validator sketch | =src/surface.lisp= |
-| Project CLI generation | =project-cli.lisp= |
-| Routes and flags | =router.lisp= |
-| Modes | =mode.lisp=, =modes/*.lisp= |
-| Hooks | =hooks.lisp= |
-| Interfaces and org rendering | =interface.lisp= |
-| LLM wrapper | =llm.lisp=, =llm-utils.lisp= |
-| Org parsing | =org-mode-parser.lisp= |
-| Markdown rendering | =markdown.lisp=, =md-render.lisp= |
-| Fuzzy selection | =fzf.lisp= |
-| Tools | =tools.lisp= |
-| Agents | =agents.lisp= |
-| Tests | =tests/*.lisp= |
+| Area                                     | Current reference                 |
+|------------------------------------------+-----------------------------------|
+| Makefile build/test/run/dev entry points | =Makefile=                        |
+| ASDF build path                          | =hactar.asd=, =build.lisp=        |
+| State registry                           | =state.lisp=                      |
+| Surface validator sketch                 | =src/surface.lisp=                |
+| Project CLI generation                   | =project-cli.lisp=                |
+| Routes and flags                         | =router.lisp=                     |
+| Modes                                    | =mode.lisp=, =modes/*.lisp=       |
+| Hooks                                    | =hooks.lisp=                      |
+| Interfaces and org rendering             | =interface.lisp=                  |
+| LLM wrapper                              | =llm.lisp=, =llm-utils.lisp=      |
+| Org parsing                              | =org-mode-parser.lisp=            |
+| Markdown rendering                       | =markdown.lisp=, =md-render.lisp= |
+| Fuzzy selection                          | =fzf.lisp=                        |
+| Tools                                    | =tools.lisp=                      |
+| Agents                                   | =agents.lisp=                     |
+| Tests                                    | =tests/*.lisp=                    |
 
 * Rebuild Phases
 
@@ -748,6 +773,9 @@ Exit criteria:
 - =hactar dev "add a settings page"= can dispatch through a generated agent.
 - Shell commands run only through registered tools and sandbox policy.
 
+Note: Phase 4 exit criteria should use hand-written fixture =.hactar.lisp= files
+for testing, not generated ones — generation doesn't exist until Phase 5/6.
+
 ** Phase 5: Implement Project Detection and Extraction
 
 Deliverables:
@@ -757,6 +785,7 @@ Deliverables:
   commands.
 - Initial TypeScript + React Router generator.
 - Initial Rails generator.
+- Initial Common Lisp generator (for self-hosting).
 - Generic fallback generator.
 
 Exit criteria:
@@ -764,6 +793,7 @@ Exit criteria:
 - A fixture TypeScript + React Router repo generates the worked-example
   harness.
 - A fixture Rails repo generates Rails-specific actions.
+- A fixture Common Lisp repo generates Lisp-specific actions.
 - Unknown repos generate a safe fallback harness.
 
 ** Phase 6: Implement Bootstrap and Self-Hosting
@@ -817,6 +847,10 @@ Exit criteria:
 
 ** Phase 9: Split Libraries
 
+Note: Consider populating split libraries incrementally during earlier phases
+rather than deferring all extraction to Phase 9. For example, =hactar-llm=
+should be usable by Phase 4 when the agent runner needs LLM calls.
+
 Deliverables:
 
 - =hactar-llm= extracted and tested.
@@ -843,6 +877,45 @@ Exit criteria:
 
 - The repo no longer depends on the old top-level implementation layout.
 - Users can understand Hactar by reading =.hactar.lisp= plus the DSL reference.
+
+* Deferred / Out-of-Scope Subsystems
+
+The following existing subsystems are not addressed by this rebuild plan. Each
+needs an explicit disposition (keep as-is, migrate, archive, or drop) before
+Phase 10 can remove old code.
+
+| Subsystem                    | Files                                | Size   | Proposed Disposition |
+|------------------------------+--------------------------------------+--------+----------------------|
+| Terminal UI                  | =tui.lisp=, =tui-theme.lisp=         | ~135KB |                      |
+| Agent Communication Protocol | =acp.lisp=                           | 71KB   |                      |
+| Session management           | =session.lisp=                       | 36KB   |                      |
+| Context management           | =context.lisp=                       | 49KB   |                      |
+| Permissions                  | =permissions.lisp=                   | 21KB   |                      |
+| OAuth                        | =oauth.lisp=                         | 28KB   |                      |
+| Configuration                | =config.lisp=                        | 18KB   |                      |
+| Presets                      | =preset.lisp=                        | 32KB   |                      |
+| MCP protocol                 | =mcp.lisp=                           | 10KB   |                      |
+| File watchers                | =watchers.lisp=                      | 30KB   |                      |
+| LSP integration              | =lsp.lisp=                           | 15KB   |                      |
+| HTTP API                     | =api-http.lisp=, =api-complete.lisp= | 17KB   |                      |
+| Core commands                | =commands.lisp=                      | 32KB   |                      |
+| Error handling               | =errors.lisp=                        | 10KB   |                      |
+| Agent shell mode             | =agentshell-mode.lisp=               | 47KB   |                      |
+| Code-as-Value                | =code-value.lisp=                    | 47KB   |                      |
+| Lisp RPC                     | =lisp-rpc*.lisp=                     | 42KB   |                      |
+| Proxy                        | =proxy.lisp=                         | 23KB   |                      |
+| Wiki/knowledge base          | =wiki.lisp=                          | 17KB   |                      |
+| Hydra                        | =hydra.lisp=                         | 14KB   |                      |
+
+Additionally, the following ASDF systems need explicit disposition:
+
+| System           | File                 | Status                                                   |
+|------------------+----------------------+----------------------------------------------------------|
+| =hactar-codegen= | =hactar-codegen.asd= | Dependency of =hactar= executable; not in rebuild layout |
+| =hactarsh=       | =hactarsh.asd=       | Shell integration; not in rebuild layout                 |
+| =hyperfractal=   | =hyperfractal.asd=   | Dependency of =hactar= executable; not in rebuild layout |
+| =ruhe=           | =ruhe.asd=           | Dependency of =hactar= executable; not in rebuild layout |
+| =llm-tests=      | =llm-tests.asd=      | Test suite; should migrate to =hactar-llm= tests         |
 
 * Test Plan
 
