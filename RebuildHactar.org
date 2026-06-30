@@ -12,8 +12,7 @@ extracts a map of its stack and shape, and writes a project-local application to
 project's own generated and editable CLI. The global engine recedes into a
 library.
 
-The rebuild should treat the current codebase as reference material only. The
-target is a clean implementation whose central product is the generated harness:
+The rebuild should treat the current codebase as reference material only and all existing code must be removed at the end of the rebuild process. This is a complete rebuild from scratch. The target is a clean implementation whose central product is the generated harness:
 =.hactar.lisp=, a human-readable DSL program that composes project tools, skills,
 prompts, actions, sandboxes, and agents.
 
@@ -43,8 +42,8 @@ written in that DSL, and Hactar writes most of it for you, then keeps writing it
 ** Layer 1: =hactar-core=
 
 =hactar-core= is the reusable engine library. It owns the kernel, DSL registry,
-bootstrapper, self-generation pipeline, self-update pipeline, dispatcher,
-builder, validation, persistence, and interfaces.
+core commands, bootstrapper, self-generation pipeline, self-update pipeline,
+dispatcher, builder, validation, persistence, and interfaces.
 
 It should provide only these generic commands:
 
@@ -126,7 +125,7 @@ into their own ASDF systems.
 |   |-- state.lisp
 |   |-- core/
 |   |   |-- result.lisp
-|   |   |-- surface.lisp
+|   |   |-- core.lisp
 |   |   |-- hooks.lisp
 |   |   |-- modes.lisp
 |   |   |-- commands.lisp
@@ -156,12 +155,14 @@ into their own ASDF systems.
 |   |   |-- defroute.lisp
 |   |   |-- defhypertext.lisp
 |   |   `-- defdoc.lisp
-|   |-- stack/
+|   |-- modes/
 |   |   |-- detect.lisp
 |   |   |-- extract.lisp
-|   |   |-- typescript-react-router.lisp
-|   |   |-- rails.lisp
-|   |   `-- common.lisp
+|   |   |-- typescript-react-router-mode.lisp
+|   |   |-- rails-mode.lisp
+|   |   |-- common.lisp
+|   |   |-- tui-mode.lisp
+|   |   `-- hydra-mode.lisp
 |   |-- llm/
 |   |-- org/
 |   |-- md/
@@ -620,11 +621,11 @@ Responsibilities:
 - Feed command activity into self-update.
 - Support interactive session state without bypassing Hactar's tool registry.
 
-* Stack Generation
+* Stack Generation via Modes
 
-Stack generators should produce harnesses, not loose commands.
+Stack generators (which live as modes in =src/modes/=) should produce harnesses, not loose commands.
 
-Each stack module returns:
+Each stack/mode module returns:
 
 - detection predicates
 - extraction functions
@@ -681,7 +682,7 @@ Use these files as source material, not as implementation to preserve wholesale.
 | Makefile build/test/run/dev entry points | =Makefile=                        |
 | ASDF build path                          | =hactar.asd=, =build.lisp=        |
 | State registry                           | =state.lisp=                      |
-| Surface validator sketch                 | =src/surface.lisp=                |
+| Surface validator sketch                 | =src/surface.lisp= (reference only; logic in core.lisp / validate.lisp) |
 | Project CLI generation                   | =project-cli.lisp=                |
 | Routes and flags                         | =router.lisp=                     |
 | Modes                                    | =mode.lisp=, =modes/*.lisp=       |
@@ -783,10 +784,14 @@ Deliverables:
 - Stack detector.
 - Extractors for routes, models/schemas, scripts, dependencies, docs, and test
   commands.
-- Initial TypeScript + React Router generator.
-- Initial Rails generator.
-- Initial Common Lisp generator (for self-hosting).
-- Generic fallback generator.
+- Initial TypeScript + React Router mode (=typescript-react-router-mode.lisp=).
+- Initial Rails mode (=rails-mode.lisp=).
+- Initial Common Lisp mode (for self-hosting).
+- Initial Python mode (Django, Flask, FastAPI).
+- Initial Go mode.
+- Initial Rust mode.
+- Initial Next.js mode.
+- Generic fallback mode.
 
 Exit criteria:
 
@@ -866,9 +871,11 @@ Exit criteria:
 
 ** Phase 10: Replace Old Code
 
+All existing code should be removed at the end, as this is a complete rebuild from scratch.
+
 Deliverables:
 
-- Remove or archive superseded top-level implementation files.
+- Remove all superseded top-level implementation files.
 - Keep compatibility shims only where required for migration.
 - Update README and docs to describe the new model.
 - Ensure tests target the new architecture.
@@ -886,26 +893,26 @@ Phase 10 can remove old code.
 
 | Subsystem                    | Files                                | Size   | Proposed Disposition |
 |------------------------------+--------------------------------------+--------+----------------------|
-| Terminal UI                  | =tui.lisp=, =tui-theme.lisp=         | ~135KB |                      |
-| Agent Communication Protocol | =acp.lisp=                           | 71KB   |                      |
-| Session management           | =session.lisp=                       | 36KB   |                      |
-| Context management           | =context.lisp=                       | 49KB   |                      |
-| Permissions                  | =permissions.lisp=                   | 21KB   |                      |
-| OAuth                        | =oauth.lisp=                         | 28KB   |                      |
-| Configuration                | =config.lisp=                        | 18KB   |                      |
-| Presets                      | =preset.lisp=                        | 32KB   |                      |
-| MCP protocol                 | =mcp.lisp=                           | 10KB   |                      |
-| File watchers                | =watchers.lisp=                      | 30KB   |                      |
-| LSP integration              | =lsp.lisp=                           | 15KB   |                      |
-| HTTP API                     | =api-http.lisp=, =api-complete.lisp= | 17KB   |                      |
-| Core commands                | =commands.lisp=                      | 32KB   |                      |
-| Error handling               | =errors.lisp=                        | 10KB   |                      |
-| Agent shell mode             | =agentshell-mode.lisp=               | 47KB   |                      |
-| Code-as-Value                | =code-value.lisp=                    | 47KB   |                      |
-| Lisp RPC                     | =lisp-rpc*.lisp=                     | 42KB   |                      |
-| Proxy                        | =proxy.lisp=                         | 23KB   |                      |
-| Wiki/knowledge base          | =wiki.lisp=                          | 17KB   |                      |
-| Hydra                        | =hydra.lisp=                         | 14KB   |                      |
+| Terminal UI                  | =tui.lisp=, =tui-theme.lisp=         | ~135KB | Rebuilt as a mode in =src/modes/tui-mode.lisp=           |
+| Agent Communication Protocol | =acp.lisp=                           | 71KB   |                                                          |
+| Session management           | =session.lisp=                       | 36KB   |                                                          |
+| Context management           | =context.lisp=                       | 49KB   |                                                          |
+| Permissions                  | =permissions.lisp=                   | 21KB   |                                                          |
+| OAuth                        | =oauth.lisp=                         | 28KB   |                                                          |
+| Configuration                | =config.lisp=                        | 18KB   |                                                          |
+| Presets                      | =preset.lisp=                        | 32KB   |                                                          |
+| MCP protocol                 | =mcp.lisp=                           | 10KB   |                                                          |
+| File watchers                | =watchers.lisp=                      | 30KB   |                                                          |
+| LSP integration              | =lsp.lisp=                           | 15KB   |                                                          |
+| HTTP API                     | =api-http.lisp=, =api-complete.lisp= | 17KB   |                                                          |
+| Core commands                | =commands.lisp=                      | 32KB   | Merged into hactar-core under =src/core/commands.lisp=   |
+| Error handling               | =errors.lisp=                        | 10KB   |                                                          |
+| Agent shell mode             | =agentshell-mode.lisp=               | 47KB   |                                                          |
+| Code-as-Value                | =code-value.lisp=                    | 47KB   |                                                          |
+| Lisp RPC                     | =lisp-rpc*.lisp=                     | 42KB   |                                                          |
+| Proxy                        | =proxy.lisp=                         | 23KB   |                                                          |
+| Wiki/knowledge base          | =wiki.lisp=                          | 17KB   |                                                          |
+| Hydra                        | =hydra.lisp=                         | 14KB   | Rebuilt as a mode in =src/modes/hydra-mode.lisp=         |
 
 Additionally, the following ASDF systems need explicit disposition:
 
