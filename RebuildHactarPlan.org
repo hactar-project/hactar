@@ -117,8 +117,7 @@ install shim
 
 ** Binary, Loading, and Rebuild Model
 
-This is the most important implementation decision and must be settled before
-Phase 6. The engine ships as a single precompiled binary (via Roswell, Nix, or a
+The engine ships as a single precompiled binary (via Roswell, Nix, or a
 release tarball). A project does not require the user to have a Lisp toolchain.
 
 Resolve the apparent tension between "build binary" and "ship a binary" as
@@ -128,24 +127,6 @@ follows:
   linked into a binary. The project-local =./hactar/build/hactar= is, by default,
   the engine binary (or a thin shim to it) that loads =.hactar.lisp= from the
   repository root on startup.
-- "Build binary" in bootstrap means: ensure =./hactar/build/hactar= exists and
-  points at a runnable Hactar. On a toolchain-equipped machine this may be an
-  ahead-of-time =asdf:make= image that bakes in =.hactar.lisp= for fast startup;
-  on a binary-only install it is a copy or symlink of the engine binary that
-  loads =.hactar.lisp= at runtime. Both paths must produce identical dispatch
-  behavior.
-- *Hot-reload* re-reads and re-evaluates =.hactar.lisp= into the running image.
-  It is sufficient for registry-level forms: =deftool=, =defskill=, =defsandbox=,
-  =defagent=, =defaction=, =defprompt=, =defrule=, =defdoc=, =defroute=,
-  =defmode=, =defhook=, and the project map forms. The vast majority of
-  self-update edits are registry-level and never require a rebuild.
-- *Rebuild* (re-running =asdf:make=) is only needed when a form changes something
-  the image cannot patch at runtime — new package definitions, new macros, or
-  changes to the engine itself. The self-update agent must classify each diff and
-  choose reload vs rebuild; when unsure, reload and defer rebuild to an explicit
-  =hactar.build=.
-- Whether AOT-baked or runtime-loaded, a missing or stale binary is repaired by
-  =hactar.doctor=.
 
 * Target Repository Layout
 
@@ -1936,4 +1917,5 @@ The rebuild is complete when:
    systems.
 10. The =org-interface=, =files.dir=, and =shell= interfaces round-trip correctly.
 11. =make build= and =make test= pass with no network or API access required.
+12. All migration of code is complete
 
