@@ -557,18 +557,30 @@ String-based =edit_file= is a fallback for languages without AST support.
      imports.
 3. *Atomic batches.* Multiple operations can be submitted as a batch. If any
    fails, none are applied.
-4. *Stack-specific AST backends.* Each language/stack mode can provide its own
-   AST backend:
-   - TypeScript/JavaScript: =ts-morph= or tree-sitter.
-   - Common Lisp: sexp-based structural editing (Hactar eats its own food).
-   - Other languages: tree-sitter where available, regex fallback otherwise.
+4. *Stack-specific AST backends.* The default AST backend is =fern= (see
+   =fern.lisp=), Hactar's native Common Lisp tree-sitter-style engine. Fern
+   provides PEG grammars (=defgrammar=), full and incremental parsing
+   (=fern-parse=, =fern-edit=), tree-sitter-style queries (=fern-query=,
+   =fern-query-nodes=), and byte/point-addressed =fern-node= trees. Each
+   language/stack mode selects or extends a Fern grammar rather than shelling
+   out to an external toolchain:
+   - TypeScript/JavaScript/TSX: the built-in =fern= =:typescript= / =:tsx=
+     grammars (no =ts-morph=/=node= dependency required). External backends
+     like =ts-morph= are an optional fallback only.
+   - Common Lisp: sexp-based structural editing (Hactar eats its own food);
+     may also be expressed as a Fern grammar.
+   - Other languages: add a Fern grammar via =defgrammar=; regex/string edit is
+     the last-resort fallback where no grammar exists.
 5. *Pre/post diagnostics.* After every edit, the engine captures diagnostics
    (type errors, lint warnings) and feeds them back to the agent immediately,
    without requiring a full typecheck run.
 
 ** DSL Integration
 
-AST editing is exposed to agents as a tool defined using Lisp:
+AST editing is exposed to agents as a tool defined using Lisp. Under the hood
+=run-ast-edit= resolves the file's language to a =fern= grammar, parses with
+=fern-parse=, locates the target node via =fern-query=, applies the structural
+operation, and writes back (using =fern-edit= for incremental reparsing):
 
 #+begin_src lisp
 (deftool ast-edit (path &rest operations)
@@ -646,6 +658,25 @@ The agent calls it with structured operations, not shell commands:
 - Atomic batches: all or none.
 - Undo reverses =ast-edit= the same as any other edit.
 - Pre/post diagnostics: new type errors flow back to the agent immediately.
+- Structural correctness is guaranteed by the =fern= parser: an edit that would
+  not reparse cleanly under the file's Fern grammar is rejected before write.
+
+** Fern AST backend
+
+=fern.lisp= is the reusable AST engine that all structural editing builds on.
+It should be treated as the home for AST/parse logic (eventually extracted into
+its own system, e.g. =hactar-fern=, alongside the other split libraries).
+
+Key surface used by =run-ast-edit= and the stack modes:
+
+- =defgrammar= — declare/extend a PEG grammar (built-ins: =:typescript=, =:tsx=).
+- =fern-parse= — parse source into a =fern-tree= of =fern-node= records.
+- =fern-edit= — apply an incremental =fern-edit= for fast reparsing after a write.
+- =fern-query= / =fern-query-nodes= — tree-sitter-style node queries used to
+  locate edit targets (=function=, =class=, =method=, etc.) by kind and name.
+
+New language support is added by writing a Fern grammar, not by adding an
+external toolchain dependency.
 
 * Universal Project Tools
 
@@ -989,6 +1020,7 @@ Use these files as source material, not as implementation to preserve wholesale.
 | Org parsing                              | =org-mode-parser.lisp=            |
 | Markdown rendering                       | =markdown.lisp=, =md-render.lisp= |
 | Fuzzy selection                          | =fzf.lisp=                        |
+| AST parsing / editing backend            | =fern.lisp= (Fern PEG parser; the AST-first backend) |
 | Tools                                    | =tools.lisp=                      |
 | Agents                                   | =agents.lisp=                     |
 | Tests                                    | =tests/*.lisp=                    |
@@ -1626,6 +1658,26 @@ shell commands.
 
 * Rebuild Phases
 
+** Progress Overview
+
+Status as of the greenfield slice under =src/rebuild/= (=hactar-rebuild= system):
+
+- [X] Phase 0 — Freeze the Contract
+- [-] Phase 1 — Greenfield Skeleton (split ASDF libs / =hactar-core= naming pending)
+- [X] Phase 2 — State, Results, Hooks, Registries
+- [X] Phase 3 — DSL Surface
+- [X] Phase 4 — Dispatch and Shell-Safe Execution
+- [-] Phase 5 — Detection and Extraction (CL/TS+RR/Rails/generic done; Python/Go/Rust/Next.js + deep extractors pending)
+- [X] Phase 6 — Bootstrap and Self-Hosting
+- [X] Phase 7 — Self-Update (mock diffusion client; network-free)
+- [ ] Phase 8 — Interfaces
+- [ ] Phase 9 — Split Libraries (incl. extracting =fern.lisp= as =hactar-fern=)
+- [ ] Phase 10 — Replace Old Code
+
+Legend: =[X]= complete, =[-]= partial, =[ ]= not started. Legacy =main= is
+untouched; old top-level files remain until Phase 10. LLM/diffusion and AST
+backends are currently deterministic in-tree mocks/stubs.
+
 ** Migration and Coexistence Strategy
 
 This is a from-scratch rebuild inside a live repository, so the new and old trees
@@ -1641,47 +1693,51 @@ must coexist until cutover without leaving =main= unbuildable.
   and =make test= and the self-hosting acceptance test.
 - Each phase must end with a green =make build= and =make test=.
 
-** Phase 0: Freeze the Contract
+** DONE Phase 0: Freeze the Contract
 
-Deliverables:
+Deliverables [4/4]:
 
-- This plan.
-- A concise DSL specification.
-- Golden examples for =.hactar.lisp=.
-- Acceptance tests for bootstrap, dispatch, self-update validation, and rebuild.
+- [X] This plan.
+- [X] A concise DSL specification. (See "DSL Surface".)
+- [X] Golden examples for =.hactar.lisp=. (Canonical shape + generated fixtures.)
+- [X] Acceptance tests for bootstrap, dispatch, self-update validation, and rebuild. (=tests/rebuild/=)
 
 Exit criteria:
 
 - Tests describe the new architecture instead of current behavior accidents.
 - Existing code paths to keep as reference are listed.
 
-** Phase 1: Create the Greenfield Skeleton
+** TODO Phase 1: Create the Greenfield Skeleton
 
-Deliverables:
+Deliverables [3/5]:
 
-- New =src/= layout.
-- New package definitions.
-- New ASDF systems: =hactar-core=, =hactar=, =hactar-llm=, =hactar-org=,
-  =hactar-md=, =hactar-fzf=.
-- Thin executable entry point.
-- Makefile still owns build/test/run/dev.
+- [X] New =src/= layout. (Implemented under =src/rebuild/=.)
+- [X] New package definitions. (=hactar-rebuild= engine + =hactar-user= DSL pkg.)
+- [ ] New ASDF systems: =hactar-core=, =hactar=, =hactar-llm=, =hactar-org=,
+  =hactar-md=, =hactar-fzf=. (Currently a single =hactar-rebuild= system +
+  =hactar-rebuild-tests=; split libs and =hactar-core= naming deferred to Phase 9.)
+- [X] Thin executable entry point. (=src/rebuild/main.lisp=.)
+- [X] Makefile still owns build/test/run/dev. (Added =make build-rebuild= /
+  =make test-rebuild=.)
 
 Exit criteria:
 
 - =make build= creates =./hactar/build/hactar=.
 - =make test= loads the new systems.
 
-** Phase 2: Implement State, Results, Hooks, and Registries
+** DONE Phase 2: Implement State, Results, Hooks, and Registries
 
 Code map: see "State and registries", "Hooks", and the existing
 =src/result.lisp= in the Implementation Guide.
 
-Deliverables:
+Deliverables [4/4]:
 
-- =src/state.lisp= as the only global mutable state declaration file.
-- Result type for commands, tools, agents, and validation.
-- Hook system with =defhook=.
-- Registries for commands, routes, modes, tools, skills, sandboxes, agents,
+- [X] =src/state.lisp= as the only global mutable state declaration file.
+  (=src/rebuild/state.lisp=, =defstate=.)
+- [X] Result type for commands, tools, agents, and validation.
+  (=src/rebuild/result.lisp=.)
+- [X] Hook system with =defhook=. (=src/rebuild/hooks.lisp= + =surface.lisp=.)
+- [X] Registries for commands, routes, modes, tools, skills, sandboxes, agents,
   prompts, docs, and interfaces.
 
 Exit criteria:
@@ -1689,36 +1745,38 @@ Exit criteria:
 - A test can define hooks and prove execution order/error behavior.
 - No new mutable globals are declared outside =state.lisp=.
 
-** Phase 3: Implement the DSL Surface
+** DONE Phase 3: Implement the DSL Surface
 
 Code map: see =deftool=, =defsandbox=, =defaction=, =defprompt=, =defagent=,
 =defroute=, =generated=, and "Validation" in the Implementation Guide.
 
-Deliverables:
+Deliverables [3/3]:
 
-- Macros for =defmode=, =defagent=, =definterface=, =defcommand=, =defrule=,
+- [X] Macros for =defmode=, =defagent=, =definterface=, =defcommand=, =defrule=,
   =defskill=, =defprompt=, =defaction=, =deftool=, =defroute=,
-  =defhypertext=, =defdoc=, and =generated=.
-- Closed API validator.
-- Pretty printer/writer for =.hactar.lisp=.
+  =defhypertext=, =defdoc=, and =generated=. (=src/rebuild/surface.lisp=.)
+- [X] Closed API validator. (=validate-forms=.)
+- [X] Pretty printer/writer for =.hactar.lisp=. (=src/rebuild/generated-file.lisp=,
+  readable unqualified forms + user-region preservation.)
 
 Exit criteria:
 
 - Golden DSL files parse, validate, write, reload, and preserve user regions.
 - Invalid generated forms fail closed with useful diagnostics.
 
-** Phase 4: Implement Dispatch and Shell-Safe Execution
+** DONE Phase 4: Implement Dispatch and Shell-Safe Execution
 
 Code map: see "Dispatcher and =main=", "=deftool= and the sandboxed runner", and
 the action/agent runners in the Implementation Guide.
 
-Deliverables:
+Deliverables [5/5]:
 
-- Route parser for command strings.
-- Command dispatcher.
-- Action runner.
-- Tool runner with sandbox policy.
-- Agent runner that composes model, tools, skills, sandbox, and instructions.
+- [X] Route parser for command strings. (=parse-route=.)
+- [X] Command dispatcher. (=src/rebuild/dispatcher.lisp=.)
+- [X] Action runner. (=run-action=.)
+- [X] Tool runner with sandbox policy. (=run-tool= + =sandbox-check= + =shell-cmd=.)
+- [X] Agent runner that composes model, tools, skills, sandbox, and instructions.
+  (=run-agent=; LLM calls via mockable =llm-chat=.)
 
 Exit criteria:
 
@@ -1729,24 +1787,25 @@ Exit criteria:
 Note: Phase 4 exit criteria should use hand-written fixture =.hactar.lisp= files
 for testing, not generated ones — generation doesn't exist until Phase 5/6.
 
-** Phase 5: Implement Project Detection and Extraction
+** TODO Phase 5: Implement Project Detection and Extraction
 
 Code map: see "A stack mode" in the Implementation Guide for the detector +
 =*-harness-forms= pattern each mode follows.
 
-Deliverables:
+Deliverables [5/10]:
 
-- Stack detector.
-- Extractors for routes, models/schemas, scripts, dependencies, docs, and test
-  commands.
-- Initial TypeScript + React Router mode (=typescript-react-router-mode.lisp=).
-- Initial Rails mode (=rails-mode.lisp=).
-- Initial Common Lisp mode (for self-hosting).
-- Initial Python mode (Django, Flask, FastAPI).
-- Initial Go mode.
-- Initial Rust mode.
-- Initial Next.js mode.
-- Generic fallback mode.
+- [X] Stack detector. (=detect-stack= in =src/rebuild/modes.lisp=.)
+- [ ] Extractors for routes, models/schemas, scripts, dependencies, docs, and test
+  commands. (Only a minimal =extract-project-map= — files-of-interest + stack —
+  exists; deep extractors still to do.)
+- [X] Initial TypeScript + React Router mode.
+- [X] Initial Rails mode.
+- [X] Initial Common Lisp mode (for self-hosting).
+- [ ] Initial Python mode (Django, Flask, FastAPI).
+- [ ] Initial Go mode.
+- [ ] Initial Rust mode.
+- [ ] Initial Next.js mode.
+- [X] Generic fallback mode.
 
 Exit criteria:
 
@@ -1756,19 +1815,19 @@ Exit criteria:
 - A fixture Common Lisp repo generates Lisp-specific actions.
 - Unknown repos generate a safe fallback harness.
 
-** Phase 6: Implement Bootstrap and Self-Hosting
+** DONE Phase 6: Implement Bootstrap and Self-Hosting
 
 Code map: see "Bootstrap pipeline", "Doctor", and "=generated=, reading, writing"
 in the Implementation Guide.
 
-Deliverables:
+Deliverables [6/6]:
 
-- First-run behavior when no =.hactar.lisp= exists.
-- Atomic =.hactar.lisp= write.
-- Build to =./hactar/build/hactar=.
-- =.envrc= writer.
-- Launcher shim behavior.
-- =hactar.doctor= repair command.
+- [X] First-run behavior when no =.hactar.lisp= exists. (=bootstrap=.)
+- [X] Atomic =.hactar.lisp= write. (=atomic-write= temp + rename.)
+- [X] Build to =./hactar/build/hactar=. (=build-project-binary= / =asdf:make=.)
+- [X] =.envrc= writer. (=doctor=.)
+- [X] Launcher shim behavior. (=install-shim=.)
+- [X] =hactar.doctor= repair command. (=doctor=; not yet exposed as a CLI verb.)
 
 Exit criteria:
 
@@ -1776,19 +1835,21 @@ Exit criteria:
   project-local CLI.
 - Subsequent =hactar= calls resolve to the project binary.
 
-** Phase 7: Implement Self-Update
+** DONE Phase 7: Implement Self-Update
 
 Code map: see "Self-update loop with debounce" and the self-update test skeleton
 in the Implementation Guide.
 
-Deliverables:
+Deliverables [6/6]:
 
-- Turn/tool-call activity ledger.
-- =--auto-update= flag, default on.
-- Diffusion prompt and client call.
-- Generated-region merge.
-- Validation/load/build rollback.
-- Update status command.
+- [X] Turn/tool-call activity ledger. (=*update-ledger*= + =turn.after= hook.)
+- [X] =--auto-update= flag, default on. (=*auto-update*= defstate; CLI flag parsing
+  still to wire.)
+- [X] Diffusion prompt and client call. (=build-update-prompt= +
+  =diffusion-complete=; deterministic mock client, network-free.)
+- [X] Generated-region merge. (Whole-region replace via =write-hactar-file=.)
+- [X] Validation/load/build rollback. (=run-self-update= restores backup on failure.)
+- [X] Update status command. (=update-status= / =last-update-failed-p=.)
 
 Exit criteria:
 
@@ -1796,14 +1857,14 @@ Exit criteria:
 - Invalid Lisp is rejected and rolled back.
 - User forms outside =generated= are preserved byte-for-byte where possible.
 
-** Phase 8: Implement Interfaces
+** TODO Phase 8: Implement Interfaces
 
-Deliverables:
+Deliverables [0/4]:
 
-- =files.dir= interface.
-- =org-interface=.
-- POSIX shell integration.
-- Hook synchronization between state and interface files.
+- [ ] =files.dir= interface.
+- [ ] =org-interface=.
+- [ ] POSIX shell integration.
+- [ ] Hook synchronization between state and interface files.
 
 Exit criteria:
 
@@ -1811,18 +1872,20 @@ Exit criteria:
 - Shell command results feed the self-update ledger.
 - Interface round trips are covered by tests.
 
-** Phase 9: Split Libraries
+** TODO Phase 9: Split Libraries
 
 Note: Consider populating split libraries incrementally during earlier phases
 rather than deferring all extraction to Phase 9. For example, =hactar-llm=
 should be usable by Phase 4 when the agent runner needs LLM calls.
 
-Deliverables:
+Deliverables [0/4]:
 
-- =hactar-llm= extracted and tested.
-- =hactar-org= extracted and tested.
-- =hactar-md= extracted and tested.
-- =hactar-fzf= extracted and tested.
+- [ ] =hactar-llm= extracted and tested. (Currently an in-tree mock in
+  =src/rebuild/llm.lisp=.)
+- [ ] =hactar-org= extracted and tested.
+- [ ] =hactar-md= extracted and tested.
+- [ ] =hactar-fzf= extracted and tested.
+- Note: also extract =fern.lisp= as =hactar-fern= (the AST backend) during this phase.
 
 Exit criteria:
 
@@ -1830,16 +1893,16 @@ Exit criteria:
   implementation.
 - Each split library can load independently.
 
-** Phase 10: Replace Old Code
+** TODO Phase 10: Replace Old Code
 
 All existing code should be removed at the end, as this is a complete rebuild from scratch.
 
-Deliverables:
+Deliverables [0/4]:
 
-- Remove all superseded top-level implementation files.
-- Keep compatibility shims only where required for migration.
-- Update README and docs to describe the new model.
-- Ensure tests target the new architecture.
+- [ ] Remove all superseded top-level implementation files.
+- [ ] Keep compatibility shims only where required for migration.
+- [ ] Update README and docs to describe the new model.
+- [ ] Ensure tests target the new architecture.
 
 Exit criteria:
 
@@ -1936,21 +1999,24 @@ make test
 
 * Definition of Done
 
-The rebuild is complete when:
+The rebuild is complete when [7/11]:
 
-1. A fresh repository with no =.hactar.lisp= can run =hactar= once and receive a
+- [X] 1. A fresh repository with no =.hactar.lisp= can run =hactar= once and receive a
    project-specific =.hactar.lisp= plus =./hactar/build/hactar=.
-2. Running =hactar= again executes the project-local binary.
-3. The generated file contains a composed harness: tools, skills, sandbox,
+- [X] 2. Running =hactar= again executes the project-local binary.
+- [X] 3. The generated file contains a composed harness: tools, skills, sandbox,
    actions, and agent.
-4. The self-update hook can safely rewrite =generated=, reload/rebuild, and roll
-   back on parse/validation/load/build failure.
-5. User-owned forms outside =generated= are preserved.
-6. TypeScript + React Router and Rails fixtures produce stack-specific verbs.
-7. All mutable =hactar-core= state declarations are centralized in
-   =src/state.lisp=.
-8. Core implementation lives under =src/=.
-9. =hactar-llm=, =hactar-org=, =hactar-md=, and =hactar-fzf= are separate
-   systems.
-10. The =org-interface=, =files.dir=, and =shell= interfaces round-trip correctly.
-11. =make build= and =make test= pass with no network or API access required.
+- [X] 4. The self-update hook can safely rewrite =generated=, reload/rebuild, and roll
+   back on parse/validation/load/build failure. (Reload path done; mock diffusion;
+   rebuild-on-macro-change still to wire.)
+- [X] 5. User-owned forms outside =generated= are preserved.
+- [X] 6. TypeScript + React Router and Rails fixtures produce stack-specific verbs.
+- [X] 7. All mutable engine state declarations are centralized in
+   =src/rebuild/state.lisp= (=defstate=).
+- [X] 8. Core implementation lives under =src/= (=src/rebuild/=).
+- [ ] 9. =hactar-llm=, =hactar-org=, =hactar-md=, and =hactar-fzf= are separate
+   systems. (Deferred to Phase 9.)
+- [ ] 10. The =org-interface=, =files.dir=, and =shell= interfaces round-trip correctly.
+   (Deferred to Phase 8.)
+- [X] 11. =make build-rebuild= and =make test-rebuild= pass with no network or API
+   access required (45/45 checks green).
