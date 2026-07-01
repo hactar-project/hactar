@@ -38,9 +38,10 @@ written in that DSL, and Hactar writes most of it for you, then keeps writing it
     project-local binary when inside that repository.
 11. Agents edit code through AST operations, not text matching. String-based
     edits are a fallback for languages without AST support.
-12. Agents call universal tools — =(action :test)=, =(action :lint)= —
-    never raw shell commands like =npm test= or =cargo clippy=. The tool
-    resolves the concrete command from the detected stack.
+12. All tools are defined as Lisp function bodies. Agents call universal Lisp
+    tools (e.g. `(test)` or `(lint)`) rather than running raw shell commands.
+    Under the hood, these tools use stack-sensitive functions to run the
+    correct toolchain commands.
 
 * Architecture
 
@@ -74,19 +75,24 @@ Canonical shape:
   (generated :updated-at "<timestamp>"
     (defproject :stack ("typescript" "react" "react-router" "vite"))
 
-    ;; Universa tools — agents call (action :test), never "npm test".
-    ;; The project tool detects the concrete command from the stack.
-    (deftool test
-      :fn (action :test)
-      :doc "Auto-detected project commands. Resolves to the correct toolchain.")
+    ;; Universal project tools defined as simple Lisp functions
+    (deftool test (&optional file)
+      "Run unit tests. Resolves to the correct toolchain automatically."
+      (run-test-cmd file))
 
-    ;; Stack-specific tools
-    (deftool rr-routes :run "npx react-router routes" :doc "List the route tree.")
+    (deftool lint ()
+      "Lint the project."
+      (run-lint-cmd))
 
-    ;; AST editing tool — edits TypeScript/JavaScript by symbol, not string.
-    (deftool ast-edit
-      :languages ("typescript" "javascript")
-      :doc "Structural edits by symbol kind and name. Never fails on whitespace.")
+    ;; Stack-specific tool
+    (deftool rr-routes ()
+      "List the route tree."
+      (shell-cmd "npx react-router routes"))
+
+    ;; AST-first editing tool
+    (deftool ast-edit (path &rest ops)
+      "Structural edits by symbol kind and name."
+      (run-ast-edit path ops))
 
     (defskill react-router :doc "react-router.org" :rules :react-router)
 
@@ -99,12 +105,11 @@ Canonical shape:
 
     (defagent dev
       :model "anthropic/claude-sonnet-4-6"
-      :tools (project rr-routes ast-edit)
+      :tools (test lint rr-routes ast-edit)
       :skills (react-router)
       :sandbox project
-      :instructions "Build React Router features end-to-end. Use (action :test)
-                     and (action :typecheck) to verify. Edit code through ast-edit
-                     when working with TypeScript files."))
+      :instructions "Build React Router features end-to-end. Use (test)
+                     to verify. Edit TypeScript through ast-edit when possible."))
 
   ;; User-owned forms below this line are preserved across updates.
 #+end_src
@@ -446,21 +451,24 @@ Project verbs. An action binds prompt, tools, skills, and an apply strategy.
 
 ** =deftool=
 
-Typed and sandboxed callable functions. Should call underlying lisp functions. If the body is a string run it as shell-command.
+Defines a tool as a Lisp function with a docstring and a body of forms. Tool bodies can execute shell commands via =(shell-cmd "...")=, execute other agents via a =(with-agent ...)= block, or run stack-sensitive functions.
 
 #+begin_src lisp
-  ;; Shell tool (explicit kind, or omit :kind for default)
-  (deftool tsc
+;; Simple shell-wrapping tool
+(deftool tsc (&optional args)
+  "Run the TypeScript compiler."
+  (shell-cmd (format nil "npx tsc --noEmit ~A" args)))
 
-    :doc "Type-check the project."
-    :permissions (:read :exec)
-    )
-  (deftool test
-  	 (action :test))
-  ;; AST editing tool
-  (deftool ast-edit
-    :languages ("typescript" "javascript")
-    :doc "Structural edits by symbol kind and name.")
+;; Universal tool using stack-sensitive dispatch
+(deftool test (&optional file)
+  "Run unit tests for the current stack."
+  (run-test-cmd file))
+
+;; Tool utilizing an agent for structural changes
+(deftool refactor (file symbol)
+  "Refactor a symbol across the codebase."
+  (with-agent (:model "anthropic/claude-sonnet-4-6")
+    (agent-run (format nil "Refactor symbol ~A in ~A" symbol file))))
 #+end_src
 
 ** =defroute=
@@ -560,26 +568,26 @@ String-based =edit_file= is a fallback for languages without AST support.
 
 ** DSL Integration
 
-AST editing is exposed to agents through =deftool= with =:kind :ast=:
+AST editing is exposed to agents as a tool defined using Lisp:
 
 #+begin_src lisp
-(deftool ast-edit :kind :ast
-  :languages ("typescript" "javascript")
-  :doc "Structural edits by symbol kind and name.")
+(deftool ast-edit (path &rest operations)
+  "Structural edits by symbol kind and name."
+  (run-ast-edit path operations))
 #+end_src
 
 The agent calls it with structured operations, not shell commands:
 
 #+begin_src lisp
 ;; Agent tool call: set a function's return type
-(ast-edit :path "src/api.ts"
+(ast-edit "src/api.ts"
   :action :set-return-type
   :target :function
   :name "fetchUser"
   :value "Promise<User>")
 
 ;; Agent tool call: batch operations (all-or-nothing)
-(ast-edit :path "src/api.ts"
+(ast-edit "src/api.ts"
   :operations
   ((:action :set-async :target :function :name "fetchUser" :value t)
    (:action :add-parameter :target :function :name "fetchUser"
@@ -587,7 +595,7 @@ The agent calls it with structured operations, not shell commands:
    (:action :add-named-import :value "./types" :new-code "User")))
 
 ;; Agent tool call: replace a function body
-(ast-edit :path "src/util.ts"
+(ast-edit "src/util.ts"
   :action :set-body
   :target :function
   :name "parseInput"
@@ -639,16 +647,13 @@ The agent calls it with structured operations, not shell commands:
 - Undo reverses =ast-edit= the same as any other edit.
 - Pre/post diagnostics: new type errors flow back to the agent immediately.
 
-* Compound Tools: Universal Project Actions
+* Universal Project Tools
 
-Hactar provides universal tools
-that auto-detect the concrete command from the project's stack. The agent calls
-=(action :test)= and the tool resolves to =npx vitest run= or =cargo test= or
-=pytest= depending on what's detected.
+Hactar provides universal tools defined as simple Lisp functions (e.g. =test=, =lint=, =typecheck=, =build=) that invoke stack-specific commands. The agent calls =(test)= or =(test "src/foo.test.ts")= instead of raw shell commands like =npm test= or =cargo test=.
 
 ** Why
 
-Without compound tools, the agent burns steps guessing:
+Without universal tools, the agent burns steps guessing:
 
 #+begin_src text
 Agent: I'll run the tests with `npm test`
@@ -656,29 +661,13 @@ Shell: npm ERR! missing script: test
 Agent: Let me try `npx jest`...
 #+end_src
 
-With =(action :test)=, one call detects the toolchain and runs the correct
-command. Same for lint, typecheck, build.
+With =(test)=, one call detects the toolchain and runs the correct command.
 
 ** How It Works
 
-1. During bootstrap, stack detection (=src/modes/detect.lisp=) identifies the
-   project's language, package manager, test runner, linter, type checker, and
-   build tool.
-2. The =:compound= tool stores a mapping from abstract actions to concrete
-   commands. The mapping is generated per-stack by the mode's detection
-   predicates:
-
-#+begin_src lisp
-;; Internal representation after detection:
-;; (:test "npx vitest run" :lint "npx biome check ." :typecheck "npx tsc --noEmit"
-;;  :build "npm run build" :run "npm run dev")
-#+end_src
-
-3. When the agent calls =(action :test)=, the compound tool resolves and
-   executes the concrete command under the sandbox policy.
-4. If the agent tries to call a raw shell command that matches a compound
-   action, the tool runner emits a hint redirecting to the compound tool (like
-   SoulForge's shell redirect hints).
+1. During bootstrap, stack detection (=src/modes/detect.lisp=) identifies the linter, test runner, typechecker, etc.
+2. Stack modes provide implementations for functions like `run-test-cmd` or `run-lint-cmd` which are called by the universal tools.
+3. When the agent calls =(test)=, the Lisp function executes the resolved stack-specific command via the sandboxed =(shell-cmd)=.
 
 ** Supported Ecosystems
 
@@ -936,21 +925,20 @@ Each stack/mode module returns:
 - default docs
 - sandbox policy
 - actions
-- agent instructions with compound-tool and AST-edit guidance
+- agent instructions with universal-tool and AST-edit guidance
 - validation commands
 
-Important: generated tools must prefer =:compound= over =:shell= wherever
-possible. The agent should call =(action :test)=, never =npm test=. Direct
-=:shell= tools are only for stack-specific commands that have no compound
-equivalent (e.g. =rr-routes= for listing React Router routes).
+Important: generated tools must prefer universal Lisp tools (like =test=, =lint=) over raw shell execution.
 
 ** TypeScript + React Router
 
 Generated forms include:
 
-- =deftool project= (=:compound=, actions: =:test :lint :typecheck :build :run=)
-- =deftool ast-edit= (=:ast=, languages: TS/JS)
-- =deftool rr-routes= (=:shell=, "npx react-router routes")
+- =deftool test= (calls =run-test-cmd=)
+- =deftool lint= (calls =run-lint-cmd=)
+- =deftool typecheck= (calls =run-typecheck-cmd=)
+- =deftool ast-edit= (calls =run-ast-edit=)
+- =deftool rr-routes= (calls =shell-cmd=)
 - =defskill react-router=
 - =defsandbox project=
 - =defaction route.create=
@@ -961,9 +949,10 @@ Generated forms include:
 
 Generated forms include:
 
-- =deftool project= (=:compound=, actions: =:test :lint :build :run=)
-- =deftool rails-routes= (=:shell=, "bin/rails routes")
-- =deftool rails-db-migrate= (=:shell=, "bin/rails db:migrate")
+- =deftool test=
+- =deftool lint=
+- =deftool rails-routes=
+- =deftool rails-db-migrate=
 - =defskill rails=
 - =defaction migration.create=
 - =defaction model.create=
@@ -974,7 +963,7 @@ Generated forms include:
 
 If stack detection is weak, generate a conservative harness:
 
-- =deftool project= (=:compound=) with whatever actions detection found
+- =deftool test= (fallback to standard make/npm check)
 - shell/git tools only as fallback
 - repo-map skill
 - no destructive write actions
@@ -1157,62 +1146,36 @@ Reuse the existing =defstate= pattern (=defvar= plus registration for the
 ;;; src/dsl/deftool.lisp
 (in-package :hactar)
 
-(defstruct tool-def
-  name doc kind                          ; :shell (default), :compound, :ast, :fn
-  run fn sandbox (permissions '(:exec))
-  actions                                ; for :compound — plist of action->command
-  languages)                             ; for :ast — list of language strings
+(defstruct tool-def name doc fn)
 
-(defmacro deftool (name &key (kind :shell) run doc fn sandbox permissions
-                             actions languages)
-  "Register a tool. Kind determines behavior:
-   :shell    — runs a shell command template via :run.
-   :compound — universal project tool; :actions maps abstract verbs to
-               auto-detected concrete commands.
-   :ast      — AST editing tool; :languages lists supported file types.
-   :fn       — a Lisp function."
-  (let ((key (string-downcase (symbol-name name))))
-    `(setf (gethash ,key *tools*)
-           (make-tool-def :name ,key :doc ,doc :kind ,kind :run ,run
-                          :fn ,(when fn `(function ,fn))
-                          :sandbox ',sandbox
-                          :permissions ',(or permissions '(:exec))
-                          :actions ',actions
-                          :languages ',languages))))
+(defmacro deftool (name lambda-list &body body)
+  "Register a tool as a function. The body contains the Lisp forms to execute."
+  (let ((key (string-downcase (symbol-name name)))
+        (doc (if (stringp (first body)) (first body) "No documentation."))
+        (forms (if (stringp (first body)) (rest body) body)))
+    `(progn
+       (defun ,name ,lambda-list
+         ,@forms)
+       (setf (gethash ,key *tools*)
+             (make-tool-def :name ,key :doc ,doc :fn (function ,name))))))
 
-(defun run-tool (name &key (args "") action)
-  "Run a registered tool under its sandbox policy. Returns a RESULT.
-   For :compound tools, ACTION selects the abstract verb (:test, :lint, etc.).
-   For :ast tools, ARGS carries the structured AST operation."
+(defun run-tool (name args)
+  "Run a registered tool by applying ARGS to its function. Returns a RESULT."
   (let ((tool (gethash (string-downcase (string name)) *tools*)))
     (unless tool
       (return-from run-tool
         (make-result :status :error :message (format nil "No such tool: ~A" name))))
-    (ecase (or (tool-def-kind tool) :shell)
-      (:shell
-       (let ((cmd (cl-ppcre:regex-replace-all "\\{\\{args\\}\\}"
-                                              (tool-def-run tool) args)))
-         (sandbox-check (tool-def-sandbox tool) cmd)
-         (run-shell-command cmd)))
-      (:compound
-       (let* ((action-key (or action (error "Compound tool requires :action")))
-              (cmd (getf (tool-def-actions tool) action-key)))
-         (unless cmd
-           (return-from run-tool
-             (make-result :status :error
-                          :message (format nil "No compound action ~A" action-key))))
-         (let ((full-cmd (if (plusp (length args))
-                             (format nil "~A ~A" cmd args)
-                             cmd)))
-           (sandbox-check (tool-def-sandbox tool) full-cmd)
-           (run-shell-command full-cmd))))
-      (:ast
-       (run-ast-edit args))                ; delegates to AST backend
-      (:fn
-       (funcall (tool-def-fn tool) args)))))
+    (handler-case
+        (let ((val (apply (tool-def-fn tool) args)))
+          (if (typep val 'result)
+              val
+              (make-result :status :ok :message (format nil "~S" val))))
+      (error (e)
+        (make-result :status :error :message (princ-to-string e))))))
 
-(defun run-shell-command (cmd)
-  "Execute CMD, return a RESULT."
+(defun shell-cmd (cmd &key sandbox)
+  "Execute shell command under sandbox policy."
+  (sandbox-check sandbox cmd)
   (multiple-value-bind (out err code)
       (uiop:run-program cmd :output :string :error-output :string
                             :ignore-error-status t)
@@ -1575,64 +1538,43 @@ shell commands.
     (and (probe-file pkg)
          (search "react-router" (uiop:read-file-string pkg)))))
 
-(defun react-router-detect-actions (root)
-  "Auto-detect concrete commands for each abstract action."
-  (let ((actions '()))
-    ;; Test runner: vitest > jest > npm test
-    (cond
-      ((probe-file (merge-pathnames "vitest.config.ts" root))
-       (setf (getf actions :test) "npx vitest run"))
-      ((probe-file (merge-pathnames "jest.config.js" root))
-       (setf (getf actions :test) "npx jest"))
-      (t (setf (getf actions :test) "npm test")))
-    ;; Linter: biome > eslint
-    (cond
-      ((probe-file (merge-pathnames "biome.json" root))
-       (setf (getf actions :lint) "npx biome check ."))
-      ((probe-file (merge-pathnames "eslint.config.js" root))
-       (setf (getf actions :lint) "npx eslint .")))
-    ;; Type checker: always tsc for TS projects
-    (setf (getf actions :typecheck) "npx tsc --noEmit")
-    ;; Build
-    (setf (getf actions :build) "npm run build")
-    ;; Dev server
-    (setf (getf actions :run) "npm run dev")
-    actions))
-
 (defun react-router-harness-forms (root)
-  "The worked-example harness as data. Uses compound + AST tools."
-  (let ((actions (react-router-detect-actions root)))
-    `(;; Universal compound tool — agent calls (action :test), never "npm test"
-      (deftool project :kind :compound
-        :actions ,actions
-        :doc "Auto-detected project commands.")
-      ;; AST editing — agent edits TS/JS by symbol, not string
-      (deftool ast-edit :kind :ast
-        :languages ("typescript" "javascript")
-        :doc "Structural edits by symbol kind and name.")
-      ;; Stack-specific tools with no compound equivalent
-      (deftool rr-routes :run "npx react-router routes"
-        :doc "List the route tree.")
-      (defskill react-router :doc "react-router.org" :rules :react-router)
-      (defsandbox project :kind :local :allow ("npx" "node" "git"))
-      (defaction route.create
-        :doc    "Create a typed React Router route + loader/action."
-        :prompt "Create a React Router route {{name}} under src/routes using a typed
-                 loader and action, then register it in src/routes.tsx. {{doc:react-router}}"
-        :apply  :create)
-      (defaction api.create
-        :doc    "Create a typed API resource route (server loader/action)."
-        :prompt "Create an API resource route {{name}} with typed request/response
-                 handlers for this {{stack}} project. {{doc:react-router}}"
-        :apply  :create)
-      (defagent dev
-        :model "anthropic/claude-sonnet-4-6"
-        :tools (project rr-routes ast-edit)
-        :skills (react-router)
-        :sandbox project
-        :instructions "Build React Router features end-to-end. Use (action :test)
-                       and (action :typecheck) to verify. Edit TypeScript through
-                       ast-edit when possible."))))
+  "The worked-example harness as data. Defined as Lisp tools."
+  (declare (ignore root))
+  '((deftool test (&optional file)
+      "Run unit tests."
+      (shell-cmd (if file (format nil "npx vitest run ~A" file) "npx vitest run")))
+    (deftool lint ()
+      "Lint the project."
+      (shell-cmd "npx biome check ."))
+    (deftool typecheck ()
+      "Type-check the project."
+      (shell-cmd "npx tsc --noEmit"))
+    (deftool ast-edit (path &rest operations)
+      "Edit TypeScript/JavaScript via AST."
+      (run-ast-edit path operations))
+    (deftool rr-routes ()
+      "List the route tree."
+      (shell-cmd "npx react-router routes"))
+    (defskill react-router :doc "react-router.org" :rules :react-router)
+    (defsandbox project :allow ("npx" "node" "git"))
+    (defaction route.create
+      :doc    "Create a typed React Router route + loader/action."
+      :prompt "Create a React Router route {{name}} under src/routes using a typed
+               loader and action, then register it in src/routes.tsx. {{doc:react-router}}"
+      :apply  :create)
+    (defaction api.create
+      :doc    "Create a typed API resource route (server loader/action)."
+      :prompt "Create an API resource route {{name}} with typed request/response
+               handlers for this {{stack}} project. {{doc:react-router}}"
+      :apply  :create)
+    (defagent dev
+      :model "anthropic/claude-sonnet-4-6"
+      :tools (test lint typecheck rr-routes ast-edit)
+      :skills (react-router)
+      :sandbox project
+      :instructions "Build React Router features end-to-end. Use (test) to verify.
+                     Edit TypeScript through ast-edit when possible.")))
 
 ;; Register so generate-harness can find it by predicate.
 (register-stack-mode :name "react-router"
@@ -1657,11 +1599,10 @@ shell commands.
     (is (find-if (lambda (e) (search "surface" e)) errs))))
 
 (test deftool-registers-and-runs
-  (eval '(hactar:deftool echo :fn (lambda (a) (hactar::make-result :status :ok :message a))
-                              :doc "echo"))
-  (let ((r (hactar::run-tool "echo" :args "hi")))
+  (eval '(hactar:deftool echo (a) a))
+  (let ((r (hactar::run-tool "echo" '("hi"))))
     (is (eq :ok (hactar::result-status r)))
-    (is (string= "hi" (hactar::result-message r)))))
+    (is (string= "\"hi\"" (hactar::result-message r)))))
 
 (test route-normalizes-path
   (eval '(hactar:defroute routes.create
