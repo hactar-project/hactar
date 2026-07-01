@@ -1,4 +1,4 @@
-#+title: Rebuild Hactar From Scratch
+#+title: Rebuild Hactar From Scratch Plan
 #+author: k
 #+startup: overview
 
