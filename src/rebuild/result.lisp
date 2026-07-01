@@ -7,8 +7,17 @@
   (data nil)
   (artifacts nil :type list))
 
+(defun ok (&optional (message "") &key data artifacts)
+  (make-result :status :ok :message (or message "") :data data :artifacts artifacts))
+
+(defun err (message &key data)
+  (make-result :status :error :message (princ-to-string message) :data data))
+
+(defun result-ok-p (result)
+  (eq (result-status result) :ok))
+
 (defun render-result (result &optional (format :text))
-  "Render RESULT for FORMAT. Phase 1 only supports :TEXT."
+  "Render RESULT for FORMAT. Only :TEXT is supported."
   (ecase format
     (:text
      (with-output-to-string (s)

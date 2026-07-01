@@ -15,6 +15,16 @@ build:
 build-cli:
 	$(LISP) --load build.lisp --eval "(build-llm-cli)" --quit
 
+# Build the greenfield rebuild engine binary -> ./hactar/build/hactar
+.PHONY: build-rebuild
+build-rebuild:
+	$(LISP) --non-interactive --load build-rebuild.lisp --quit
+
+# Run the greenfield rebuild test suite (network-free, no API keys required)
+.PHONY: test-rebuild
+test-rebuild:
+	$(LISP) --non-interactive --load run-rebuild-tests.lisp
+
 # Run the application
 .PHONY: run
 run:

@@ -1,11 +1,24 @@
 (asdf:defsystem #:hactar-rebuild
-  :description "Greenfield Hactar rebuild foundation."
+  :description "Greenfield Hactar rebuild: engine + closed DSL surface."
   :author "K-2052"
   :license "MIT"
   :depends-on (#:cl-ppcre #:str #:uiop)
   :serial t
-  :components ((:file "src/rebuild/packages")
-               (:file "src/rebuild/result")
-               (:file "src/rebuild/state")
-               (:file "src/rebuild/surface")
-               (:file "src/rebuild/generated-file")))
+  :pathname "src/rebuild/"
+  :components ((:file "packages")
+               (:file "result")
+               (:file "state")
+               (:file "hooks")
+               (:file "surface")
+               (:file "llm")
+               (:file "ast")
+               (:file "runners")
+               (:file "generated-file")
+               (:file "modes")
+               (:file "self-update")
+               (:file "bootstrap")
+               (:file "dispatcher")
+               (:file "main"))
+  :build-operation "program-op"
+  :build-pathname "../../hactar/build/hactar"
+  :entry-point "hactar-rebuild:main")

@@ -1,6 +1,10 @@
 (in-package #:hactar-rebuild)
 
-(defstruct hook-def name args doc)
+;;; ---------------------------------------------------------------------------
+;;; DSL surface structs
+;;; ---------------------------------------------------------------------------
+
+(defstruct hook-def name args doc (handlers '()))
 (defstruct mode-def name when rules skills commands)
 (defstruct agent-def name model tools skills sandbox instructions)
 (defstruct interface-def name path format render parse)
@@ -9,7 +13,7 @@
 (defstruct skill-def name doc docs rules)
 (defstruct prompt-def name args template)
 (defstruct action-def name doc prompt tools skills apply when)
-(defstruct tool-def name run doc fn sandbox permissions)
+(defstruct tool-def name doc fn sandbox permissions)
 (defstruct route-def name pattern coerce result-template)
 (defstruct hypertext-def name uri content)
 (defstruct doc-def name uri text file tags)
@@ -22,20 +26,33 @@
 (defun keyword-for-symbol (symbol)
   (intern (string-upcase (symbol-name symbol)) :keyword))
 
+;;; ---------------------------------------------------------------------------
+;;; generated region wrapper (load-time)
+;;; ---------------------------------------------------------------------------
+
 (defmacro generated (&rest body)
-  "Runtime wrapper for generated forms. :UPDATED-AT metadata is ignored."
+  "Load-time wrapper for generated forms. Leading :UPDATED-AT <string> is ignored."
   (when (eq (first body) :updated-at)
     (setf body (cddr body)))
   `(progn ,@body))
 
+;;; ---------------------------------------------------------------------------
+;;; project data forms
+;;; ---------------------------------------------------------------------------
+
 (defmacro defproject (&rest plist)
-  `(setf *project* ',plist))
+  "Declare project identity/stack. Exactly one per .hactar.lisp."
+  `(setf *project* (list ,@(loop for x in plist collect (list 'quote x)))))
 
 (defmacro defmodels (&rest entries)
   `(setf *models* ',entries))
 
 (defmacro defroutes (&rest entries)
   `(setf *routes-data* ',entries))
+
+;;; ---------------------------------------------------------------------------
+;;; registry-populating macros
+;;; ---------------------------------------------------------------------------
 
 (defmacro defhook (name &key args doc)
   `(setf (gethash ,(key-string name) *hooks*)
@@ -79,10 +96,18 @@
                           :tools ',tools :skills ',skills
                           :apply ,apply :when ',when)))
 
-(defmacro deftool (name &key run doc fn sandbox permissions)
-  `(setf (gethash ,(key-string name) *tools*)
-         (make-tool-def :name ',name :run ,run :doc ,doc :fn ',fn
-                        :sandbox ',sandbox :permissions ',permissions)))
+;;; deftool: a tool is a Lisp function with a docstring and a body of forms.
+;;; The body may call (shell-cmd ...), universal tools, or (with-agent ...).
+(defmacro deftool (name lambda-list &body body)
+  "Register a tool as a Lisp function. BODY holds the forms to execute."
+  (let* ((key (key-string name))
+         (doc (if (stringp (first body)) (first body) "No documentation."))
+         (forms (if (and (stringp (first body)) (rest body)) (rest body) body)))
+    `(progn
+       (defun ,name ,lambda-list ,@forms)
+       (setf (gethash ,key *tools*)
+             (make-tool-def :name ',name :doc ,doc :fn (function ,name)))
+       ',name)))
 
 (defmacro defroute (name &key pattern coerce result)
   `(setf (gethash ,(key-string name) *route-parsers*)
@@ -103,6 +128,10 @@
          (make-sandbox-def :name ',name :kind ,kind :allow ',allow
                            :deny ',deny :cwd ,cwd)))
 
+;;; ---------------------------------------------------------------------------
+;;; closed-surface validator
+;;; ---------------------------------------------------------------------------
+
 (defparameter *surface-operators*
   '("in-package" "generated" "defproject" "defmodels" "defroutes" "defhook"
     "defmode" "defagent" "definterface" "defcommand" "defrule" "defskill"
@@ -115,34 +144,32 @@
     (string-downcase (symbol-name operator))))
 
 (defun strip-generated-metadata (body)
-  (if (eq (first body) :updated-at)
-      (cddr body)
-      body))
+  (if (eq (first body) :updated-at) (cddr body) body))
 
 (defun validate-forms (forms)
-  "Validate FORMS against the closed rebuild DSL surface."
+  "Return (values ok-p errors). Every top-level operator must be on the
+surface; forms inside GENERATED are recursively checked."
   (let ((errors '()))
     (labels ((validate-one (form)
                (cond
                  ((not (consp form))
                   (push (format nil "Not a form: ~S" form) errors))
-                 ((string= (or (surface-operator-name (car form)) "")
-                           "generated")
+                 ((string= (or (surface-operator-name (car form)) "") "generated")
                   (dolist (child (strip-generated-metadata (cdr form)))
                     (validate-one child)))
                  ((not (member (surface-operator-name (car form))
-                               *surface-operators*
-                               :test #'string=))
+                               *surface-operators* :test #'string=))
                   (push (format nil "~A is not on the Hactar surface" (car form))
                         errors)))))
-      (dolist (form forms)
-        (validate-one form)))
+      (dolist (form forms) (validate-one form)))
     (values (null errors) (nreverse errors))))
 
+;;; ---------------------------------------------------------------------------
+;;; route parsing + normalization
+;;; ---------------------------------------------------------------------------
+
 (defun ensure-leading-slash (value)
-  "Return VALUE with a leading slash."
-  (if (and (plusp (length value))
-           (char= (char value 0) #\/))
+  (if (and (plusp (length value)) (char= (char value 0) #\/))
       value
       (concatenate 'string "/" value)))
 
@@ -155,7 +182,7 @@
   (subseq token 1 (1- (length token))))
 
 (defun parse-route-params (pattern input)
-  "Parse INPUT using a simple pattern with --flag={name} placeholders."
+  "Parse INPUT using a pattern with --flag={name} placeholders."
   (let ((pattern-parts (str:split " " pattern :omit-nulls t))
         (input-parts (str:split " " input :omit-nulls t))
         (params '()))
@@ -184,8 +211,7 @@
 (defun apply-route-coercions (params coercions)
   (loop for (key fn-name) in coercions
         for fn = (and (fboundp fn-name) (symbol-function fn-name))
-        do (when fn
-             (setf (getf params key) (funcall fn (getf params key)))))
+        do (when fn (setf (getf params key) (funcall fn (getf params key)))))
   params)
 
 (defun resolve-template-value (value params)

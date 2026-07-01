@@ -34,7 +34,7 @@
                                  :if-does-not-exist :create :external-format :utf-8)
       (format stream "(in-package :hactar-user)~%~%")
       (format stream "(generated :updated-at \"<now>\"~%")
-      (format stream "  (deftool tsc :run \"npx tsc --noEmit\" :doc \"Type-check.\"))~%"))
+      (format stream "  (deftool tsc () \"Type-check.\" (shell-cmd \"npx tsc --noEmit\")))~%"))
     (hactar-rebuild:load-hactar-file file)
     (is (= 1 (hactar-rebuild:registry-count :tools)))
     (hactar-rebuild:load-hactar-file file)
