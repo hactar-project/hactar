@@ -1660,10 +1660,11 @@ shell commands.
 
 ** Progress Overview
 
-Status as of the greenfield slice under =src/rebuild/= (=hactar-rebuild= system):
+Status: rebuild complete. Engine ships as =hactar-core= (library) + =hactar=
+(executable) + split libraries; legacy top-level code removed.
 
 - [X] Phase 0 — Freeze the Contract
-- [-] Phase 1 — Greenfield Skeleton (split ASDF libs / =hactar-core= naming pending)
+- [X] Phase 1 — Greenfield Skeleton (=hactar-core= + =hactar= + split ASDF systems)
 - [X] Phase 2 — State, Results, Hooks, Registries
 - [X] Phase 3 — DSL Surface
 - [X] Phase 4 — Dispatch and Shell-Safe Execution
@@ -1672,11 +1673,12 @@ Status as of the greenfield slice under =src/rebuild/= (=hactar-rebuild= system)
 - [X] Phase 7 — Self-Update (mock diffusion client; network-free)
 - [X] Phase 8 — Interfaces (=files.dir=, =org-interface=, =shell=; turn.after sync hook)
 - [X] Phase 9 — Split Libraries (=hactar-llm/org/md/fzf/fern= as independent systems; engine depends on them)
-- [ ] Phase 10 — Replace Old Code
+- [X] Phase 10 — Replace Old Code (~200 legacy files removed; canonical layout)
 
-Legend: =[X]= complete, =[-]= partial, =[ ]= not started. Legacy =main= is
-untouched; old top-level files remain until Phase 10. LLM/diffusion and AST
-backends are currently deterministic in-tree mocks/stubs.
+Legend: =[X]= complete, =[-]= partial, =[ ]= not started. The legacy top-level
+implementation has been removed. The LLM/diffusion client is a deterministic
+offline mock (=hactar-llm=, swappable via =*llm-client*=); the Lisp AST backend
+(=hactar-fern=) is real, other-language grammars still to come.
 
 ** Migration and Coexistence Strategy
 
@@ -1707,18 +1709,17 @@ Exit criteria:
 - Tests describe the new architecture instead of current behavior accidents.
 - Existing code paths to keep as reference are listed.
 
-** TODO Phase 1: Create the Greenfield Skeleton
+** DONE Phase 1: Create the Greenfield Skeleton
 
-Deliverables [3/5]:
+Deliverables [5/5]:
 
-- [X] New =src/= layout. (Implemented under =src/rebuild/=.)
-- [X] New package definitions. (=hactar-rebuild= engine + =hactar-user= DSL pkg.)
-- [ ] New ASDF systems: =hactar-core=, =hactar=, =hactar-llm=, =hactar-org=,
-  =hactar-md=, =hactar-fzf=. (Currently a single =hactar-rebuild= system +
-  =hactar-rebuild-tests=; split libs and =hactar-core= naming deferred to Phase 9.)
-- [X] Thin executable entry point. (=src/rebuild/main.lisp=.)
-- [X] Makefile still owns build/test/run/dev. (Added =make build-rebuild= /
-  =make test-rebuild=.)
+- [X] New =src/= layout. (=src/rebuild/= + =src/{llm,org,md,fzf,fern}/=.)
+- [X] New package definitions. (=hactar-rebuild=/=hactar= engine + =hactar-user=
+  DSL pkg; one package per split library.)
+- [X] New ASDF systems: =hactar-core=, =hactar=, =hactar-llm=, =hactar-org=,
+  =hactar-md=, =hactar-fzf= (plus =hactar-fern=).
+- [X] Thin executable entry point. (=hactar.asd= -> =hactar:main=.)
+- [X] Makefile still owns build/test/run/dev.
 
 Exit criteria:
 
@@ -1903,21 +1904,26 @@ Exit criteria:
 - [X] Each split library can load independently. (=make test-libs= loads each in
   its own fresh process.)
 
-** TODO Phase 10: Replace Old Code
+** DONE Phase 10: Replace Old Code
 
 All existing code should be removed at the end, as this is a complete rebuild from scratch.
 
-Deliverables [0/4]:
+Deliverables [4/4]:
 
-- [ ] Remove all superseded top-level implementation files.
-- [ ] Keep compatibility shims only where required for migration.
-- [ ] Update README and docs to describe the new model.
-- [ ] Ensure tests target the new architecture.
+- [X] Remove all superseded top-level implementation files. (~200 legacy files
+  and 8 legacy ASDF systems removed; engine promoted to =hactar-core= +
+  =hactar= executable + =hactar-tests=.)
+- [X] Keep compatibility shims only where required for migration. (None needed;
+  the =hactar= package retains =hactar-engine=/=hactar= nicknames.)
+- [X] Update README and docs to describe the new model. (=README.org= gains a
+  "Development & Architecture" section; =RebuildHactarPlan.org= is the reference.)
+- [X] Ensure tests target the new architecture. (Only =tests/rebuild/= remains;
+  =make test= runs the network-free =hactar-tests= suite.)
 
 Exit criteria:
 
-- The repo no longer depends on the old top-level implementation layout.
-- Users can understand Hactar by reading =.hactar.lisp= plus the DSL reference.
+- [X] The repo no longer depends on the old top-level implementation layout.
+- [X] Users can understand Hactar by reading =.hactar.lisp= plus the DSL reference.
 
 * Deferred / Out-of-Scope Subsystems
 
@@ -2009,7 +2015,7 @@ make test
 
 * Definition of Done
 
-The rebuild is complete when [8/11]:
+The rebuild is complete when [11/11]:
 
 - [X] 1. A fresh repository with no =.hactar.lisp= can run =hactar= once and receive a
    project-specific =.hactar.lisp= plus =./hactar/build/hactar=.
@@ -2024,8 +2030,8 @@ The rebuild is complete when [8/11]:
 - [X] 7. All mutable engine state declarations are centralized in
    =src/rebuild/state.lisp= (=defstate=).
 - [X] 8. Core implementation lives under =src/= (=src/rebuild/=).
-- [ ] 9. =hactar-llm=, =hactar-org=, =hactar-md=, and =hactar-fzf= are separate
-   systems. (Deferred to Phase 9.)
+- [X] 9. =hactar-llm=, =hactar-org=, =hactar-md=, and =hactar-fzf= are separate
+   systems. (Plus =hactar-fern= for the AST backend.)
 - [X] 10. The =org-interface=, =files.dir=, and =shell= interfaces round-trip correctly.
-- [X] 11. =make build-rebuild= and =make test-rebuild= pass with no network or API
-   access required (45/45 checks green).
+- [X] 11. =make build= and =make test= pass with no network or API access required
+   (120/120 checks green).

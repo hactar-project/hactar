@@ -105,7 +105,52 @@ Neovim:
   lazy = false,
   }
 #+end_src
-** Learn More
+** Development & Architecture
+
+Hactar is a DSL for building dev tooling from LLMs. On first run in a repository
+the generic engine detects the stack, extracts a project map, and writes a
+project-local program to =.hactar.lisp= — a readable DSL that composes the
+project's tools, skills, prompts, sandboxes, actions, and agents. From then on,
+running =hactar= runs the project's own generated (and hand-editable) CLI, and
+Hactar keeps rewriting the machine-owned =generated= region while preserving your
+user-owned forms.
+
+*** Repository layout
+
+- =src/rebuild/= — =hactar-core=: the engine and closed DSL surface (state,
+  registries, DSL macros, validator, dispatcher, bootstrap, self-update,
+  interfaces). All mutable engine state is declared in =src/rebuild/state.lisp=.
+- =src/llm/= =src/org/= =src/md/= =src/fzf/= =src/fern/= — the reusable split
+  libraries =hactar-llm=, =hactar-org=, =hactar-md=, =hactar-fzf=, and
+  =hactar-fern= (the native AST/structural-editing backend). Each loads
+  independently and is depended on by =hactar-core=.
+- =hactar.asd= — the =hactar= executable (loads =hactar-core=, bootstraps,
+  dispatches). Builds to =./hactar/build/hactar=.
+- =tests/rebuild/= — the network-free test suite (=hactar-tests=).
+- =RebuildHactarPlan.org= — the architecture and DSL reference.
+
+The =.hactar.lisp= file runs in the =hactar-user= package, which =:use=-s the
+closed DSL surface so every emittable form (=defproject=, =deftool=, =defskill=,
+=defsandbox=, =defagent=, =defaction=, =defprompt=, =defroute=, =generated=, ...)
+reads without package prefixes.
+
+*** Build, test, and run
+
+All entry points go through the Makefile (do not invoke =sbcl=/=asdf= directly):
+
+#+begin_src sh
+  make build       # build ./hactar/build/hactar
+  make test        # run the full suite (network-free, no API keys needed)
+  make test-libs   # verify each system loads independently
+  make run         # run the built executable
+  make dev         # development REPL with all systems loaded
+#+end_src
+
+The test suite and bootstrap run against a deterministic, offline mock LLM
+client (=hactar-llm=, swappable via =*llm-client*=), so =make test= never
+requires network access.
+
+
 - [[https://docs.hactar.space][The Docs]]
 - [[https://github.com/hactar-project/hactar.el][hactar.el]] The emacs extension
 - [[https://github.com/hactar-project/hactar.nvim][hactar.nvim]] The neovim extension

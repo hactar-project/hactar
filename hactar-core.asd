@@ -1,5 +1,5 @@
-(asdf:defsystem #:hactar-rebuild
-  :description "Greenfield Hactar rebuild: engine + closed DSL surface."
+(asdf:defsystem #:hactar-core
+  :description "Hactar engine + closed DSL surface (the reusable library)."
   :author "K-2052"
   :license "MIT"
   :depends-on (#:cl-ppcre #:str #:uiop
@@ -20,7 +20,4 @@
                (:file "interfaces")
                (:file "bootstrap")
                (:file "dispatcher")
-               (:file "main"))
-  :build-operation "program-op"
-  :build-pathname "../../hactar/build/hactar"
-  :entry-point "hactar-rebuild:main")
+               (:file "main")))
