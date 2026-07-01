@@ -2,7 +2,7 @@
   :description "Test suite for Hactar"
   :author "K-2052"
   :license "MIT"
-  :depends-on (#:hactar #:fiveam #:mockingbird #:str #:uuid)
+  :depends-on (#:hactar #:hactar-rebuild #:fiveam #:mockingbird #:str #:uuid)
   :components ((:file "tests/package")
                (:file "tests/suite")
                (:file "tests/core.test")
@@ -46,6 +46,7 @@
 	       (:file "tests/skills.test")
 	       (:file "tests/state.test")
 	       (:file "tests/surface.test")
+               (:file "tests/rebuild-foundation.test")
 	       (:file "tests/starters.test")
 	       (:file "tests/interface.test")
 	       (:file "tests/hydra.test")
