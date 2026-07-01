@@ -38,6 +38,10 @@ This is the ONLY sanctioned way to introduce global mutable engine state."
 (defstate *docs* (make-hash-table :test 'equal) "Doc registry.")
 (defstate *sandboxes* (make-hash-table :test 'equal) "Sandbox registry.")
 
+;; --- context / interfaces ---
+(defstate *context-files* '()
+  "Ordered list of (path . annotation) entries selected for agent context.")
+
 ;; --- stack modes (engine-owned, not reset by reload) ---
 (defstate *stack-modes* (make-hash-table :test 'equal)
   "Registered stack modes: name -> (:detect fn :forms fn).")
@@ -49,14 +53,26 @@ This is the ONLY sanctioned way to introduce global mutable engine state."
 (defstate *build-result* nil "Last build result.")
 (defstate *validation-result* nil "Last validation result.")
 
+;; --- engine reinstall thunks (run after every reset-registries) ---
+(defstate *post-reset-thunks* '()
+  "Ordered engine reinstall functions run after reset-registries so that
+engine-owned hooks/handlers/interfaces survive .hactar.lisp reloads.")
+
+(defun register-post-reset (fn)
+  "Register FN (a symbol/function) to run after each reset, in load order."
+  (setf *post-reset-thunks* (append (remove fn *post-reset-thunks*) (list fn)))
+  fn)
+
 (defun reset-registries ()
-  "Clear everything a reload of .hactar.lisp re-populates.
-Engine-owned registries (stack modes) are preserved."
+  "Clear everything a reload of .hactar.lisp re-populates, then reinstall
+engine-owned defaults. Engine registries (stack modes) are preserved."
   (setf *project* nil *models* nil *routes-data* nil)
   (dolist (registry (list *hooks* *modes* *agents* *interfaces* *commands*
                           *rules* *skills* *prompts* *actions* *tools*
                           *route-parsers* *hypertexts* *docs* *sandboxes*))
     (clrhash registry))
+  (dolist (fn *post-reset-thunks*)
+    (ignore-errors (funcall fn)))
   t)
 
 (defun registry-count (registry-name)

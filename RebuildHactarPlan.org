@@ -1667,10 +1667,10 @@ Status as of the greenfield slice under =src/rebuild/= (=hactar-rebuild= system)
 - [X] Phase 2 — State, Results, Hooks, Registries
 - [X] Phase 3 — DSL Surface
 - [X] Phase 4 — Dispatch and Shell-Safe Execution
-- [-] Phase 5 — Detection and Extraction (CL/TS+RR/Rails/generic done; Python/Go/Rust/Next.js + deep extractors pending)
+- [X] Phase 5 — Detection and Extraction (TS+RR/Next.js/Rails/Python/Go/Rust/CL/generic modes; scripts/deps/docs extraction)
 - [X] Phase 6 — Bootstrap and Self-Hosting
 - [X] Phase 7 — Self-Update (mock diffusion client; network-free)
-- [ ] Phase 8 — Interfaces
+- [X] Phase 8 — Interfaces (=files.dir=, =org-interface=, =shell=; turn.after sync hook)
 - [ ] Phase 9 — Split Libraries (incl. extracting =fern.lisp= as =hactar-fern=)
 - [ ] Phase 10 — Replace Old Code
 
@@ -1787,24 +1787,24 @@ Exit criteria:
 Note: Phase 4 exit criteria should use hand-written fixture =.hactar.lisp= files
 for testing, not generated ones — generation doesn't exist until Phase 5/6.
 
-** TODO Phase 5: Implement Project Detection and Extraction
+** DONE Phase 5: Implement Project Detection and Extraction
 
 Code map: see "A stack mode" in the Implementation Guide for the detector +
 =*-harness-forms= pattern each mode follows.
 
-Deliverables [5/10]:
+Deliverables [10/10]:
 
-- [X] Stack detector. (=detect-stack= in =src/rebuild/modes.lisp=.)
-- [ ] Extractors for routes, models/schemas, scripts, dependencies, docs, and test
-  commands. (Only a minimal =extract-project-map= — files-of-interest + stack —
-  exists; deep extractors still to do.)
+- [X] Stack detector. (=detect-stack= with deterministic =:priority= ordering.)
+- [X] Extractors for routes, models/schemas, scripts, dependencies, docs, and test
+  commands. (=extract-project-map=: manifests, npm scripts, docs, resolved test
+  command.)
 - [X] Initial TypeScript + React Router mode.
 - [X] Initial Rails mode.
 - [X] Initial Common Lisp mode (for self-hosting).
-- [ ] Initial Python mode (Django, Flask, FastAPI).
-- [ ] Initial Go mode.
-- [ ] Initial Rust mode.
-- [ ] Initial Next.js mode.
+- [X] Initial Python mode (Django, Flask, FastAPI).
+- [X] Initial Go mode.
+- [X] Initial Rust mode.
+- [X] Initial Next.js mode.
 - [X] Generic fallback mode.
 
 Exit criteria:
@@ -1857,14 +1857,19 @@ Exit criteria:
 - Invalid Lisp is rejected and rolled back.
 - User forms outside =generated= are preserved byte-for-byte where possible.
 
-** TODO Phase 8: Implement Interfaces
+** DONE Phase 8: Implement Interfaces
 
-Deliverables [0/4]:
+Deliverables [4/4]:
 
-- [ ] =files.dir= interface.
-- [ ] =org-interface=.
-- [ ] POSIX shell integration.
-- [ ] Hook synchronization between state and interface files.
+- [X] =files.dir= interface. (=render/parse-context-files=, add/drop, disk sync;
+  =src/rebuild/interfaces.lisp=.)
+- [X] =org-interface=. (=render-context-org= + =parse-context-org= extracting and
+  validating lisp src blocks; preserves the closed-surface boundary.)
+- [X] POSIX shell integration. (=shell-exec= runs through sandbox policy and feeds
+  the self-update ledger.)
+- [X] Hook synchronization between state and interface files. (=turn.after=
+  handler renders interfaces to =.hactar/=; engine hooks/interfaces reinstalled
+  post-reset via =register-post-reset=.)
 
 Exit criteria:
 
@@ -1999,7 +2004,7 @@ make test
 
 * Definition of Done
 
-The rebuild is complete when [7/11]:
+The rebuild is complete when [8/11]:
 
 - [X] 1. A fresh repository with no =.hactar.lisp= can run =hactar= once and receive a
    project-specific =.hactar.lisp= plus =./hactar/build/hactar=.
@@ -2016,7 +2021,6 @@ The rebuild is complete when [7/11]:
 - [X] 8. Core implementation lives under =src/= (=src/rebuild/=).
 - [ ] 9. =hactar-llm=, =hactar-org=, =hactar-md=, and =hactar-fzf= are separate
    systems. (Deferred to Phase 9.)
-- [ ] 10. The =org-interface=, =files.dir=, and =shell= interfaces round-trip correctly.
-   (Deferred to Phase 8.)
+- [X] 10. The =org-interface=, =files.dir=, and =shell= interfaces round-trip correctly.
 - [X] 11. =make build-rebuild= and =make test-rebuild= pass with no network or API
    access required (45/45 checks green).

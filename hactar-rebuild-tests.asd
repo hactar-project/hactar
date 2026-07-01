@@ -15,6 +15,7 @@
                (:file "mode.test")
                (:file "generated-file.test")
                (:file "bootstrap.test")
-               (:file "self-update.test"))
+               (:file "self-update.test")
+               (:file "interface.test"))
   :perform (asdf:test-op (o c)
              (uiop:symbol-call :hactar-rebuild-tests :run-tests)))

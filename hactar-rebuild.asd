@@ -16,6 +16,7 @@
                (:file "generated-file")
                (:file "modes")
                (:file "self-update")
+               (:file "interfaces")
                (:file "bootstrap")
                (:file "dispatcher")
                (:file "main"))

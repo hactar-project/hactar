@@ -6,18 +6,22 @@
 (defvar *last-update-at* 0)
 (defvar *update-debounce-seconds* 5)
 
-;; Declare the primary hook and attach the default debounced handler.
-(defhook turn.after :args (turn activity)
-  :doc "Runs after a completed user/agent turn to update the harness.")
+;; Declare the primary hook and attach the default debounced handler. Wrapped in
+;; an install function and registered so it survives reset-registries (reloads).
+(defun install-self-update-defaults ()
+  (defhook turn.after :args (turn activity)
+    :doc "Runs after a completed user/agent turn to update the harness.")
+  (add-handler 'turn.after
+    (lambda (turn activity)
+      (declare (ignore turn))
+      (push activity *update-ledger*)
+      (when (and *auto-update*
+                 (> (- (get-universal-time) *last-update-at*)
+                    *update-debounce-seconds*))
+        (run-self-update)))))
 
-(add-handler 'turn.after
-  (lambda (turn activity)
-    (declare (ignore turn))
-    (push activity *update-ledger*)
-    (when (and *auto-update*
-               (> (- (get-universal-time) *last-update-at*)
-                  *update-debounce-seconds*))
-      (run-self-update))))
+(install-self-update-defaults)
+(register-post-reset 'install-self-update-defaults)
 
 (defun current-generated-region (path)
   "Return the forms currently inside the generated region of PATH."

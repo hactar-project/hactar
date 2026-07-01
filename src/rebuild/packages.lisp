@@ -37,7 +37,13 @@
    #:dispatch #:args->plist #:main
    ;; Self-update.
    #:run-self-update #:record-update-success #:record-update-failure
-   #:last-update-failed-p #:update-status))
+   #:last-update-failed-p #:update-status
+   ;; Interfaces.
+   #:render-interface #:parse-interface #:write-interface #:read-interface
+   #:sync-interfaces #:context-dir #:context-add-file #:context-drop-file
+   #:render-context-files #:parse-context-files #:render-context-payload
+   #:render-context-org #:parse-context-org #:extract-org-src-blocks
+   #:shell-exec #:*context-files*))
 
 ;; .hactar.lisp runs here; it sees the DSL surface without package prefixes.
 (defpackage #:hactar-user

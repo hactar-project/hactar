@@ -94,8 +94,8 @@ to `make build-rebuild`; otherwise it links the running engine image."
   "First run: detect -> extract -> generate -> validate -> write -> build -> wire."
   (setf *repo-root* root)
   (multiple-value-bind (stack mode) (detect-stack root)
-    (declare (ignore mode))
     (setf *stack* stack)
+    (when mode (install-stack-commands mode))
     (setf *project-map* (extract-project-map root stack))
     (let ((forms (generate-harness root)))
       (multiple-value-bind (ok errs) (validate-forms forms)
