@@ -1,6 +1,7 @@
 (defpackage #:hactar-rebuild
   (:use #:cl)
   (:nicknames #:hactar-engine)
+  (:import-from #:hactar-llm #:*mock-llm-output* #:*mock-diffusion-output*)
   (:export
    ;; Result protocol.
    #:result #:make-result #:result-p #:result-status #:result-message

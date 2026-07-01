@@ -154,19 +154,9 @@ This is the state -> interface-file synchronization direction."
     (format s "#+end_src~%")))
 
 (defun extract-org-src-blocks (content &optional (lang "lisp"))
-  "Return the concatenated bodies of all #+begin_src LANG ... #+end_src blocks."
-  (let ((begin (format nil "#+begin_src ~A" lang)))
-    (with-output-to-string (out)
-      (let ((lines (str:split #\Newline content))
-            (in-block nil))
-        (dolist (line lines)
-          (let ((trimmed (str:trim line)))
-            (cond
-              ((str:starts-with-p begin (string-downcase trimmed))
-               (setf in-block t))
-              ((and in-block (string-equal trimmed "#+end_src"))
-               (setf in-block nil))
-              (in-block (format out "~A~%" line)))))))))
+  "Return the concatenated bodies of all #+begin_src LANG blocks.
+Delegates to the hactar-org library."
+  (hactar-org:extract-src-blocks content lang))
 
 (defun parse-context-org (content)
   "Parse the org interface: extract lisp src blocks and validate them against

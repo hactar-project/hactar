@@ -2,7 +2,8 @@
   :description "Greenfield Hactar rebuild: engine + closed DSL surface."
   :author "K-2052"
   :license "MIT"
-  :depends-on (#:cl-ppcre #:str #:uiop)
+  :depends-on (#:cl-ppcre #:str #:uiop
+               #:hactar-llm #:hactar-org #:hactar-md #:hactar-fzf #:hactar-fern)
   :serial t
   :pathname "src/rebuild/"
   :components ((:file "packages")

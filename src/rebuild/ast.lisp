@@ -24,7 +24,7 @@
   '(:create-file :add-import :remove-import :add-named-import
     :remove-named-import :set-module-specifier :organize-imports
     :fix-missing-imports :fix-unused :add-function :add-class :add-interface
-    :add-type-alias :add-enum :add-variable :insert-text))
+    :add-type-alias :add-enum :add-variable :insert-text :add-form))
 
 (defun valid-ast-action-p (action)
   (or (member action *ast-tier1*) (member action *ast-tier2*)
@@ -35,6 +35,29 @@
 
 (defun register-ast-backend (extension fn)
   (setf (gethash (string-downcase extension) *ast-backends*) fn))
+
+;;; ---------------------------------------------------------------------------
+;;; Common Lisp backend, powered by hactar-fern (Hactar eats its own food).
+;;; ---------------------------------------------------------------------------
+
+(defun fern-lisp-backend (path ops)
+  "Apply OPS to the Lisp file at PATH via hactar-fern, with snapshot safety."
+  (unless (probe-file path)
+    (return-from fern-lisp-backend (err (format nil "File not found: ~A" path))))
+  (let ((source (uiop:read-file-string path)))
+    (handler-case
+        (multiple-value-bind (new-source applied)
+            (hactar-fern:edit-source source ops)
+          (unless (hactar-fern:valid-lisp-p new-source)
+            (return-from fern-lisp-backend
+              (err "AST edit would produce unbalanced Lisp; rejected.")))
+          (atomic-write path new-source)
+          (ok (format nil "ast-edit: applied ~D op(s) to ~A" applied path)
+              :data (list :path path :applied applied)))
+      (error (e) (err e)))))
+
+(dolist (ext '("lisp" "lsp" "asd" "cl"))
+  (register-ast-backend ext #'fern-lisp-backend))
 
 (defun normalize-ast-operations (operations)
   "Accept either a single op plist or (:operations (op...))."

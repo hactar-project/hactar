@@ -2,7 +2,9 @@
 (require :asdf)
 (let ((q (merge-pathnames "quicklisp/setup.lisp" (user-homedir-pathname))))
   (when (probe-file q) (load q)))
-(asdf:load-asd (truename "hactar-rebuild.asd"))
+(dolist (sys '("hactar-llm" "hactar-org" "hactar-md" "hactar-fzf" "hactar-fern"
+               "hactar-rebuild"))
+  (asdf:load-asd (truename (format nil "~A.asd" sys))))
 (ql:quickload :hactar-rebuild :silent t)
 (asdf:make :hactar-rebuild)
 (format t "~&Built ./hactar/build/hactar~%")

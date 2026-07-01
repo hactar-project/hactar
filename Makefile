@@ -25,6 +25,18 @@ build-rebuild:
 test-rebuild:
 	$(LISP) --non-interactive --load run-rebuild-tests.lisp
 
+# Verify each split library loads independently (in its own fresh process)
+.PHONY: test-libs
+test-libs:
+	@for sys in hactar-fzf hactar-md hactar-org hactar-llm hactar-fern; do \
+	  $(LISP) --non-interactive --eval '(require :asdf)' \
+	    --eval '(let ((q (merge-pathnames "quicklisp/setup.lisp" (user-homedir-pathname)))) (when (probe-file q) (load q)))' \
+	    --eval "(asdf:load-asd (truename \"$$sys.asd\"))" \
+	    --eval "(handler-case (progn (ql:quickload (read-from-string \"$$sys\") :silent t) (format t \"~&LIB-OK $$sys~%\")) (error (e) (format t \"~&LIB-ERR $$sys ~A~%\" e) (uiop:quit 1)))" \
+	    --quit || exit 1; \
+	done
+	@echo "All split libraries load independently."
+
 # Run the application
 .PHONY: run
 run:

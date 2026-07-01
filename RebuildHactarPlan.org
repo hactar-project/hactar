@@ -1671,7 +1671,7 @@ Status as of the greenfield slice under =src/rebuild/= (=hactar-rebuild= system)
 - [X] Phase 6 — Bootstrap and Self-Hosting
 - [X] Phase 7 — Self-Update (mock diffusion client; network-free)
 - [X] Phase 8 — Interfaces (=files.dir=, =org-interface=, =shell=; turn.after sync hook)
-- [ ] Phase 9 — Split Libraries (incl. extracting =fern.lisp= as =hactar-fern=)
+- [X] Phase 9 — Split Libraries (=hactar-llm/org/md/fzf/fern= as independent systems; engine depends on them)
 - [ ] Phase 10 — Replace Old Code
 
 Legend: =[X]= complete, =[-]= partial, =[ ]= not started. Legacy =main= is
@@ -1877,26 +1877,31 @@ Exit criteria:
 - Shell command results feed the self-update ledger.
 - Interface round trips are covered by tests.
 
-** TODO Phase 9: Split Libraries
+** DONE Phase 9: Split Libraries
 
 Note: Consider populating split libraries incrementally during earlier phases
 rather than deferring all extraction to Phase 9. For example, =hactar-llm=
 should be usable by Phase 4 when the agent runner needs LLM calls.
 
-Deliverables [0/4]:
+Deliverables [5/5]:
 
-- [ ] =hactar-llm= extracted and tested. (Currently an in-tree mock in
-  =src/rebuild/llm.lisp=.)
-- [ ] =hactar-org= extracted and tested.
-- [ ] =hactar-md= extracted and tested.
-- [ ] =hactar-fzf= extracted and tested.
-- Note: also extract =fern.lisp= as =hactar-fern= (the AST backend) during this phase.
+- [X] =hactar-llm= extracted and tested. (=src/llm/=; model registry, client
+  protocol, offline mock; engine =src/rebuild/llm.lisp= now bridges to it.)
+- [X] =hactar-org= extracted and tested. (=src/org/=; org parse + src-block
+  extraction; engine org-interface delegates to it.)
+- [X] =hactar-md= extracted and tested. (=src/md/=; parse, code-blocks, links,
+  terminal render.)
+- [X] =hactar-fzf= extracted and tested. (=src/fzf/=; pure fuzzy ranking +
+  non-interactive selection.)
+- [X] =hactar-fern= extracted and tested. (=src/fern/=; sexp AST parse +
+  structural editor; wired as the engine's Lisp =run-ast-edit= backend.)
 
 Exit criteria:
 
-- =hactar-core= depends on these libraries rather than embedding their
-  implementation.
-- Each split library can load independently.
+- [X] =hactar-core= (=hactar-rebuild=) depends on these libraries rather than
+  embedding their implementation.
+- [X] Each split library can load independently. (=make test-libs= loads each in
+  its own fresh process.)
 
 ** TODO Phase 10: Replace Old Code
 

@@ -1,39 +1,30 @@
 (in-package #:hactar-rebuild)
 
-;;; Network-free LLM + diffusion clients. Real providers live in hactar-llm;
-;;; these deterministic mocks keep `make test` and bootstrap offline-capable.
-;;; Binding *mock-llm-output* / *mock-diffusion-output* overrides the reply.
-
-(defvar *mock-llm-output* nil
-  "When non-nil, ASK/LLM-CHAT return this string instead of a canned reply.")
-(defvar *mock-diffusion-output* nil
-  "When non-nil, DIFFUSION-COMPLETE returns this string.")
+;;; Engine bridge to the hactar-llm library. The engine keeps its historical
+;;; entry points (ask / llm-chat / diffusion-complete) but delegates to
+;;; hactar-llm, which owns the model registry, client protocol, and the
+;;; deterministic offline mock (*mock-llm-output* / *mock-diffusion-output* are
+;;; imported from hactar-llm so callers bind the same specials the client reads).
 
 (defun ask (prompt &key model)
-  "Single-shot completion. Deterministic offline stub."
-  (declare (ignore model))
-  (or *mock-llm-output*
-      (format nil "[hactar-mock] ~A"
-              (subseq prompt 0 (min 200 (length prompt))))))
+  "Single-shot completion via hactar-llm."
+  (hactar-llm:ask prompt :model model))
 
 (defun llm-chat (model system user &optional tools)
-  "Composed chat turn. Deterministic offline stub."
-  (declare (ignore tools))
-  (or *mock-llm-output*
-      (format nil "[hactar-mock model=~A] ~A"
-              model (subseq user 0 (min 200 (length user))))))
+  "Composed chat turn via hactar-llm."
+  (hactar-llm:chat model system user tools))
 
 (defun diffusion-complete (prompt)
-  "Fast whole-region rewrite. Deterministic offline stub.
-Returns the current generated region unchanged unless overridden."
-  (or *mock-diffusion-output* prompt))
+  "Whole-region diffusion rewrite via hactar-llm."
+  (hactar-llm:diffuse prompt))
 
-;;; with-agent / agent-run: let a tool body spin up a throwaway agent turn.
+;;; with-agent / agent-run stay engine-side because they return the engine
+;;; RESULT type and compose with tools.
+(defvar *agent-model* "hactar-mock")
+
 (defmacro with-agent ((&key (model "hactar-mock")) &body body)
   `(let ((*agent-model* ,model)) ,@body))
 
-(defvar *agent-model* "hactar-mock")
-
 (defun agent-run (request)
   "Run a one-off agent request inside a WITH-AGENT block."
-  (ok (llm-chat *agent-model* "You are a focused sub-agent." request)))
+  (ok (hactar-llm:chat *agent-model* "You are a focused sub-agent." request)))
