@@ -942,24 +942,24 @@ If stack detection is weak, generate a conservative harness:
 
 Use these files as source material, not as implementation to preserve wholesale.
 
-| Area                                     | Current reference                 |
-|------------------------------------------+-----------------------------------|
-| Makefile build/test/run/dev entry points | =Makefile=                        |
-| ASDF build path                          | =hactar.asd=, =build.lisp=        |
-| State registry                           | =state.lisp=                      |
+| Area                                     | Current reference                                                       |
+|------------------------------------------+-------------------------------------------------------------------------|
+| Makefile build/test/run/dev entry points | =Makefile=                                                              |
+| ASDF build path                          | =hactar.asd=, =build.lisp=                                              |
+| State registry                           | =state.lisp=                                                            |
 | Surface validator sketch                 | =src/surface.lisp= (reference only; logic in core.lisp / validate.lisp) |
-| Project CLI generation                   | =project-cli.lisp=                |
-| Routes and flags                         | =router.lisp=                     |
-| Modes                                    | =mode.lisp=, =modes/*.lisp=       |
-| Hooks                                    | =hooks.lisp=                      |
-| Interfaces and org rendering             | =interface.lisp=                  |
-| LLM wrapper                              | =llm.lisp=, =llm-utils.lisp=      |
-| Org parsing                              | =org-mode-parser.lisp=            |
-| Markdown rendering                       | =markdown.lisp=, =md-render.lisp= |
-| Fuzzy selection                          | =fzf.lisp=                        |
-| Tools                                    | =tools.lisp=                      |
-| Agents                                   | =agents.lisp=                     |
-| Tests                                    | =tests/*.lisp=                    |
+| Project CLI generation                   | =project-cli.lisp=                                                      |
+| Routes and flags                         | =router.lisp=                                                           |
+| Modes                                    | =mode.lisp=, =modes/*.lisp=                                             |
+| Hooks                                    | =hooks.lisp=                                                            |
+| Interfaces and org rendering             | =interface.lisp=                                                        |
+| LLM wrapper                              | =llm.lisp=, =llm-utils.lisp=                                            |
+| Org parsing                              | =org-mode-parser.lisp=                                                  |
+| Markdown rendering                       | =markdown.lisp=, =md-render.lisp=                                       |
+| Fuzzy selection                          | =fzf.lisp=                                                              |
+| Tools                                    | =tools.lisp=                                                            |
+| Agents                                   | =agents.lisp=                                                           |
+| Tests                                    | =tests/*.lisp=                                                          |
 
 * Implementation Guide (Worked Code)
 
