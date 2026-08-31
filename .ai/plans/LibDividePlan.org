@@ -1,0 +1,562 @@
+#+title: Library Divide Plan
+#+author: k
+#+startup: overview
+#+begin_quote
+A framework is a program you live inside. A library is a function you call.
+Hactar is a composition of small libraries with data at the boundaries —
+the engine is just the composition point.
+#+end_quote
+
+* Task Status
+
+Current Phase: Phase 0 (charter)
+
+* Philosophy
+
+Think like a Clojure dev shipping to Clojars, not like a framework author.
+Every boundary decision below follows from these rules:
+
+1. *Libraries are functions over data.* Each library takes plain data
+   (strings, plists, structs) and returns plain data. Effects (network,
+   filesystem, subprocess) live at the edges and are swappable.
+2. *Composition over integration.* A library never knows who composes it.
+   =hactar-core= composes the libraries; no library depends back on the
+   engine. (Ring handlers don't know about web frameworks.)
+3. *Protocols at the seams.* Where behavior must vary, expose a special
+   variable or generic function, not a conditional. Precedent:
+   =*llm-client*= (mock vs live), =render-result=, the interface protocol.
+4. *Small, closed surfaces.* One package per library; the export list *is*
+   the API, exactly like a Clojure =ns= with a small public var set.
+   =src/rebuild/packages.lisp= is the model.
+5. *Accretion, not breakage.* Grow a library's surface; never change the
+   semantics of an exported symbol. If semantics must change, add a new name.
+6. *Independently loadable, independently useful, independently testable.*
+   Every system must pass =make test-libs= in a fresh image, and each should
+   be worth using from a bare REPL without the rest of Hactar.
+7. *Mock-first effects.* Every effectful library ships an offline
+   deterministic mock as its default test client (the =hactar-llm= precedent).
+   =make test= never needs network or API keys.
+8. *Data as libraries.* Stack knowledge (modes, prompts, rules, starters,
+   wiki entries) is content, not code. Content packs are libraries of DSL
+   forms/data that any engine version can load — like EDN-heavy Clojure libs.
+
+* Current State
+
+Two generations coexist:
+
+- *The rebuild* (the keeper): =src/rebuild/= is =hactar-core= (~2.2k lines),
+  already composed from five split libraries that load independently:
+  =hactar-llm= (=src/llm/=), =hactar-org= (=src/org/=), =hactar-md=
+  (=src/md/=), =hactar-fzf= (=src/fzf/=), =hactar-fern= (=src/fern/=).
+  =hactar.asd= is a thin executable over =hactar-core=.
+- *The legacy monolith* (the quarry): ~100 root =*.lisp= files (~39k lines),
+  all in one =:hactar= package, per =RebuildHactarPlan.org= treated as
+  "source material, not implementation to preserve wholesale".
+
+Existing satellite systems already prove the library story: =hactar-codegen=,
+=hactarsh=, =ruhe=, =hyperfractal=, plus the legacy =llm= system that
+=hactar-llm= supersedes.
+
+Problems this plan fixes:
+
+1. The monolith's capabilities (TUI, ACP, MCP, OAuth, knowledge, watchers,
+   sessions) have no home in the rebuild yet. Porting them into
+   =hactar-core= would recreate the monolith.
+2. =hactar-codegen= depends on =hactar-core= — a plugin pointing up at its
+   host. Dependency direction must be inverted.
+3. ACP, MCP, lisp-rpc, and LSP each hand-roll the same JSON-RPC/stdio
+   plumbing.
+4. Mode/stack content is compiled into the engine instead of being
+   loadable data.
+
+* Dependency Rules
+
+#+begin_src text
+Tier 5  programs        hactar, hactarsh, ruhe, hyperfractal
+Tier 4  content packs   hactar-modes-*, hactar-starters, hactar-wiki
+Tier 3  adapters        hactar-acp, hactar-mcp, hactar-http, hactar-proxy,
+                        hactar-knowledge, hactar-codegen*
+Tier 2  engine          hactar-core
+Tier 1  effectful       hactar-llm, hactar-jsonrpc, hactar-vfs,
+        primitives      hactar-watch, hactar-sandbox, hactar-tui
+Tier 0  pure data/text  hactar-fzf, hactar-md, hactar-org, hactar-fern
+
+(*hactar-codegen sits at Tier 3 for packaging but must depend only on
+ Tier 0/1 — see its charter.)
+#+end_src
+
+Rules:
+
+1. Dependencies point strictly downward. No cycles, no same-tier deps
+   except where a charter says so explicitly (e.g. =hactar-tui= → =hactar-md=).
+2. Tier 0 depends only on the blessed external base (=uiop=, =str=,
+   =cl-ppcre=). No sockets, no subprocesses.
+3. =hactar-core= composes Tiers 0–1 and defines the protocols Tiers 3–4
+   implement. It must never name an adapter or content pack.
+4. Adapters translate between an external protocol and the core dispatcher/
+   result model. They own their transports.
+5. Content packs contain only closed-surface DSL forms and data. Loading
+   one registers content; it computes nothing at load time.
+6. Programs are thin: parse argv, compose systems, call =dispatch=.
+
+* Dependency Graph
+
+#+begin_src text
+                       hactar (exe)   hactarsh  ruhe  hyperfractal
+                            |            \       |      /
+                            v             v      v     v
+   hactar-modes-* ----> hactar-core <---- hactar-acp / hactar-mcp / hactar-http
+   (loaded as data)      |  |  |  \               \        |
+                         |  |  |   \               v       v
+        +----------------+  |  |    +-----> hactar-tui   hactar-jsonrpc
+        v                   v  v                |   \
+   hactar-llm      hactar-sandbox  hactar-vfs   |    +--> hactar-fzf
+        |                              ^        +--> hactar-md
+        v                              |
+   (providers, oauth,          hactar-codegen ----> hactar-fern
+    models, diffusion)          (targets, checker)
+                                       |
+   hactar-knowledge --> hactar-rag ----+--> hactar-org
+   hactar-watch (fs events, standalone)
+#+end_src
+
+Reading: arrows point at dependencies. =hactar-core= reaches down only;
+everything above it reaches down into it (or past it, straight to a
+primitive — adapters may use =hactar-tui= or =hactar-jsonrpc= directly).
+
+* Library Charters
+
+Each charter: purpose, source material (legacy files to quarry), external
+deps, and the API sketch. Source material is reference, not wholesale code
+motion — same policy as =RebuildHactarPlan.org=.
+
+** Tier 0: Pure data and text
+
+*** =hactar-fzf= (exists)
+
+Pure fuzzy ranking and non-interactive selection.
+
+- Source :: =src/fzf/= (done); interactive selector parts of root =fzf.lisp=
+  move to =hactar-tui=, ranking stays here.
+- Deps :: none.
+- Surface :: =fuzzy-match-p=, =fuzzy-score=, =fuzzy-filter=, =select=,
+  =select-best=.
+
+*** =hactar-md= (exists)
+
+Markdown parsing and terminal-friendly rendering.
+
+- Source :: =src/md/= (done); absorb remaining useful pieces of
+  =markdown.lisp= and =md-render.lisp= (pure block model + ANSI render;
+  theme choices come from the caller as data).
+- Deps :: =cl-ppcre=.
+- Surface :: =parse-markdown=, =md-block-type=, =code-blocks=,
+  =extract-links=, =render-terminal=.
+
+*** =hactar-org= (exists)
+
+Org parsing and rendering; the literate/context file format.
+
+- Source :: =src/org/= (done); quarry =org-mode-parser.lisp= (856 lines,
+  the one true parser per RefactorPlan) and =to-org.lisp= for round-trip
+  =.hactar.org= ⇄ =.hactar.lisp=.
+- Deps :: none.
+- Surface :: =parse-org=, =render-org=, =org-src-blocks=, =to-org=,
+  =from-org=.
+
+*** =hactar-fern= (exists)
+
+AST-first structural editing: code as a first-class value.
+
+- Source :: =src/fern/= (done); quarry root =fern.lisp= (extraction),
+  =code-value.lisp= (zero-LLM code-value operations), =lisp-form-parser.lisp=
+  (form-level parse/merge — also feeds the core validator), =ctags.lisp=
+  (symbol index; the subprocess call is behind a protocol fn so the library
+  core stays pure).
+- Deps :: =str=, =cl-ppcre=.
+- Surface :: =parse-source=, =find-node=, =replace-node=, =insert-node=,
+  =node-kind=, =node-name=, =symbol-index=, =apply-edits=.
+
+** Tier 1: Effectful primitives
+
+*** =hactar-llm= (exists — grows by accretion)
+
+The one provider-agnostic LLM boundary. Everything that talks to a model
+API lives here and nowhere else.
+
+- Source :: =src/llm/= (done: mock + protocol). Quarry legacy =llm.lisp=
+  (provider clients, streaming), =models.lisp= (model registry),
+  =llm-utils.lisp= (=diffusion-complete=), =api-complete.lisp= (completion
+  API), =oauth.lisp= (device/PKCE subscription flows), =copilot.lisp=
+  (GitHub Copilot API). Legacy =llm.asd= system is retired when parity lands.
+- Deps :: =dexador=, =shasht=, =flexi-streams=, =babel= (live client only —
+  keep the mock path dependency-free so Tier 0 test images stay light).
+- Surface :: =*llm-client*=, =llm-chat=, =llm-stream=, =diffusion-complete=,
+  =embed=, =list-models=, =resolve-model=, =oauth-login=, =token-count=,
+  =*mock-llm-output*=, =*mock-diffusion-output*=.
+- Note :: OAuth is here because a credential is an LLM-provider concern;
+  it exports data (tokens), not commands.
+
+*** =hactar-jsonrpc= (new)
+
+JSON-RPC 2.0 framing over stdio/socket streams. Extracted once, used by
+ACP, MCP, lisp-rpc, and LSP instead of four hand-rolled copies.
+
+- Source :: the duplicated plumbing in =acp.lisp=, =mcp.lisp=,
+  =lisp-rpc-protocol.lisp=, =lsp.lisp=.
+- Deps :: =shasht=.
+- Surface :: =make-server=, =register-method=, =serve=, =notify=,
+  =make-client=, =call=, =rpc-error=, Content-Length framing helpers.
+- Test :: pure in-memory streams; no process needed.
+
+*** =hactar-vfs= (new)
+
+Virtual/staged filesystem: plan writes as data, inspect the plan, then
+commit. The write-side twin of =hactar-fern='s read side.
+
+- Source :: =vfs.lisp=.
+- Deps :: =uiop=.
+- Surface :: =make-vfs=, =vfs-write=, =vfs-read=, =vfs-diff=, =vfs-plan=,
+  =vfs-commit!=, =with-staged-fs=.
+- Used by :: =hactar-codegen= (emit targets), =hactar-core=
+  (generated-region rewrites become inspectable plans).
+
+*** =hactar-watch= (new)
+
+Filesystem event watching (the cl-fs-watcher adaptation), decoupled from
+what reacts to events.
+
+- Source :: =watchers.lisp= (652 lines) — keep the watcher, drop the
+  built-in reactions; reactions are handlers the caller registers.
+- Deps :: platform notify backend (as today).
+- Surface :: =watch=, =unwatch=, =on-change= (callback registry),
+  =pending-events=.
+- Used by :: the self-update signal collector in =hactar-core=; editor
+  adapters.
+
+*** =hactar-sandbox= (new)
+
+Sandbox policy as data + enforcement as a wrapper. Permissions and
+allowlists in one place.
+
+- Source :: =permissions.lisp= (484 lines), the =defsandbox= runtime
+  checks in =src/rebuild/runners.lisp=, =sandbox.shell.nix= conventions.
+- Deps :: =uiop= (subprocess launch).
+- Surface :: =make-policy=, =policy-allows-p=, =with-sandbox=,
+  =sandbox-exec=, =explain-denial=.
+- Note :: =hactar-core='s =defsandbox= DSL form compiles to this library's
+  policy data; the DSL stays in core, the mechanism lives here.
+
+*** =hactar-tui= (new)
+
+Terminal interaction toolkit: themes, prompts, spinners, hydras,
+interactive selection, readline loop. Strictly presentation — it renders
+=result= data and forwards input lines; it never dispatches.
+
+- Source :: =tui.lisp= (2036), =tui-theme.lisp= (931), =hydra.lisp= (315),
+  interactive half of =fzf.lisp=, terminal glue from =md-render.lisp=.
+- Deps :: =hactar-md=, =hactar-fzf=, =cl-readline=.
+- Surface :: =with-tui=, =read-input=, =render=, =theme=, =define-hydra=,
+  =pick= (interactive select), =spinner=.
+- Test :: render to string streams; golden-text tests, no tty required.
+
+** Tier 2: The engine
+
+*** =hactar-core= (exists — stays small)
+
+The composition point: closed DSL surface, registries, state, hooks,
+result model, route dispatch, bootstrap, generated-file read/write/preserve,
+self-update loop, mode/interface protocols.
+
+- Source :: =src/rebuild/= as-is; quarry =synth.lisp= +
+  =diffusion-prompts.lisp= (self-update synthesis), =session.lisp= +
+  =history.lisp= + =persist.lisp= + =context.lisp= + =preset.lisp= (session/
+  context state — kept in core because they are the engine's own state, per
+  Invariant 7), =assistant.lisp= (chat-turn loop), =check.lisp= (doctor).
+- Deps :: Tier 0 + =hactar-llm=, =hactar-sandbox=, =hactar-vfs=
+  (=hactar-watch= optional, loaded when self-update watching is on).
+- Surface :: unchanged — the closed DSL surface exported for =hactar-user=
+  (=defproject=, =deftool=, =defagent=, =defaction=, =defroute=, =generated=,
+  ...), plus the runtime protocol (=dispatch=, =render-result=,
+  =register-stack-mode=, interface protocol).
+- Invariant :: core never gains a dependency on an adapter, a content
+  pack, or =hactar-tui=. The default readline UI moves behind the interface
+  protocol; a =--plain= core still works with no TUI loaded.
+
+** Tier 3: Adapters and plugins
+
+*** =hactar-acp= (new)
+
+Agent Client Protocol server: maps ACP sessions/turns onto the core
+dispatcher and result stream.
+
+- Source :: =acp.lisp= (1463 lines).
+- Deps :: =hactar-core=, =hactar-jsonrpc=.
+- Surface :: =serve-acp= (plus capability registry hooks).
+
+*** =hactar-mcp= (new)
+
+Model Context Protocol, both directions: expose Hactar tools as an MCP
+server (Roadmap Q1 item) and consume external MCP servers as =deftool=
+sources.
+
+- Source :: =mcp.lisp=.
+- Deps :: =hactar-core=, =hactar-jsonrpc=.
+- Surface :: =serve-mcp=, =connect-mcp=, =mcp-tools->deftools=.
+
+*** =hactar-http= (new)
+
+HTTP API adapter (ningle app) for editor extensions and remote control.
+
+- Source :: =api-http.lisp=, =lisp-rpc-api.lisp= routes worth keeping.
+- Deps :: =hactar-core=, =ningle=/=clack=.
+- Surface :: =start-server=, =stop-server=.
+
+*** =hactar-proxy= (new)
+
+OpenRouter/OpenAI-compatible LLM proxy: intercepts requests, injects
+Hactar context, forwards upstream (Roadmap icebox: "smart router").
+
+- Source :: =proxy.lisp= (474 lines).
+- Deps :: =hactar-llm=, =hactar-core= (context injection), HTTP server dep.
+- Surface :: =start-proxy=, =stop-proxy=.
+
+*** =hactar-codegen= (exists — invert its dependency)
+
+Deterministic code generation: universal compiler, checker, and emit
+targets (js/ts/worker/json/toml/css/redwood), plus conversion commands.
+
+- Source :: =compiler.lisp=, =checker.lisp=, =*-target.lisp=, =convert.lisp=,
+  =gen-helpers.lisp=; root =vfs.lisp= moves out to =hactar-vfs=.
+- Deps :: *becomes* =hactar-fern= + =hactar-vfs= only. Today it
+  depends on =hactar-core=; that edge is deleted. Codegen takes project
+  data in and returns a VFS plan out — the engine calls codegen, never the
+  reverse.
+- Surface :: =compile-form=, =check-form=, =emit=, =target=, =convert=.
+- LSP :: =lsp.lisp= becomes =hactar-lsp= later (Roadmap icebox), built on
+  =hactar-jsonrpc= + =hactar-codegen= diagnostics. Until then it stays a
+  codegen component behind an optional feature.
+
+*** =hactar-knowledge= (new)
+
+The hypertext knowledge layer: docs, guides, error references, API doc
+import, wiki-as-lisp. Content-addressable lookups the modes and prompts
+cite (={{doc:react-router}}=).
+
+- Source :: =hypertext.lisp= (431), =wiki.lisp= (395), =docs.lisp= (272),
+  =errors.lisp=, =import.lisp= (568), =web.lisp= (fetch side only).
+- Deps :: =hactar-org=, =hactar-md=; optional =hactar-rag= for semantic
+  lookup; fetching behind a protocol fn so tests stay offline.
+- Surface :: =defdoc= backing store, =lookup-doc=, =lookup-error=,
+  =import-docs=, =knowledge-search=.
+
+*** =hactar-rag= (new, optional)
+
+In-memory embedding index + retrieval. Small, honest, no vector DB.
+
+- Source :: =rag.lisp= (155 lines).
+- Deps :: =hactar-llm= (=embed=).
+- Surface :: =index=, =retrieve=, =rerank=.
+
+** Tier 4: Content packs (data as libraries)
+
+One system per stack/domain; each is a pile of closed-surface DSL forms
+and data files that =defmode= registers. No load-time computation. The
+engine version they target is checked by the validator, not by ASDF.
+
+- =hactar-modes-web= :: =react-mode.lisp=, =react-router.lisp=,
+  =redwood-mode.lisp=, =js-mode.lisp= + related starters/prompts.
+- =hactar-modes-ruby= :: =sinatra-mode.lisp=, Rails (=modes/rails.lisp=),
+  Ruby starters (Roadmap Q1).
+- =hactar-modes-shell= :: =sh-mode.lisp=, =agentshell-mode.lisp=.
+- =hactar-modes-lisp= :: =lisp-mode.lisp=, =hactar-mode.lisp= (Hactar
+  developing Hactar).
+- =hactar-modes-services= :: =stripe-mode.lisp=, =gpt-mode.lisp=,
+  =skills-mode.lisp= (Claude skills, Roadmap Q1), =npm.lisp=, =github.lisp=.
+- =hactar-starters= :: =starters.lisp=, =create.lisp= data.
+- Shared mode *machinery* (detect/extract/generate) stays in
+  =hactar-core=; packs contain only registrations and content. =rules.lisp=
+  and =prompts.lisp= registries are already core surface; pack files only
+  add entries.
+
+** Tier 5: Programs
+
+- =hactar= (exists) :: the executable; composes core + chosen adapters +
+  default packs; flags pick the interface (=--acp= loads =hactar-acp=,
+  plain TTY loads =hactar-tui=, =--in-editor= loads neither).
+- =hactarsh= (exists) :: readline shell on =hactar-tui= + core.
+- =ruhe= (exists) :: webfeed generator; downstream proof of the library
+  story.
+- =hyperfractal= (exists) :: plaintext browser wrapper; ditto.
+- =hactar-pro= (new, from =pro.lisp=) :: paid content-repo client;
+  optional, never required by core.
+
+* Deliberate Non-Splits
+
+Restraint is part of the philosophy — a library must earn its =.asd=:
+
+- =result.lisp=, =state.lisp=, =hooks.lisp= (rebuild versions) stay in
+  =hactar-core=. A 28-line result struct is a contract, not a library;
+  splitting it creates version-skew risk with zero reuse payoff.
+- Route parsing stays in core; it is the engine's grammar.
+- =config.lisp= / =debug.lisp= / =check.lisp= fold into core (doctor).
+- =git.lisp= (30 lines of git utils) folds into core utils; it does not
+  justify a system until someone needs it without Hactar.
+- =slynk.lisp=, =dev.lisp= remain dev-image conveniences, not systems.
+
+* Legacy Disposition Table
+
+Every remaining root file, its destination. (=DELETE= = superseded by the
+rebuild; quarry nothing.)
+
+| Legacy file(s)                                      | Destination                         |
+|-----------------------------------------------------+-------------------------------------|
+| llm.lisp, models.lisp, llm-utils.lisp               | hactar-llm                          |
+| oauth.lisp, copilot.lisp, api-complete.lisp         | hactar-llm                          |
+| acp.lisp                                            | hactar-acp (on hactar-jsonrpc)      |
+| mcp.lisp                                            | hactar-mcp (on hactar-jsonrpc)      |
+| lisp-rpc*.lisp                                      | hactar-jsonrpc + hactar-http        |
+| api-http.lisp                                       | hactar-http                         |
+| proxy.lisp                                          | hactar-proxy                        |
+| lsp.lisp                                            | hactar-codegen (→ hactar-lsp later) |
+| tui.lisp, tui-theme.lisp, hydra.lisp                | hactar-tui                          |
+| fzf.lisp                                            | hactar-fzf (rank) + hactar-tui (ui) |
+| markdown.lisp, md-render.lisp                       | hactar-md (+ tui glue)              |
+| org-mode-parser.lisp, to-org.lisp                   | hactar-org                          |
+| fern.lisp, code-value.lisp, lisp-form-parser.lisp   | hactar-fern                         |
+| ctags.lisp                                          | hactar-fern (symbol index)          |
+| vfs.lisp                                            | hactar-vfs                          |
+| watchers.lisp                                       | hactar-watch                        |
+| permissions.lisp                                    | hactar-sandbox                      |
+| compiler.lisp, checker.lisp, *-target.lisp          | hactar-codegen                      |
+| convert.lisp, gen-helpers.lisp                      | hactar-codegen                      |
+| hypertext.lisp, wiki.lisp, docs.lisp, errors.lisp   | hactar-knowledge                    |
+| import.lisp, web.lisp                               | hactar-knowledge                    |
+| rag.lisp                                            | hactar-rag                          |
+| *-mode.lisp, react-router.lisp, modes/rails.lisp    | hactar-modes-* packs                |
+| starters.lisp, create.lisp                          | hactar-starters                     |
+| pro.lisp                                            | hactar-pro                          |
+| session.lisp, history.lisp, persist.lisp            | hactar-core (engine state)          |
+| context.lisp, preset.lisp, assistant.lisp           | hactar-core (engine state)          |
+| synth.lisp, diffusion-prompts.lisp                  | hactar-core (self-update)           |
+| check.lisp, config.lisp, debug.lisp, git.lisp       | hactar-core (doctor/utils)          |
+| analyzers.lisp, processors.lisp                     | hactar-core hooks (instances→packs) |
+| rules.lisp, prompts.lisp                            | hactar-core registries + packs      |
+| hactar.lisp, commands.lisp, router.lisp, state.lisp | DELETE (rebuild supersedes)         |
+| mode.lisp, interface.lisp, hooks.lisp, tools.lisp   | DELETE (rebuild supersedes)         |
+| agents.lisp, project-cli.lisp, project.lisp         | DELETE (rebuild supersedes)         |
+| formats.lisp, github.lisp, npm.lisp                 | quarry into packs, then DELETE      |
+| utils.lisp                                          | disperse to owning libs, DELETE     |
+| editor.lisp, slynk.lisp, dev images                 | dev-only, keep out of systems       |
+| llm.asd, llm-tests.asd (legacy system)              | retire at hactar-llm parity         |
+
+* Repository Layout
+
+Monorepo, one directory per library under =src/=, one =.asd= per system at
+the root (the established convention). Polyrepo is explicitly rejected for
+now: shared CI, atomic cross-library refactors, and =make test-libs=
+already give the isolation we want without release coordination overhead.
+
+#+begin_src text
+.
+|-- Makefile
+|-- hactar.asd  hactar-core.asd  hactar-llm.asd  hactar-org.asd ...
+|-- src/
+|   |-- core/        (rename of src/rebuild/ once legacy roots are gone)
+|   |-- llm/  org/  md/  fzf/  fern/
+|   |-- jsonrpc/  vfs/  watch/  sandbox/  tui/
+|   |-- acp/  mcp/  http/  proxy/  codegen/  knowledge/  rag/
+|   `-- packs/
+|       |-- modes-web/  modes-ruby/  modes-shell/  modes-lisp/
+|       |-- modes-services/  starters/
+`-- tests/
+    |-- core/  llm/  jsonrpc/  tui/  ...   (one suite per system)
+#+end_src
+
+Every library keeps the two-file minimum shape until it earns more:
+=packages.lisp= (the surface) + =<name>.lisp= (the implementation).
+
+* Testing Strategy
+
+1. Extend =make test-libs= to iterate over every system in the graph;
+   independent load in a fresh image is the merge gate.
+2. Each library gets its own FiveAM suite mirroring
+   =tests/rebuild/libraries.test.lisp=; suites run in dependency-tier
+   order under =make test=.
+3. Effectful libraries test against their mock protocol object
+   (=*llm-client*= pattern); adapters test against in-memory streams
+   (=hactar-jsonrpc= makes ACP/MCP testable without processes).
+4. A =deps.test= asserts the dependency rules mechanically: walk ASDF
+   system deps, fail on any upward or cross-tier edge.
+
+* Migration Phases
+
+Order follows risk: extract leaves first, invert plugin deps, then
+adapters, then content, then delete.
+
+** Phase 0: Charter
+- [X] Write this plan.
+- [ ] Add =deps.test= encoding the tier rules for the systems that exist.
+- [ ] =make test-libs= loops over the full current system list.
+
+** Phase 1: Grow Tier 0 by quarry
+- [ ] =hactar-org= absorbs =org-mode-parser.lisp= + =to-org.lisp= round-trip.
+- [ ] =hactar-md= absorbs =markdown.lisp= + pure parts of =md-render.lisp=.
+- [ ] =hactar-fern= absorbs =code-value.lisp=, =lisp-form-parser.lisp=,
+      =ctags.lisp= behind a protocol.
+
+** Phase 2: LLM consolidation
+- [ ] Port provider clients, model registry, streaming from legacy
+      =llm.lisp= / =models.lisp= into =hactar-llm= (mock stays default).
+- [ ] Port =oauth.lisp= + =copilot.lisp= flows.
+- [ ] Retire the legacy =llm= system.
+
+** Phase 3: New Tier 1 primitives
+- [ ] Extract =hactar-jsonrpc= with in-memory stream tests.
+- [ ] Extract =hactar-vfs=, =hactar-sandbox=, =hactar-watch=.
+- [ ] Core's =defsandbox= / generated-file writes route through
+      =hactar-sandbox= / =hactar-vfs=.
+
+** Phase 4: Codegen inversion
+- [ ] =hactar-codegen= deps become =hactar-fern= + =hactar-vfs= only.
+- [ ] Engine calls codegen through a narrow =emit= entry; add the
+      dependency-direction test.
+
+** Phase 5: TUI extraction
+- [ ] Build =hactar-tui= from =tui.lisp= / =tui-theme.lisp= / =hydra.lisp=.
+- [ ] Core's readline default moves behind the interface protocol;
+      core runs headless without =hactar-tui= loaded.
+
+** Phase 6: Protocol adapters
+- [ ] =hactar-acp= on =hactar-jsonrpc=; parity with =--acp=.
+- [ ] =hactar-mcp= server + client (Roadmap Q1 "proper MCP API").
+- [ ] =hactar-http= + =hactar-proxy= as opt-in systems.
+
+** Phase 7: Knowledge
+- [ ] =hactar-knowledge= from hypertext/wiki/docs/errors/import.
+- [ ] =hactar-rag= wrapping =embed=; knowledge uses it when loaded.
+
+** Phase 8: Content packs
+- [ ] Convert each =*-mode.lisp= into its =hactar-modes-*= pack of
+      closed-surface forms; packs load through =defmode= only.
+- [ ] =hactar-starters=; validator checks pack forms like =.hactar.lisp=.
+
+** Phase 9: Prune
+- [ ] Delete superseded legacy roots (DELETE rows above).
+- [ ] Rename =src/rebuild/= → =src/core/=; move satellite =*.lisp= roots
+      (=ruhe=, =hyperfractal=, =hactarsh=) under =src/=.
+- [ ] Update README repository-layout section and Makefile lists.
+
+* Success Criteria
+
+- =make test-libs= passes for every system, each in a fresh image.
+- The ASDF dependency graph is acyclic and strictly tiered; =deps.test=
+  proves it on every run.
+- =hactar-core= names no adapter, pack, or TUI symbol anywhere.
+- A stranger can use =hactar-fzf=, =hactar-md=, =hactar-org=,
+  =hactar-fern=, =hactar-jsonrpc=, or =hactar-llm= from a bare REPL
+  without loading Hactar.
+- The executable is a composition: swapping interfaces or dropping
+  adapters is a change to system deps, not to engine code.
+- Zero root-level legacy =*.lisp= implementation files remain; everything
+  lives in =src/<library>/= with a charter above.
