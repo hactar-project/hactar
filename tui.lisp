@@ -1591,7 +1591,7 @@
               (logior (sb-posix:termios-lflag termios)
                       sb-posix:echo))
         (sb-posix:tcsetattr fd sb-posix:tcsanow termios))
-      #-sbcl
+>      #-sbcl
       (uiop:run-program '("stty" "echo") :ignore-error-status t)
     (error () nil)))
 
