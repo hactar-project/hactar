@@ -7,3 +7,5 @@ releases
 debug-error.lisp
 .hactar/
 hactar/build/
+resources/screenshots
+.ai/screenshots
