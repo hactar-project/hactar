@@ -5,4 +5,7 @@
   :depends-on (#:uiop)
   :serial t
   :pathname "src/llm/"
-  :components ((:file "packages") (:file "llm")))
+  :components ((:file "packages")
+               (:file "llm")
+               (:file "models")
+               (:file "oauth")))

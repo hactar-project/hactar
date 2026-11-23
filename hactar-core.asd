@@ -3,9 +3,10 @@
   :author "K-2052"
   :license "MIT"
   :depends-on (#:cl-ppcre #:str #:uiop
-               #:hactar-llm #:hactar-org #:hactar-md #:hactar-fzf #:hactar-fern)
+               #:hactar-llm #:hactar-org #:hactar-md #:hactar-fzf #:hactar-fern
+               #:hactar-sandbox #:hactar-vfs)
   :serial t
-  :pathname "src/rebuild/"
+  :pathname "src/core/"
   :components ((:file "packages")
                (:file "result")
                (:file "state")
@@ -18,6 +19,9 @@
                (:file "modes")
                (:file "self-update")
                (:file "interfaces")
+               (:file "session")
+               (:file "assistant")
+               (:file "doctor")
                (:file "bootstrap")
                (:file "dispatcher")
                (:file "main")))

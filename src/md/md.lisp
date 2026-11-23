@@ -7,7 +7,7 @@
 
 (defun parse-markdown (source)
   "Parse SOURCE into an ordered list of MD-BLOCK structs.
-Recognizes headings, fenced code (``` or ~~~), and paragraphs."
+Recognizes headings, fenced code, lists, quotes, rules, and paragraphs."
   (let ((lines (uiop:split-string source :separator '(#\Newline)))
         (blocks '()) (fence nil) (buf '()) (lang nil))
     (labels ((flush-para ()
@@ -43,6 +43,18 @@ Recognizes headings, fenced code (``` or ~~~), and paragraphs."
                                     :level level
                                     :text (string-trim '(#\Space #\#) trimmed))
                      blocks)))
+            ((cl-ppcre:scan "^( {0,3})([-*_])(?: *\\2){2,} *$" line)
+             (flush-para)
+             (push (make-md-block :type :thematic-break :text "") blocks))
+            ((cl-ppcre:scan "^\\s*>\\s?" line)
+             (flush-para)
+             (push (make-md-block
+                    :type :blockquote
+                    :text (cl-ppcre:regex-replace "^\\s*>\\s?" line ""))
+                   blocks))
+            ((cl-ppcre:scan "^\\s*(?:[-+*]|[0-9]+[.)])\\s+" line)
+             (flush-para)
+             (push (make-md-block :type :list-item :text line) blocks))
             ((string= trimmed "") (flush-para))
             (t (push line buf)))))
       (flush-para)
@@ -78,4 +90,8 @@ Recognizes headings, fenced code (``` or ~~~), and paragraphs."
                        (cl-ppcre:regex-replace-all
                         (string #\Newline) (md-block-text b)
                         (format nil "~%    "))))
+        (:blockquote (format out "| ~A~%~%" (md-block-text b)))
+        (:list-item (format out "~A~%" (md-block-text b)))
+        (:thematic-break (format out "~A~%~%"
+                                 (make-string 40 :initial-element #\-)))
         (:paragraph (format out "~A~%~%" (md-block-text b)))))))

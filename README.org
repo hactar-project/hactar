@@ -117,17 +117,32 @@ user-owned forms.
 
 *** Repository layout
 
-- =src/rebuild/= — =hactar-core=: the engine and closed DSL surface (state,
+Hactar is structured as a layered monorepo of independent ASDF systems (one
+directory per library under =src/=, one =.asd= per system at the root):
+
+- =src/core/= — =hactar-core=: the engine and closed DSL surface (state,
   registries, DSL macros, validator, dispatcher, bootstrap, self-update,
-  interfaces). All mutable engine state is declared in =src/rebuild/state.lisp=.
-- =src/llm/= =src/org/= =src/md/= =src/fzf/= =src/fern/= — the reusable split
-  libraries =hactar-llm=, =hactar-org=, =hactar-md=, =hactar-fzf=, and
-  =hactar-fern= (the native AST/structural-editing backend). Each loads
-  independently and is depended on by =hactar-core=.
-- =hactar.asd= — the =hactar= executable (loads =hactar-core=, bootstraps,
-  dispatches). Builds to =./hactar/build/hactar=.
-- =tests/rebuild/= — the network-free test suite (=hactar-tests=).
-- =RebuildHactarPlan.org= — the architecture and DSL reference.
+  interfaces, session/turn loop). All mutable engine state is declared in
+  =src/core/state.lisp=.
+- *Tier 0 (pure data/text)*: =src/fzf/= (=hactar-fzf=), =src/md/= (=hactar-md=),
+  =src/org/= (=hactar-org=), =src/fern/= (=hactar-fern=).
+- *Tier 1 (effectful primitives)*: =src/llm/= (=hactar-llm=), =src/llm-live/=
+  (=hactar-llm-live=), =src/jsonrpc/= (=hactar-jsonrpc=), =src/vfs/=
+  (=hactar-vfs=), =src/watch/= (=hactar-watch=), =src/sandbox/=
+  (=hactar-sandbox=), =src/tui/= (=hactar-tui=).
+- *Tier 3 (adapters & knowledge)*: =src/codegen/= (=hactar-codegen=),
+  =src/acp/= (=hactar-acp=), =src/mcp/= (=hactar-mcp=), =src/http/=
+  (=hactar-http=), =src/proxy/= (=hactar-proxy=), =src/rag/= (=hactar-rag=),
+  =src/knowledge/= (=hactar-knowledge=).
+- *Tier 4 (content packs)*: =src/packs/= (=hactar-modes-web=,
+  =hactar-modes-ruby=, =hactar-modes-systems=, =hactar-modes-lisp=,
+  =hactar-modes-shell=, =hactar-modes-services=, =hactar-starters=).
+- *Tier 5 (programs)*: =src/cli/= (=hactar= executable, builds to
+  =./hactar/build/hactar=), =src/hactarsh/= (=hactarsh=), =src/ruhe/= (=ruhe=),
+  =src/hyperfractal/= (=hyperfractal=), =src/pro/= (=hactar-pro=).
+- =tests/rebuild/= — the network-free test suite (=hactar-tests=), including
+  =deps.test.lisp= enforcing downward-only tier dependencies.
+- =.ai/plans/LibDividePlan.org= & =RebuildHactarPlan.org= — architecture plans.
 
 The =.hactar.lisp= file runs in the =hactar-user= package, which =:use=-s the
 closed DSL surface so every emittable form (=defproject=, =deftool=, =defskill=,

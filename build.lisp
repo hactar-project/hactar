@@ -1,7 +1,8 @@
 (require :asdf)
+(let ((q (merge-pathnames "quicklisp/setup.lisp" (user-homedir-pathname))))
+  (when (probe-file q) (load q)))
 (push (uiop:getcwd) asdf:*central-registry*)
-(asdf:load-system :hactar)
-(asdf:load-system :llm)
+(ql:quickload :hactar :silent t)
 
 (defun build-hactar ()
   "Build the hactar executable using ASDF's program-op."

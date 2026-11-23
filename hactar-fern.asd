@@ -5,4 +5,7 @@
   :depends-on (#:uiop)
   :serial t
   :pathname "src/fern/"
-  :components ((:file "packages") (:file "fern")))
+  :components ((:file "packages")
+               (:file "fern")
+               (:file "code-value")
+               (:file "symbols")))

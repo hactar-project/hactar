@@ -104,3 +104,10 @@
       (is (member "test" (getf map :scripts) :test #'string=))
       (is (member "README.md" (getf map :docs) :test #'string=))
       (is (string= "npx vitest run" (getf map :test-command))))))
+
+(test content-packs-validate-surface-and-register-starters
+  (is (>= (hash-table-count hactar-rebuild:*starters*) 3))
+  (is (gethash "react-router-v7" hactar-rebuild:*starters*))
+  (with-temp-project (root :files '(("bad-pack.lisp" . "(defun evil () 1)")))
+    (signals error
+      (hactar-rebuild:load-pack-file (merge-pathnames "bad-pack.lisp" root)))))

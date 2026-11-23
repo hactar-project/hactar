@@ -8,7 +8,7 @@ all: help
 # Build the Hactar executable -> ./hactar/build/hactar
 .PHONY: build
 build:
-	$(LISP) --non-interactive --load build.lisp --quit
+	$(LISP) --non-interactive --load build.lisp --eval '(build-hactar)' --quit
 
 # Run the built executable
 .PHONY: run
@@ -23,7 +23,7 @@ test:
 # Verify each split library loads independently (in its own fresh process)
 .PHONY: test-libs
 test-libs:
-	@for sys in hactar-fzf hactar-md hactar-org hactar-llm hactar-fern hactar-core; do \
+	@for sys in hactar-fzf hactar-md hactar-org hactar-llm hactar-llm-live hactar-fern hactar-jsonrpc hactar-vfs hactar-watch hactar-sandbox hactar-tui hactar-core hactar-codegen hactar-acp hactar-mcp hactar-http hactar-proxy hactar-rag hactar-knowledge hactar-modes-web hactar-modes-ruby hactar-modes-systems hactar-modes-lisp hactar-modes-shell hactar-modes-services hactar-starters hactar hactarsh ruhe hyperfractal hactar-pro; do \
 	  $(LISP) --non-interactive --eval '(require :asdf)' \
 	    --eval '(let ((q (merge-pathnames "quicklisp/setup.lisp" (user-homedir-pathname)))) (when (probe-file q) (load q)))' \
 	    --eval "(asdf:load-asd (truename \"$$sys.asd\"))" \

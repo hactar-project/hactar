@@ -3,13 +3,11 @@
 (declaim (optimize (sb-cover:store-coverage-data 3)))
 (asdf:clear-output-translations)
 
-(asdf:load-system :llm :force :all)
 (asdf:load-system :hactar :force :all)
 (asdf:load-system :hactar-tests :force :all)
-(asdf:load-system :llm-tests :force :all)
 
 (format t "~&--- Running tests with coverage instrumentation ---~%")
-(hactar-tests:run-tests)
+(hactar-rebuild-tests:run-tests)
 
 (let ((output-dir #p"coverage/"))
   (ensure-directories-exist output-dir)

@@ -24,3 +24,13 @@
       (is (not (hactar-rebuild:last-update-failed-p)))
       (hactar-rebuild:load-hactar-file (hactar-rebuild:hactar-file-path root))
       (is (gethash "fresh" hactar-rebuild::*tools*)))))
+
+(test watch-events-feed-self-update-ledger
+  (with-temp-project (root)
+    (let ((watcher (hactar-watch:watch root)))
+      (hactar-watch:on-change watcher (hactar-rebuild:make-watch-handler))
+      (with-open-file (s (merge-pathnames "added.txt" root)
+                         :direction :output :if-does-not-exist :create)
+        (write-string "hi" s))
+      (hactar-watch:poll-watch watcher)
+      (is (find :fs hactar-rebuild:*update-ledger* :key (lambda (e) (getf e :kind)))))))

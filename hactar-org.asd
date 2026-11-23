@@ -5,4 +5,6 @@
   :depends-on (#:uiop)
   :serial t
   :pathname "src/org/"
-  :components ((:file "packages") (:file "org")))
+  :components ((:file "packages")
+               (:file "org")
+               (:file "document")))

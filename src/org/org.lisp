@@ -3,7 +3,9 @@
 ;;; Minimal org-mode: parse headlines and #+begin_src ... #+end_src blocks,
 ;;; and extract source blocks (used by Hactar's org-interface round-trip).
 
-(defstruct (org-node (:conc-name org-node-)) type title (level 0) (body "") (lang nil))
+(defstruct (org-node (:conc-name org-node-))
+  type title (level 0) (body "") (lang nil) header-args settings properties children
+  parent tags todo priority)
 
 (defun parse-org (source)
   "Parse SOURCE into an ordered list of ORG-NODE structs (headlines + src blocks)."
