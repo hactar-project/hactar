@@ -142,7 +142,7 @@ directory per library under =src/=, one =.asd= per system at the root):
   =src/hyperfractal/= (=hyperfractal=), =src/pro/= (=hactar-pro=).
 - =tests/rebuild/= — the network-free test suite (=hactar-tests=), including
   =deps.test.lisp= enforcing downward-only tier dependencies.
-- =.ai/plans/LibDividePlan.org= & =RebuildHactarPlan.org= — architecture plans.
+- =.ai/plans/= — architecture plans (=LibDividePlan.org=, =RebuildHactarPlan.org=, etc.).
 
 The =.hactar.lisp= file runs in the =hactar-user= package, which =:use=-s the
 closed DSL surface so every emittable form (=defproject=, =deftool=, =defskill=,
